@@ -1,0 +1,88 @@
+import { NextRequest, NextResponse } from 'next/server';
+import {
+  exchangeAccessToken,
+  fetchShopifyShop,
+  registerWebhooks,
+  SHOPIFY_APP_URL,
+  verifyShopifyHmac,
+} from '@/lib/shopify';
+import { db } from '@/lib/db';
+import { setShopifySession } from '@/lib/session';
+import { createSessionCookie } from '@/lib/auth';
+import { verifyAndConsumeNonce } from '@/lib/nonce';
+import { encryptToken } from '@/lib/crypto';
+
+const SHOP_DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const shop = searchParams.get('shop');
+    const code = searchParams.get('code');
+    const state = searchParams.get('state');
+
+    if (!shop || !code || !state) {
+      return NextResponse.redirect(`${SHOPIFY_APP_URL}/?error=missing_params`);
+    }
+
+    // Validate the shop domain before it is used to build any outbound URL, otherwise the
+    // token exchange below can be pointed at an attacker-controlled host (SSRF).
+    if (!SHOP_DOMAIN_RE.test(shop)) {
+      return NextResponse.redirect(`${SHOPIFY_APP_URL}/?error=invalid_shop`);
+    }
+
+    // Verify the HMAC over the full query string.
+    //
+    // This previously stripped &hmac= from the string before handing it to
+    // verifyShopifyHmac, which then read hmac as '' and compared a 0-byte buffer against a
+    // 64-byte digest. crypto.timingSafeEqual throws on length mismatch, so the call threw
+    // a RangeError on EVERY callback and the catch below redirected to auth_failed —
+    // meaning no merchant could ever complete an install. Pass the string through intact;
+    // verifyShopifyHmac strips the hmac parameter itself.
+    if (!verifyShopifyHmac(searchParams.toString())) {
+      return NextResponse.redirect(`${SHOPIFY_APP_URL}/?error=invalid_hmac`);
+    }
+
+    // Verify the state nonce (CSRF) and confirm it was issued for THIS shop, so a nonce
+    // obtained for one store cannot be replayed to authorise another.
+    const nonceShop = await verifyAndConsumeNonce(state);
+    if (!nonceShop || nonceShop !== shop) {
+      return NextResponse.redirect(`${SHOPIFY_APP_URL}/?error=invalid_state`);
+    }
+
+    const accessToken = await exchangeAccessToken(shop, code);
+    const shopInfo = await fetchShopifyShop(shop, accessToken);
+
+    // Encrypted at rest — see src/lib/crypto.ts
+    const storeFields = {
+      name: shopInfo.name,
+      domain: shopInfo.domain,
+      shopifyUrl: `https://${shop}`,
+      shopifyDomain: shop,
+      accessToken: encryptToken(accessToken),
+      email: shopInfo.email || null,
+      isActive: true,
+      installedAt: new Date(),
+    };
+
+    const store = await db.store.upsert({
+      where: { shopifyDomain: shop },
+      update: storeFields,
+      create: storeFields,
+    });
+
+    registerWebhooks(shop, accessToken).catch((err) => {
+      console.error('Failed to register webhooks:', err);
+    });
+
+    // Session carries shop + storeId only; the token stays server-side.
+    const sessionValue = setShopifySession(shop, store.id);
+
+    const response = NextResponse.redirect(`${SHOPIFY_APP_URL}/?shop=${shop}`);
+    response.headers.append('Set-Cookie', createSessionCookie(sessionValue));
+    return response;
+  } catch (error) {
+    console.error('OAuth callback error:', error);
+    return NextResponse.redirect(`${SHOPIFY_APP_URL}/?error=auth_failed`);
+  }
+}

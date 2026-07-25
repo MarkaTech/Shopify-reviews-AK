@@ -1,0 +1,200 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import {
+  LayoutDashboard, Star, Upload, Download, FileSpreadsheet,
+  Settings, ShoppingBag, Palette, BarChart3, MessageSquare,
+  ChevronDown, ChevronRight, LogOut, Bell, Search, User,
+  HelpCircle, ExternalLink
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel
+} from '@/components/ui/dropdown-menu';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { cn } from '@/lib/utils';
+
+export type PageId = 'dashboard' | 'reviews' | 'import' | 'bulk-upload' | 'widgets' | 'settings' | 'products';
+
+interface SidebarProps {
+  currentPage: PageId;
+  onPageChange: (page: PageId) => void;
+}
+
+const mainNav = [
+  { id: 'dashboard' as PageId, label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'reviews' as PageId, label: 'Reviews', icon: Star, badge: null },
+];
+
+const reviewSubNav = [
+  { id: 'reviews' as PageId, label: 'All Reviews', icon: MessageSquare },
+  { id: 'import' as PageId, label: 'Import Reviews', icon: Download },
+  { id: 'bulk-upload' as PageId, label: 'Bulk Upload', icon: FileSpreadsheet },
+];
+
+const settingsNav = [
+  { id: 'products' as PageId, label: 'Products', icon: ShoppingBag },
+  { id: 'widgets' as PageId, label: 'Widgets', icon: Palette },
+  { id: 'settings' as PageId, label: 'Settings', icon: Settings },
+];
+
+export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
+  const reviewsOpen = ['reviews', 'import', 'bulk-upload'].includes(currentPage);
+  const settingsOpen = ['products', 'widgets', 'settings'].includes(currentPage);
+
+  return (
+    <div className="w-[260px] h-screen bg-white border-r border-gray-200 flex flex-col fixed left-0 top-0 z-40">
+      {/* Header */}
+      <div className="p-4 flex items-center gap-3">
+        <div className="w-9 h-9 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center">
+          <Star className="w-5 h-5 text-white fill-white" />
+        </div>
+        <div>
+          <h1 className="font-bold text-sm leading-tight">ReviewMaster</h1>
+          <p className="text-xs text-muted-foreground">by Shopify Apps</p>
+        </div>
+      </div>
+      <Separator />
+
+      {/* Search */}
+      <div className="px-3 pt-3 pb-1">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+          <Input placeholder="Search..." className="pl-8 h-8 text-xs" />
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <ScrollArea className="flex-1 px-2 py-2">
+        <div className="space-y-1">
+          {mainNav.map((item) => (
+            <Button
+              key={item.id}
+              variant="ghost"
+              className={cn(
+                'w-full justify-start gap-2.5 h-8 px-3 text-sm font-normal',
+                currentPage === item.id && 'bg-emerald-50 text-emerald-700 hover:bg-emerald-50'
+              )}
+              onClick={() => onPageChange(item.id)}
+            >
+              <item.icon className="w-4 h-4" />
+              {item.label}
+            </Button>
+          ))}
+
+          {/* Reviews Section */}
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between gap-2.5 h-8 px-3 text-sm font-normal hover:bg-gray-50"
+              onClick={() => onPageChange('reviews')}
+            >
+              <div className="flex items-center gap-2.5">
+                <BarChart3 className="w-4 h-4" />
+                <span>Review Management</span>
+              </div>
+              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", reviewsOpen && "rotate-180")} />
+            </Button>
+            {reviewsOpen && (
+              <div className="ml-4 pl-3 border-l border-gray-200 space-y-0.5 mt-0.5">
+                {reviewSubNav.map((item) => (
+                  <Button
+                    key={item.id}
+                    variant="ghost"
+                    className={cn(
+                      'w-full justify-start gap-2.5 h-7 px-2 text-xs font-normal',
+                      currentPage === item.id && 'bg-emerald-50 text-emerald-700 hover:bg-emerald-50'
+                    )}
+                    onClick={() => onPageChange(item.id)}
+                  >
+                    <item.icon className="w-3.5 h-3.5" />
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Settings Section */}
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between gap-2.5 h-8 px-3 text-sm font-normal hover:bg-gray-50"
+              onClick={() => onPageChange('products')}
+            >
+              <div className="flex items-center gap-2.5">
+                <Settings className="w-4 h-4" />
+                <span>Configuration</span>
+              </div>
+              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", settingsOpen && "rotate-180")} />
+            </Button>
+            {settingsOpen && (
+              <div className="ml-4 pl-3 border-l border-gray-200 space-y-0.5 mt-0.5">
+                {settingsNav.map((item) => (
+                  <Button
+                    key={item.id}
+                    variant="ghost"
+                    className={cn(
+                      'w-full justify-start gap-2.5 h-7 px-2 text-xs font-normal',
+                      currentPage === item.id && 'bg-emerald-50 text-emerald-700 hover:bg-emerald-50'
+                    )}
+                    onClick={() => onPageChange(item.id)}
+                  >
+                    <item.icon className="w-3.5 h-3.5" />
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </ScrollArea>
+
+      {/* Footer */}
+      <div className="p-3 border-t border-gray-200">
+        <div className="flex items-center gap-2 px-2 mb-2">
+          <Avatar className="w-7 h-7">
+            <AvatarFallback className="text-xs bg-emerald-100 text-emerald-700">MS</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium truncate">My Shopify Store</p>
+            <p className="text-[10px] text-muted-foreground truncate">mystore.myshopify.com</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="flex-1 h-7 text-xs gap-1.5">
+                <span className="bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 text-[10px] font-medium">PRO</span>
+                Pro Plan
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuLabel>Current Plan</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>Free — $0/mo</DropdownMenuItem>
+              <DropdownMenuItem className="bg-emerald-50 text-emerald-700">Pro — $29/mo ✓</DropdownMenuItem>
+              <DropdownMenuItem>Enterprise — $99/mo</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>
+                <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                Manage Subscription
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="ghost" size="icon" className="h-7 w-7">
+            <HelpCircle className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7">
+            <Bell className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
