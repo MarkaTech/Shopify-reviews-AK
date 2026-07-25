@@ -1,0 +1,106 @@
+name: Deploy to Azure Web App
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: reviewmaster-app      # Your Azure Web App name
+  AZURE_RESOURCE_GROUP: reviewmaster-rg    # Resource group holding the Web App
+  REGISTRY: ghcr.io                        # GitHub Container Registry
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # ---- Checkout ----
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---- Normalise the image name ----
+      # ${{ github.repository }} preserves the owner/repo casing, but Docker image
+      # references must be entirely lowercase. Deploying "ghcr.io/MarkaTech/Shopify-Review-App"
+      # fails the pull. Compute a lowercase name once and reuse it in both steps below.
+      - name: Compute lowercase image name
+        id: img
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # ---- Login to GitHub Container Registry ----
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---- Extract metadata for Docker ----
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.img.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=raw,value=${{ github.sha }}
+
+      # ---- Build and push Docker image ----
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # ---- Login to Azure ----
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ---- Give Azure credentials to pull from GHCR ----
+      # The GHCR package is private by default. Without these settings the Web App gets a
+      # 401 on pull and silently keeps serving the previous (or placeholder) image.
+      - name: Configure Web App registry credentials
+        run: |
+          az webapp config appsettings set \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ env.AZURE_WEBAPP_NAME }}" \
+            --settings \
+              DOCKER_REGISTRY_SERVER_URL=https://${{ env.REGISTRY }} \
+              DOCKER_REGISTRY_SERVER_USERNAME=${{ github.actor }} \
+              DOCKER_REGISTRY_SERVER_PASSWORD=${{ secrets.GITHUB_TOKEN }} \
+            --output none
+
+      # ---- Deploy to Azure Web App (Containers) ----
+      # Tag must match one metadata-action actually published. type=sha emits
+      # "sha-<7 chars>", never the bare 40-character SHA — the previous value here pointed
+      # at a tag that never existed, so every deploy failed to pull. We now publish
+      # type=raw,value=${{ github.sha }} above so this reference resolves.
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.img.outputs.name }}:${{ github.sha }}
+          container-type: custom
+
+      # ---- Smoke test ----
+      - name: Verify the app responds
+        run: |
+          echo "Waiting for the container to come up..."
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/" || echo 000)
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ] || [ "$code" = "302" ]; then
+              echo "App is responding."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "App did not return a healthy status within 5 minutes."
+          exit 1

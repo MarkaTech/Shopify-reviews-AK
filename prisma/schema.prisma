@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Shopify Store (merchant's shop)
+model Store {
+  id              String   @id @default(cuid())
+  name            String
+  domain          String?
+  shopifyUrl      String?
+  shopifyDomain   String?  @unique   // e.g. "my-store.myshopify.com"
+  accessToken     String?              // Shopify access token, AES-256-GCM encrypted at rest (see src/lib/crypto.ts)
+  email           String?
+  plan            String   @default("free") // free, starter, pro, enterprise
+  isActive        Boolean  @default(true)
+  installedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  reviews         Review[]
+  products        Product[]
+  importJobs      ImportJob[]
+  widgets         WidgetConfig[]
+  settings        StoreSetting[]
+}
+
+// Products synced from Shopify
+model Product {
+  id              String   @id @default(cuid())
+  storeId         String
+  shopifyId       String?
+  title           String
+  handle          String?
+  description     String?
+  image           String?
+  price           Float?
+  vendor          String?
+  productType     String?
+  tags            String?  // JSON array stored as string
+  isVisible       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  reviews         Review[]
+
+  @@unique([storeId, shopifyId])
+  @@index([storeId])
+  @@index([shopifyId])
+}
+
+// Reviews
+model Review {
+  id              String   @id @default(cuid())
+  storeId         String
+  productId       String?
+  reviewableType  String   @default("product") // product, store, article
+  reviewableId    String?
+
+  // Reviewer info
+  reviewerName    String
+  reviewerEmail   String?
+  reviewerAvatar  String?
+  reviewerLocation String?
+  verifiedPurchase Boolean @default(false)
+
+  // Review content
+  rating          Int      // 1-5
+  title           String?
+  body            String
+  images          String?  // JSON array of image URLs
+  videoUrl        String?
+
+  // Review metadata
+  source          String   @default("direct") // direct, amazon, ebay, etsy, alibaba, shopify
+  sourceUrl       String?
+  sourceProductId String?
+  sentiment       String?  // positive, neutral, negative (auto-calculated)
+  isFeatured      Boolean  @default(false)
+  isPublished     Boolean  @default(true)
+  isPinned        Boolean  @default(false)
+  reply           String?
+  repliedAt       DateTime?
+
+  // Social proof
+  helpfulCount    Int      @default(0)
+  notHelpfulCount Int      @default(0)
+
+  // SEO
+  seoTitle        String?
+  seoDescription  String?
+
+  // Custom fields (JSON)
+  customFields    String?
+
+  // Timestamps
+  reviewDate      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store           Store    @relation(fields: [storeId], references: [id])
+  product         Product? @relation(fields: [productId], references: [id])
+
+  @@index([storeId])
+  @@index([productId])
+  @@index([rating])
+  @@index([source])
+  @@index([isPublished])
+  @@index([reviewDate])
+}
+
+// Import Jobs
+model ImportJob {
+  id              String   @id @default(cuid())
+  storeId         String
+  source          String   // amazon, ebay, etsy, alibaba, shopify, csv
+  status          String   @default("pending") // pending, processing, completed, failed
+  totalReviews    Int      @default(0)
+  importedReviews Int      @default(0)
+  failedReviews   Int      @default(0)
+  errorMessage    String?
+  config          String?  // JSON config for the import
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store           Store    @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
+  @@index([status])
+}
+
+// Widget Configurations (for Theme Editor)
+model WidgetConfig {
+  id              String   @id @default(cuid())
+  storeId         String
+  name            String
+  widgetType      String   // carousel, grid, list, masonry, badge, floating, popup, sidebar, testimonial
+  placement       String?  // product_page, collection_page, home_page, all_pages, custom
+  isActive        Boolean  @default(true)
+
+  // Display settings (JSON)
+  config          String   // Full JSON config for the widget
+
+  // Theme Editor integration
+  schemaName      String?  // Shopify theme schema name
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store           Store    @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
+  @@index([widgetType])
+}
+
+// Store Settings
+model StoreSetting {
+  id          String   @id @default(cuid())
+  storeId     String
+  key         String
+  value       String   // JSON or string value
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store       Store    @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, key])
+  @@index([storeId])
+}
+
+// Subscription Plans (static data)
+model SubscriptionPlan {
+  id          String   @id @default(cuid())
+  name        String
+  price       Float
+  interval    String   @default("month") // month, year
+  features    String   // JSON array
+  limits      String   // JSON object with limits
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// Analytics Events
+model AnalyticsEvent {
+  id          String   @id @default(cuid())
+  storeId     String
+  eventType   String   // review_submitted, review_viewed, widget_clicked, import_started, etc.
+  eventData   String?  // JSON
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([storeId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+// OAuth CSRF nonces — persisted so installs survive container restarts and scale-out
+model OAuthNonce {
+  id        String   @id @default(cuid())
+  nonce     String   @unique
+  shop      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
