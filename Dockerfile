@@ -31,6 +31,18 @@ RUN npx prisma generate
 
 # Build Next.js standalone
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Placeholder connection string for BUILD TIME ONLY.
+#
+# Next.js evaluates every route module during "Collecting page data", which pulls in the
+# Prisma client. Without a syntactically valid DATABASE_URL present, that phase fails
+# before any real database work is attempted. Nothing connects to this host — Prisma only
+# needs a parseable URL at module-evaluation time.
+#
+# This ENV belongs to the builder stage and is NOT inherited by the runner stage below,
+# so it cannot mask the real value injected by Azure app settings at runtime.
+ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
+
 RUN npm run build
 
 # ---- Production Stage ----
