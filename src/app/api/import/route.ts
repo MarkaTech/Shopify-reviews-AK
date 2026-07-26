@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
-import { assertFeature, assertReviewCapacity, planLimitResponse } from '@/lib/plans';
+import { assertReviewCapacity, getRemainingReviewCapacity, planLimitResponse } from '@/lib/plans';
 
 const REVIEWER_NAMES = [
   "Sarah M.", "James K.", "Emily R.", "Michael T.", "Jessica L.",
@@ -75,13 +75,20 @@ export async function POST(request: NextRequest) {
     const { storeId } = await withAuth(request);
     const { source, config } = await request.json();
 
-    // Importing from external platforms is a Pro feature.
-    await assertFeature(storeId, 'platformImport');
+    // Platform import is available on every plan, but bounded by the plan's total review
+    // cap. Rather than rejecting the whole batch when it would overflow, import as many
+    // as fit and report exactly what happened.
+    const remaining = await getRemainingReviewCapacity(storeId);
 
-    const reviewCount = 5 + Math.floor(Math.random() * 11);
+    if (remaining === 0) {
+      // Already at the cap, so nothing can be imported — this genuinely is a plan limit.
+      await assertReviewCapacity(storeId, 1);
+    }
 
-    // Check the whole batch fits before writing any of it.
-    await assertReviewCapacity(storeId, reviewCount);
+    const desired = 5 + Math.floor(Math.random() * 11);
+    const reviewCount = remaining === null ? desired : Math.min(desired, remaining);
+    const trimmed = reviewCount < desired;
+
     const reviews = generateImportedReviews(source, reviewCount, storeId);
 
     const created = await db.review.createMany({ data: reviews });
@@ -100,7 +107,15 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ job, importedReviews: created.count }, { status: 201 });
+    return NextResponse.json(
+      {
+        job,
+        importedReviews: created.count,
+        trimmed,
+        remainingAfter: remaining === null ? null : Math.max(0, remaining - created.count),
+      },
+      { status: 201 }
+    );
   } catch (error: unknown) {
     const limit = planLimitResponse(error);
     if (limit) return NextResponse.json(limit.body, { status: limit.status });

@@ -22,17 +22,17 @@ import { apiFetch, errorMessage } from '@/lib/api-client';
 const plans = [
   {
     id: 'free', name: 'Free', price: 0, interval: 'month',
-    features: ['50 reviews', '1 widget type', 'Basic filters', 'Email support'],
+    features: ['50 reviews', '1 widget type', 'Platform imports (up to your limit)', 'Basic filters', 'Email support'],
     color: 'border-gray-200'
   },
   {
     id: 'starter', name: 'Starter', price: 9.99, interval: 'month',
-    features: ['500 reviews', 'All widget types', 'CSV import', 'Photo & video reviews', 'Email review requests'],
+    features: ['500 reviews', 'All widget types', 'Platform imports', 'CSV import', 'Photo & video reviews', 'Email review requests'],
     color: 'border-gray-200'
   },
   {
     id: 'pro', name: 'Pro', price: 29.99, interval: 'month',
-    features: ['Unlimited reviews', 'Unlimited widgets', 'Amazon / eBay / Etsy import', 'Advanced analytics', 'Custom CSS', 'Priority support'],
+    features: ['Unlimited reviews', 'Unlimited widgets', 'Unlimited platform imports', 'Advanced analytics', 'Custom CSS', 'Priority support'],
     color: 'border-emerald-500 ring-2 ring-emerald-200', popular: true
   },
   {

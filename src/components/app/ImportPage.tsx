@@ -76,16 +76,30 @@ export default function ImportPage() {
     try {
       // apiFetch throws on any non-2xx. Previously this read data.importedReviews from a
       // failed response and reported "Imported undefined reviews" as a success.
-      const data = await apiFetch<{ importedReviews: number }>('/api/import', {
-        method: 'POST',
-        body: JSON.stringify({ source: selectedPlatform, config: { url: importUrl, productId } }),
-      });
+      const data = await apiFetch<{ importedReviews: number; trimmed?: boolean; remainingAfter?: number | null }>(
+        '/api/import',
+        {
+          method: 'POST',
+          body: JSON.stringify({ source: selectedPlatform, config: { url: importUrl, productId } }),
+        }
+      );
 
       const n = data.importedReviews ?? 0;
       if (n === 0) {
         toast.info(`No reviews were found to import from ${selectedPlatform}.`);
+      } else if (data.trimmed) {
+        // Import is available on every plan but capped by the plan's review limit, so a
+        // partial import is a normal outcome — say so plainly rather than implying it all
+        // came through.
+        toast.warning(`Imported ${n} review${n === 1 ? '' : 's'} from ${selectedPlatform}.`, {
+          description: 'That reached your plan\'s review limit. Upgrade in Settings to import more.',
+          duration: 8000,
+        });
       } else {
-        toast.success(`Imported ${n} review${n === 1 ? '' : 's'} from ${selectedPlatform}`);
+        const left = data.remainingAfter;
+        toast.success(`Imported ${n} review${n === 1 ? '' : 's'} from ${selectedPlatform}`, {
+          description: typeof left === 'number' ? `${left} of your plan's review allowance remaining.` : undefined,
+        });
       }
 
       setSelectedPlatform(null);
