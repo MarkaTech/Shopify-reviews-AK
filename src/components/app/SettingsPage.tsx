@@ -15,47 +15,112 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { apiFetch, errorMessage } from '@/lib/api-client';
 
+// Mirrors src/lib/plans.ts. Prices and limits must match the server, which is what
+// actually enforces them — this list is presentation only.
 const plans = [
   {
     id: 'free', name: 'Free', price: 0, interval: 'month',
-    features: ['50 reviews', '1 widget type', 'Basic filters', 'Email support', 'Review display'],
-    current: false, color: 'border-gray-200'
+    features: ['50 reviews', '1 widget type', 'Basic filters', 'Email support'],
+    color: 'border-gray-200'
   },
   {
-    id: 'pro', name: 'Pro', price: 29, interval: 'month',
-    features: ['Unlimited reviews', 'All widget types', 'Advanced filters', 'All import sources', 'Bulk CSV upload', 'Photo reviews', 'Custom CSS', 'Priority support', 'Analytics dashboard'],
-    current: true, color: 'border-emerald-500 ring-2 ring-emerald-200', popular: true
+    id: 'starter', name: 'Starter', price: 9.99, interval: 'month',
+    features: ['500 reviews', 'All widget types', 'CSV import', 'Photo & video reviews', 'Email review requests'],
+    color: 'border-gray-200'
   },
   {
-    id: 'enterprise', name: 'Enterprise', price: 99, interval: 'month',
-    features: ['Everything in Pro', 'Custom branding', 'API access', 'Webhook support', 'Dedicated support', 'White-label option', 'Multi-language', 'Advanced analytics', 'Bulk operations', 'SLA guarantee'],
-    current: false, color: 'border-gray-200'
+    id: 'pro', name: 'Pro', price: 29.99, interval: 'month',
+    features: ['Unlimited reviews', 'Unlimited widgets', 'Amazon / eBay / Etsy import', 'Advanced analytics', 'Custom CSS', 'Priority support'],
+    color: 'border-emerald-500 ring-2 ring-emerald-200', popular: true
+  },
+  {
+    id: 'enterprise', name: 'Enterprise', price: 99.99, interval: 'month',
+    features: ['Everything in Pro', 'API access', 'White-label widgets', 'Custom branding', 'Dedicated support', 'SLA guarantee'],
+    color: 'border-gray-200'
   },
 ];
+
+interface Usage {
+  plan: string;
+  planLabel: string;
+  price: number;
+  reviews: { used: number; limit: number | null; percentUsed: number };
+  widgets: { used: number; limit: number | null; percentUsed: number };
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [upgrading, setUpgrading] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then(d => {
-      setSettings(d.settings || {});
-      setLoading(false);
-    });
+    apiFetch<{ settings: Record<string, string> }>('/api/settings')
+      .then(d => setSettings(d.settings || {}))
+      .catch(err => toast.error(errorMessage(err, 'Could not load settings')))
+      .finally(() => setLoading(false));
+
+    apiFetch<Usage>('/api/usage')
+      .then(setUsage)
+      .catch(() => setUsage(null));
   }, []);
+
+  const currentPlan = usage?.plan ?? 'free';
+
+  /**
+   * Start a plan change. The server creates a Shopify recurring charge and returns a
+   * confirmation URL; the merchant approves it in their Shopify admin and Shopify bills
+   * them. This button previously had no handler at all, so there was no way to pay.
+   */
+  const handleUpgrade = async (planId: string) => {
+    if (planId === currentPlan) return;
+    setUpgrading(planId);
+    try {
+      const data = await apiFetch<{ confirmationUrl?: string; plan?: string; activated?: boolean }>(
+        '/api/billing',
+        { method: 'POST', body: JSON.stringify({ plan: planId }) }
+      );
+
+      if (data.confirmationUrl) {
+        // Shopify hosts the approval screen. Top-level redirect so it works inside the
+        // embedded admin iframe as well as standalone.
+        if (window.top) {
+          window.top.location.href = data.confirmationUrl;
+        } else {
+          window.location.href = data.confirmationUrl;
+        }
+        return;
+      }
+
+      if (data.activated) {
+        toast.success(`Switched to the ${planId} plan.`);
+        const fresh = await apiFetch<Usage>('/api/usage');
+        setUsage(fresh);
+      }
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not start the plan change'));
+    } finally {
+      setUpgrading(null);
+    }
+  };
 
   const updateSetting = (key: string, value: string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
   const saveSettings = async () => {
-    await fetch('/api/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings }),
-    });
-    toast.success('Settings saved successfully!');
+    try {
+      await apiFetch('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ settings }),
+      });
+      toast.success('Settings saved successfully!');
+    } catch (err) {
+      // Previously this always claimed success, even when the request failed.
+      toast.error(errorMessage(err, 'Could not save settings'));
+    }
   };
 
   const getBool = (key: string) => settings[key] === 'true';
@@ -301,16 +366,43 @@ export default function SettingsPage() {
                   <Crown className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold">Current Plan: Pro</p>
-                  <p className="text-xs text-emerald-600">$29/month • Renews on August 1, 2026</p>
+                  <p className="text-sm font-semibold">
+                    Current Plan: {usage?.planLabel ?? 'Free'}
+                  </p>
+                  <p className="text-xs text-emerald-600">
+                    {usage
+                      ? usage.price === 0
+                        ? 'No charge on this plan'
+                        : `$${usage.price.toFixed(2)}/month • billed through Shopify`
+                      : 'Loading plan details…'}
+                  </p>
+                  {usage && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {usage.reviews.used} of {usage.reviews.limit ?? 'unlimited'} reviews
+                      {' · '}
+                      {usage.widgets.used} of {usage.widgets.limit ?? 'unlimited'} widgets
+                    </p>
+                  )}
                 </div>
-                <Button variant="outline" size="sm" className="text-xs">Manage Billing</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => {
+                    // Subscriptions live in the merchant's Shopify admin, not in our app.
+                    const url = 'https://admin.shopify.com/settings/billing/subscriptions';
+                    if (window.top) window.top.location.href = url;
+                    else window.location.href = url;
+                  }}
+                >
+                  Manage Billing
+                </Button>
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               {plans.map(plan => (
-                <Card key={plan.id} className={`border-2 ${plan.color} relative ${plan.current ? '' : 'border-0 shadow-sm'}`}>
+                <Card key={plan.id} className={`border-2 ${plan.color} relative ${plan.id === currentPlan ? '' : 'border-0 shadow-sm'}`}>
                   {plan.popular && (
                     <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
                       <Badge className="bg-emerald-600 text-white text-[10px]">MOST POPULAR</Badge>
@@ -327,16 +419,23 @@ export default function SettingsPage() {
                     <ul className="space-y-1.5">
                       {plan.features.map(f => (
                         <li key={f} className="flex items-center gap-2 text-xs">
-                          <CheckCircle className={`w-3 h-3 flex-shrink-0 ${plan.current ? 'text-emerald-500' : 'text-gray-400'}`} />
+                          <CheckCircle className={`w-3 h-3 flex-shrink-0 ${plan.id === currentPlan ? 'text-emerald-500' : 'text-gray-400'}`} />
                           <span>{f}</span>
                         </li>
                       ))}
                     </ul>
                     <Button
-                      className={`w-full mt-4 text-xs ${plan.current ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'}`}
-                      disabled={plan.current}
+                      className={`w-full mt-4 text-xs ${plan.id === currentPlan ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'}`}
+                      disabled={plan.id === currentPlan || upgrading !== null}
+                      onClick={() => handleUpgrade(plan.id)}
                     >
-                      {plan.current ? 'Current Plan' : 'Upgrade'}
+                      {plan.id === currentPlan
+                        ? 'Current Plan'
+                        : upgrading === plan.id
+                          ? 'Redirecting…'
+                          : plan.price === 0
+                            ? 'Downgrade'
+                            : 'Upgrade'}
                     </Button>
                   </CardContent>
                 </Card>

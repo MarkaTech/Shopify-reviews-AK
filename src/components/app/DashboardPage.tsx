@@ -74,8 +74,10 @@ export default function DashboardPage() {
   }
 
   const statsCards = [
-    { label: 'Total Reviews', value: data.totalReviews, icon: MessageSquare, color: 'text-blue-600 bg-blue-50', change: '+12%' },
-    { label: 'Average Rating', value: data.averageRating.toFixed(1), icon: Star, color: 'text-amber-600 bg-amber-50', change: '+0.2' },
+    // No trend is calculated anywhere, so a hardcoded '+12%' was being shown on every
+    // store regardless of its data — including brand-new stores with zero reviews.
+    { label: 'Total Reviews', value: data.totalReviews, icon: MessageSquare, color: 'text-blue-600 bg-blue-50', change: `${data.totalReviews === 1 ? '1 review' : `${data.totalReviews} reviews`} total` },
+    { label: 'Average Rating', value: data.averageRating.toFixed(1), icon: Star, color: 'text-amber-600 bg-amber-50', change: data.totalReviews > 0 ? 'across all reviews' : 'no reviews yet' },
     { label: 'Published', value: data.publishedReviews, icon: Eye, color: 'text-emerald-600 bg-emerald-50', change: `${data.pendingReviews} pending` },
     { label: 'Verified', value: `${data.verifiedPercentage}%`, icon: CheckCircle, color: 'text-teal-600 bg-teal-50', change: `${data.reviewsWithImages} with photos` },
   ];
