@@ -190,6 +190,7 @@ export default function WidgetsPage() {
   const [widgetName, setWidgetName] = useState('');
   const [widgetPlacement, setWidgetPlacement] = useState('product_page');
   const [showCode, setShowCode] = useState(false);
+  const [showCodeDialog, setShowCodeDialog] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
 
   // Widget config
@@ -215,8 +216,6 @@ export default function WidgetsPage() {
   useEffect(() => {
     fetch('/api/widgets').then(r => r.json()).then(d => setWidgets(d.widgets || []));
   }, []);
-
-  const [showCode, setShowCode] = useState(false);
 
   const handleCreateWidget = async () => {
     if (!selectedType || !widgetName) {
@@ -272,7 +271,7 @@ export default function WidgetsPage() {
           <h2 className="text-lg font-bold">Widget Builder</h2>
           <p className="text-xs text-muted-foreground">Design how reviews appear on your storefront</p>
         </div>
-        <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => setShowCode(true)}>
+        <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => setShowCodeDialog(true)}>
           <Code className="w-3.5 h-3.5" /> View Theme Code
         </Button>
       </div>
@@ -499,7 +498,7 @@ export default function WidgetsPage() {
       </div>
 
       {/* Theme code dialog — this button previously did nothing. */}
-      <Dialog open={showCode} onOpenChange={setShowCode}>
+      <Dialog open={showCodeDialog} onOpenChange={setShowCodeDialog}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-base">Theme embed code</DialogTitle>
@@ -514,7 +513,7 @@ export default function WidgetsPage() {
           </pre>
 
           <DialogFooter>
-            <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowCode(false)}>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowCodeDialog(false)}>
               Close
             </Button>
             <Button
