@@ -278,6 +278,8 @@ export async function registerWebhooks(
     { topic: 'products/update', format: 'json' },
     { topic: 'products/delete', format: 'json' },
     { topic: 'orders/paid', format: 'json' },
+    // Drives first-party review collection: a fulfilled order becomes a review request.
+    { topic: 'orders/fulfilled', format: 'json' },
     { topic: 'shop/update', format: 'json' },
     { topic: 'app/charges/accepted', format: 'json' },
   ];

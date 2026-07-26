@@ -146,6 +146,47 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     });
   },
 
+  // The buyer has received their order — create the review request that will be emailed
+  // to them. This is the entry point of the whole first-party collection flow.
+  'orders-fulfilled': async (data, storeId) => {
+    const { createRequestForOrder, reviewRequestUrl } = await import('@/lib/review-requests');
+    const { SHOPIFY_APP_URL } = await import('@/lib/shopify');
+
+    const created = await createRequestForOrder(storeId, data as never);
+    if (!created) return; // no email, no tracked products, or already requested
+
+    const link = reviewRequestUrl(created.token, SHOPIFY_APP_URL);
+
+    const { sendEmail, renderReviewRequestEmail } = await import('@/lib/email');
+    const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true, email: true } });
+
+    const message = renderReviewRequestEmail({
+      storeName: store?.name || 'the store',
+      customerName: (data as { customer?: { first_name?: string } }).customer?.first_name || null,
+      orderNumber: (data as { order_number?: string | number }).order_number?.toString() || null,
+      itemTitles: created.lineItems.map(li => li.title),
+      reviewUrl: link,
+    });
+
+    // Replies go to the merchant, not to us — they own the customer relationship.
+    const result = await sendEmail({ ...message, to: created.email, replyTo: store?.email || undefined });
+
+    if (result.sent) {
+      await db.reviewRequest.update({
+        where: { token: created.token },
+        data: { sentAt: new Date() },
+      });
+      console.log(`[review-request] sent to ${created.email} via ${result.provider}`);
+    } else if (result.reason === 'not_configured') {
+      // No provider set up yet. The request and its link still exist and still work.
+      console.log(`[review-request] no email provider configured; link for ${created.email}: ${link}`);
+    } else {
+      // Never rethrow: a failed email must not fail the webhook, or Shopify retries it
+      // and the merchant's dashboard shows a failing subscription.
+      console.error(`[review-request] send failed for ${created.email}: ${result.detail}`);
+    }
+  },
+
   'orders-paid': async (data, storeId) => {
     // Log analytics event for potential review request
     const order = data as {

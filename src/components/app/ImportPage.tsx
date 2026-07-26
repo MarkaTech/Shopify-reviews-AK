@@ -19,23 +19,11 @@ import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 const platforms = [
   {
     id: 'amazon', name: 'Amazon', icon: '🟠', color: 'bg-orange-50 border-orange-200 hover:border-orange-300',
-    desc: 'Import reviews from Amazon product listings', urlPlaceholder: 'https://amazon.com/dp/B0XXXXXXXX'
-  },
-  {
-    id: 'ebay', name: 'eBay', icon: '🔵', color: 'bg-blue-50 border-blue-200 hover:border-blue-300',
-    desc: 'Import reviews from eBay listings', urlPlaceholder: 'https://ebay.com/itm/XXXXXXXX'
-  },
-  {
-    id: 'etsy', name: 'Etsy', icon: '🟠', color: 'bg-amber-50 border-amber-200 hover:border-amber-300',
-    desc: 'Import reviews from Etsy shops', urlPlaceholder: 'https://etsy.com/listing/XXXXXXXX'
+    desc: 'Import real reviews from an Amazon product page', urlPlaceholder: 'https://amazon.com/dp/B0XXXXXXXX'
   },
   {
     id: 'alibaba', name: 'Alibaba', icon: '🟡', color: 'bg-yellow-50 border-yellow-200 hover:border-yellow-300',
-    desc: 'Import reviews from Alibaba products', urlPlaceholder: 'https://alibaba.com/product/XXXXXXXX'
-  },
-  {
-    id: 'shopify', name: 'Shopify Store', icon: '🟢', color: 'bg-emerald-50 border-emerald-200 hover:border-emerald-300',
-    desc: 'Import from any Shopify store', urlPlaceholder: 'https://store.myshopify.com/products/slug'
+    desc: 'Import real reviews from an Alibaba product page', urlPlaceholder: 'https://alibaba.com/product/XXXXXXXX'
   },
 ];
 
@@ -60,6 +48,7 @@ const statusIcons: Record<string, React.ReactNode> = {
 export default function ImportPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [importUrl, setImportUrl] = useState('');
+  const [pastedHtml, setPastedHtml] = useState('');
   const [importing, setImporting] = useState(false);
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [productId, setProductId] = useState('');
@@ -80,7 +69,7 @@ export default function ImportPage() {
         '/api/import',
         {
           method: 'POST',
-          body: JSON.stringify({ source: selectedPlatform, config: { url: importUrl, productId } }),
+          body: JSON.stringify({ source: selectedPlatform, config: { url: importUrl, productId, html: pastedHtml || undefined } }),
         }
       );
 
@@ -105,6 +94,7 @@ export default function ImportPage() {
       setSelectedPlatform(null);
       setImportUrl('');
       setProductId('');
+      setPastedHtml('');
       const jobsData = await apiFetch<{ jobs: ImportJob[] }>('/api/import');
       setJobs(jobsData.jobs || []);
     } catch (err) {
@@ -167,7 +157,7 @@ export default function ImportPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="text-xs">Product URL (optional)</Label>
+              <Label className="text-xs">Product URL</Label>
               <div className="relative mt-1.5">
                 <Link className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
@@ -177,7 +167,24 @@ export default function ImportPage() {
                   onChange={e => setImportUrl(e.target.value)}
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1">Paste the product URL to import specific product reviews. Leave empty for general import.</p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Required. The page must be from the platform you selected above.
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-xs">Page HTML (only if the import is blocked)</Label>
+              <Textarea
+                placeholder="Paste the product page source here…"
+                className="mt-1.5 text-[11px] font-mono min-h-[90px]"
+                value={pastedHtml}
+                onChange={e => setPastedHtml(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Marketplaces often block automated requests. If the import reports it could not
+                read the page, open it in your browser, view the page source, and paste it here.
+                Reviews are read from the page itself — nothing is generated.
+              </p>
             </div>
 
             <div>

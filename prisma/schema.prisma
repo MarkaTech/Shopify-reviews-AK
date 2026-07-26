@@ -215,3 +215,32 @@ model OAuthNonce {
 
   @@index([expiresAt])
 }
+
+// Review requests — the first-party collection flow.
+//
+// When an order is fulfilled, one row is created per order. It carries a single-use token
+// that goes to the real buyer by email. Because the request is created from a genuine
+// Shopify order, any review submitted through it is a provable verified purchase — which
+// is what makes this legitimate where scraping another marketplace is not.
+model ReviewRequest {
+  id              String    @id @default(cuid())
+  storeId         String
+  token           String    @unique
+  shopifyOrderId  String
+  orderNumber     String?
+  customerEmail   String
+  customerName    String?
+  // JSON array of { productId, shopifyId, title, image } captured at fulfilment time,
+  // so the request still works if the catalogue changes later.
+  lineItems       String
+  sentAt          DateTime?
+  openedAt        DateTime?
+  submittedAt     DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+
+  @@unique([storeId, shopifyOrderId])
+  @@index([storeId])
+  @@index([expiresAt])
+  @@index([submittedAt])
+}
