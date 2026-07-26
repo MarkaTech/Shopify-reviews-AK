@@ -1,59 +1,15 @@
-import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { assertReviewCapacity, getRemainingReviewCapacity, planLimitResponse } from '@/lib/plans';
-
-const REVIEWER_NAMES = [
-  "Sarah M.", "James K.", "Emily R.", "Michael T.", "Jessica L.",
-  "David W.", "Amanda P.", "Chris B.", "Nicole H.", "Ryan S.",
-  "Laura C.", "Kevin D.", "Rachel G.", "Tom F.", "Stephanie V.",
-];
-
-const REVIEW_BODIES = [
-  "Absolutely love this product! It exceeded all my expectations. The quality is top-notch and it arrived much faster than I anticipated.",
-  "Good value for the price. Works as described but could use some minor improvements. Overall satisfied with my purchase.",
-  "Decent product for the price point. Nothing spectacular but gets the job done. Would recommend for budget-conscious buyers.",
-  "This is exactly what I was looking for! Perfect fit, great quality, and the color is even better in person.",
-  "Not bad but not great either. The product is okay - does what it is supposed to do. Shipping was fast though.",
-  "Five stars all the way! This product has made my life so much easier. Highly recommend to anyone.",
-  "The product arrived damaged. Contacted customer service and they were very helpful. Replacement is on the way.",
-  "Best purchase I have made this year! The quality is premium and it looks even better than the pictures.",
-];
-
-function generateImportedReviews(source: string, count: number, storeId: string) {
-  return Array.from({ length: count }, (_, i) => {
-    const rating = [5, 4, 5, 4, 3, 5, 4, 3, 2, 1][Math.floor(Math.random() * 10)];
-    const sentiment = rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral';
-    const daysAgo = Math.floor(Math.random() * 90);
-    const reviewDate = new Date(Date.now() - daysAgo * 86400000);
-
-    return {
-      storeId,
-      reviewerName: REVIEWER_NAMES[Math.floor(Math.random() * REVIEWER_NAMES.length)],
-      reviewerEmail: null,
-      reviewerLocation: null,
-      reviewerAvatar: null,
-      verifiedPurchase: Math.random() > 0.5,
-      rating,
-      title: `${rating >= 4 ? 'Great' : rating === 3 ? 'Okay' : 'Disappointing'} purchase from ${source}`,
-      body: REVIEW_BODIES[Math.floor(Math.random() * REVIEW_BODIES.length)],
-      images: Math.random() > 0.7 ? JSON.stringify([`https://picsum.photos/seed/${source}${i}/400/400`]) : null,
-      videoUrl: null,
-      source,
-      sourceUrl: `https://${source}.com/review/${Math.floor(Math.random() * 100000)}`,
-      sourceProductId: `${source}_prod_${Math.floor(Math.random() * 1000)}`,
-      sentiment,
-      isFeatured: Math.random() > 0.9,
-      isPublished: true,
-      isPinned: false,
-      reply: null,
-      repliedAt: null,
-      helpfulCount: Math.floor(Math.random() * 20),
-      notHelpfulCount: Math.floor(Math.random() * 5),
-      reviewDate,
-    };
-  });
-}
+import {
+  extractReviews,
+  fetchPage,
+  validateSourceUrl,
+  ImportError,
+  SUPPORTED_PLATFORMS,
+  type Platform,
+} from '@/lib/importers';
 
 export async function GET(request: Request) {
   try {
@@ -61,6 +17,7 @@ export async function GET(request: Request) {
     const jobs = await db.importJob.findMany({
       where: { storeId },
       orderBy: { createdAt: 'desc' },
+      take: 25,
     });
     return NextResponse.json({ jobs });
   } catch (error: unknown) {
@@ -70,40 +27,106 @@ export async function GET(request: Request) {
   }
 }
 
+/**
+ * Import genuine reviews from a marketplace product page.
+ *
+ * This previously generated fake reviews with random names and reported them as imported.
+ * It now extracts real review data or fails with an explanation — it never invents any.
+ *
+ * The merchant may supply page HTML directly (copied from their own browser) when a
+ * server-side fetch is blocked, which marketplaces commonly do for datacentre traffic.
+ */
 export async function POST(request: NextRequest) {
+  const startedAt = new Date();
+  let storeId = '';
+
   try {
-    const { storeId } = await withAuth(request);
-    const { source, config } = await request.json();
+    ({ storeId } = await withAuth(request));
+    const body = (await request.json()) as {
+      source?: string;
+      config?: { url?: string; productId?: string; html?: string };
+    };
 
-    // Platform import is available on every plan, but bounded by the plan's total review
-    // cap. Rather than rejecting the whole batch when it would overflow, import as many
-    // as fit and report exactly what happened.
-    const remaining = await getRemainingReviewCapacity(storeId);
-
-    if (remaining === 0) {
-      // Already at the cap, so nothing can be imported — this genuinely is a plan limit.
-      await assertReviewCapacity(storeId, 1);
+    const source = String(body.source || '') as Platform;
+    if (!(source in SUPPORTED_PLATFORMS)) {
+      return NextResponse.json(
+        { error: `Unsupported platform. Supported: ${Object.keys(SUPPORTED_PLATFORMS).join(', ')}.` },
+        { status: 400 }
+      );
     }
 
-    const desired = 5 + Math.floor(Math.random() * 11);
-    const reviewCount = remaining === null ? desired : Math.min(desired, remaining);
-    const trimmed = reviewCount < desired;
+    const rawUrl = body.config?.url?.trim() || '';
+    const pastedHtml = body.config?.html?.trim() || '';
+    const productId = body.config?.productId || null;
 
-    const reviews = generateImportedReviews(source, reviewCount, storeId);
+    if (!rawUrl) {
+      return NextResponse.json(
+        { error: 'A product page URL is required.', code: 'URL_REQUIRED' },
+        { status: 400 }
+      );
+    }
 
-    const created = await db.review.createMany({ data: reviews });
+    const url = validateSourceUrl(source, rawUrl);
+
+    // Capacity first — no point fetching a page we cannot store anything from.
+    const remaining = await getRemainingReviewCapacity(storeId);
+    if (remaining === 0) await assertReviewCapacity(storeId, 1);
+
+    // Merchant-supplied HTML wins: it comes from their own authenticated browser session
+    // and avoids the blocking that affects server-side requests entirely.
+    const html = pastedHtml || (await fetchPage(url));
+
+    const extracted = extractReviews(html, url.toString());
+
+    if (extracted.length === 0) {
+      await db.importJob.create({
+        data: {
+          storeId, source, status: 'failed',
+          totalReviews: 0, importedReviews: 0, failedReviews: 0,
+          errorMessage: 'No structured review data found on the page',
+          config: JSON.stringify({ url: url.toString() }),
+          startedAt, completedAt: new Date(),
+        },
+      });
+      return NextResponse.json(
+        {
+          error: 'No reviews could be read from that page.',
+          code: 'NO_REVIEWS_FOUND',
+          hint: 'The page may not publish structured review data, or the content may load only for signed-in visitors. Open the page in your browser, save or copy the page source, and paste it into the HTML field.',
+        },
+        { status: 422 }
+      );
+    }
+
+    // Honour the plan's review cap; import what fits rather than rejecting the batch.
+    const toImport = remaining === null ? extracted : extracted.slice(0, remaining);
+    const trimmed = toImport.length < extracted.length;
+
+    const created = await db.review.createMany({
+      data: toImport.map(r => ({
+        storeId,
+        productId,
+        reviewerName: r.reviewerName,
+        rating: r.rating,
+        title: r.title,
+        body: r.body,
+        source,                    // attribution, required for honest display
+        sourceUrl: r.sourceUrl,
+        verifiedPurchase: r.verifiedPurchase,
+        reviewDate: r.reviewDate ?? new Date(),
+        sentiment: r.rating >= 4 ? 'positive' : r.rating <= 2 ? 'negative' : 'neutral',
+        isPublished: false,        // imported reviews start unpublished for merchant review
+      })),
+    });
 
     const job = await db.importJob.create({
       data: {
-        storeId,
-        source,
-        status: 'completed',
-        totalReviews: reviewCount,
+        storeId, source, status: 'completed',
+        totalReviews: extracted.length,
         importedReviews: created.count,
-        failedReviews: 0,
-        config: config ? JSON.stringify(config) : null,
-        startedAt: new Date(Date.now() - 5000),
-        completedAt: new Date(),
+        failedReviews: extracted.length - created.count,
+        config: JSON.stringify({ url: url.toString() }),
+        startedAt, completedAt: new Date(),
       },
     });
 
@@ -111,6 +134,7 @@ export async function POST(request: NextRequest) {
       {
         job,
         importedReviews: created.count,
+        foundReviews: extracted.length,
         trimmed,
         remainingAfter: remaining === null ? null : Math.max(0, remaining - created.count),
       },
@@ -119,8 +143,16 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     const limit = planLimitResponse(error);
     if (limit) return NextResponse.json(limit.body, { status: limit.status });
+
+    if (error instanceof ImportError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, hint: error.hint },
+        { status: 422 }
+      );
+    }
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
-    console.error('Error importing reviews:', error);
+
+    console.error('[Failed to import reviews]', error);
     return NextResponse.json({ error: 'Failed to import reviews' }, { status: 500 });
   }
 }
