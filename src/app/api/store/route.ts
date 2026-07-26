@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
-    const { storeId, shop } = withAuth(request);
+    const { storeId, shop } = await withAuth(request);
 
     const store = await db.store.findUnique({
       where: { id: storeId },

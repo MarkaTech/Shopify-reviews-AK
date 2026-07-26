@@ -14,7 +14,7 @@ Jane Doe,4,Great value,"Good quality for the price. Would buy again.",2025-02-20
 
 export async function POST(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const productId = formData.get('productId') as string | null;

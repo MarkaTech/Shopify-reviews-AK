@@ -17,7 +17,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { settings } = await request.json() as { settings: Record<string, string> };
 
     for (const [key, value] of Object.entries(settings)) {

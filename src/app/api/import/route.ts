@@ -56,7 +56,7 @@ function generateImportedReviews(source: string, count: number, storeId: string)
 
 export async function GET(request: Request) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const jobs = await db.importJob.findMany({
       where: { storeId },
       orderBy: { createdAt: 'desc' },
@@ -70,7 +70,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { source, config } = await request.json();
     const reviewCount = 5 + Math.floor(Math.random() * 11);
     const reviews = generateImportedReviews(source, reviewCount, storeId);
