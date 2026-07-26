@@ -62,11 +62,16 @@ export default function Home() {
           return;
         }
       }
+      setIsAuthenticated(false);
     } catch {
-      // Session invalid
+      // Session invalid or network failure
+      setIsAuthenticated(false);
+    } finally {
+      // Must run on EVERY path. This previously sat after the try/catch, so the
+      // successful branch above returned early and never cleared it — leaving the app
+      // stuck on "Loading ReviewMaster..." forever, but only once auth actually worked.
+      setIsLoading(false);
     }
-    setIsAuthenticated(false);
-    setIsLoading(false);
   }, []);
 
   /* eslint-disable react-hooks/set-state-in-effect */
