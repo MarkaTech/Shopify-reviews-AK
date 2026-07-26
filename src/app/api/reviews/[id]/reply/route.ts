@@ -22,6 +22,7 @@ export async function POST(
     return NextResponse.json(updated);
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
+    console.error('[Failed to add reply]', error);
     return NextResponse.json({ error: 'Failed to add reply' }, { status: 500 });
   }
 }

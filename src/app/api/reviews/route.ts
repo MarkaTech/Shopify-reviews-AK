@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { assertReviewCapacity, assertFeature, planLimitResponse } from '@/lib/plans';
 
 export async function GET(request: NextRequest) {
   try {
@@ -102,7 +103,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { storeId } = await withAuth(request);
+
+    // Enforce the plan's review cap before writing anything.
+    await assertReviewCapacity(storeId, 1);
+
     const body = await request.json();
+
+    // Photo and video reviews are a paid feature.
+    if ((body.images && body.images.length) || body.videoUrl) {
+      await assertFeature(storeId, 'photoReviews');
+    }
 
     let sentiment = 'neutral';
     if (body.rating >= 4) sentiment = 'positive';
@@ -139,6 +149,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(review, { status: 201 });
   } catch (error: unknown) {
+    const limit = planLimitResponse(error);
+    if (limit) return NextResponse.json(limit.body, { status: limit.status });
     if (error instanceof Error && error.message.includes('Unauthorized')) {
       return unauthorizedResponse();
     }

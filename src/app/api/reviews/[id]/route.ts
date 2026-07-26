@@ -20,6 +20,7 @@ export async function GET(
     return NextResponse.json(review);
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
+    console.error('[Failed to fetch review]', error);
     return NextResponse.json({ error: 'Failed to fetch review' }, { status: 500 });
   }
 }
@@ -57,6 +58,7 @@ export async function PUT(
     return NextResponse.json(updated);
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
+    console.error('[Failed to update review]', error);
     return NextResponse.json({ error: 'Failed to update review' }, { status: 500 });
   }
 }
@@ -76,6 +78,7 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
+    console.error('[Failed to delete review]', error);
     return NextResponse.json({ error: 'Failed to delete review' }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { assertFeature, assertReviewCapacity, planLimitResponse } from '@/lib/plans';
 
 export async function GET() {
   const csvTemplate = `reviewerName,rating,title,body,reviewDate,reviewerEmail,reviewerLocation,verifiedPurchase,source,images
@@ -27,6 +28,12 @@ export async function POST(request: NextRequest) {
     if (lines.length < 2) {
       return NextResponse.json({ error: 'CSV must have header and at least one data row' }, { status: 400 });
     }
+
+    // CSV import is a paid feature, and the whole file must fit within the plan's review
+    // cap. Both are checked before a single row is written, so a rejected upload never
+    // leaves the store half-imported.
+    await assertFeature(storeId, 'csvImport');
+    await assertReviewCapacity(storeId, lines.length - 1);
 
     const headers = lines[0].split(',').map(h => h.trim());
     let imported = 0;
@@ -77,6 +84,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ total: lines.length - 1, imported, failed, errors });
   } catch (error: unknown) {
+    const limit = planLimitResponse(error);
+    if (limit) return NextResponse.json(limit.body, { status: limit.status });
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
     console.error('Error processing bulk upload:', error);
     return NextResponse.json({ error: 'Failed to process upload' }, { status: 500 });

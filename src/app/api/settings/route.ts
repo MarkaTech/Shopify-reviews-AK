@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ settings: settingsMap });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
+    console.error('[Failed to fetch settings]', error);
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 });
   }
 }
@@ -31,6 +32,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
+    console.error('[Failed to update settings]', error);
     return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
   }
 }

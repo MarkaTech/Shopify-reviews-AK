@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { assertFeature, assertReviewCapacity, planLimitResponse } from '@/lib/plans';
 
 const REVIEWER_NAMES = [
   "Sarah M.", "James K.", "Emily R.", "Michael T.", "Jessica L.",
@@ -64,6 +65,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ jobs });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
+    console.error('[Failed to fetch import jobs]', error);
     return NextResponse.json({ error: 'Failed to fetch import jobs' }, { status: 500 });
   }
 }
@@ -72,7 +74,14 @@ export async function POST(request: NextRequest) {
   try {
     const { storeId } = await withAuth(request);
     const { source, config } = await request.json();
+
+    // Importing from external platforms is a Pro feature.
+    await assertFeature(storeId, 'platformImport');
+
     const reviewCount = 5 + Math.floor(Math.random() * 11);
+
+    // Check the whole batch fits before writing any of it.
+    await assertReviewCapacity(storeId, reviewCount);
     const reviews = generateImportedReviews(source, reviewCount, storeId);
 
     const created = await db.review.createMany({ data: reviews });
@@ -93,6 +102,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ job, importedReviews: created.count }, { status: 201 });
   } catch (error: unknown) {
+    const limit = planLimitResponse(error);
+    if (limit) return NextResponse.json(limit.body, { status: limit.status });
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
     console.error('Error importing reviews:', error);
     return NextResponse.json({ error: 'Failed to import reviews' }, { status: 500 });
