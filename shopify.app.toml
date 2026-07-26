@@ -6,9 +6,9 @@
 # here overwrites what is configured in the Dev Dashboard, so keep the two in step —
 # especially use_legacy_install_flow, which this app depends on.
 
-client_id = "d85508d617055711607be46c6c2b757b"
+client_id = "29b49298063da4f8633daaeb2e652e39"
 name = "ReviewMaster"
-handle = "reviewmaster-marka"
+handle = "reviewmaster-reviews"
 application_url = "https://reviewmaster-app.azurewebsites.net"
 embedded = true
 
