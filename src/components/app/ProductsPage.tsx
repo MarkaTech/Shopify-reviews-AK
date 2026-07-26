@@ -64,7 +64,7 @@ export default function ProductsPage() {
       if (hasReviewsFilter !== 'all') params.set('hasReviews', hasReviewsFilter);
       params.set('limit', '50');
 
-      const res = await fetch(`/api/products?${params}`);
+      const res = await fetch(`/api/products?${params}`, { credentials: 'include' });
       if (!cancelled) {
         const data = await res.json();
         setProducts(data.products || []);

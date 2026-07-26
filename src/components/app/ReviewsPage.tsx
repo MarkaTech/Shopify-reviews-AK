@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
+import { apiFetch, errorMessage } from '@/lib/api-client';
 
 interface Review {
   id: string;
@@ -102,7 +103,7 @@ export default function ReviewsPage() {
       params.set('page', String(page));
       params.set('limit', '20');
 
-      const res = await fetch(`/api/reviews?${params}`);
+      const res = await fetch(`/api/reviews?${params}`, { credentials: 'include' });
       if (!cancelled) {
         const data = await res.json();
         setReviews(data.reviews || []);
@@ -127,51 +128,88 @@ export default function ReviewsPage() {
     else setSelectedIds(new Set(reviews.map(r => r.id)));
   };
 
+  /** PATCH a single review and refresh. Shared by publish/feature/pin toggles. */
+  const patchReview = async (id: string, data: Record<string, unknown>, successMsg: string) => {
+    try {
+      await apiFetch(`/api/reviews/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      toast.success(successMsg);
+      fetchReviews();
+    } catch (err) {
+      // Previously every one of these reported success unconditionally, so a failed
+      // request still showed "Review published" while nothing had changed.
+      toast.error(errorMessage(err, 'Could not update the review'));
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    await fetch(`/api/reviews/${id}`, { method: 'DELETE' });
-    toast.success('Review deleted');
-    fetchReviews();
+    try {
+      await apiFetch(`/api/reviews/${id}`, { method: 'DELETE' });
+      toast.success('Review deleted');
+      fetchReviews();
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not delete the review'));
+    }
   };
 
-  const handleTogglePublish = async (review: Review) => {
-    await fetch(`/api/reviews/${review.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isPublished: !review.isPublished }) });
-    toast.success(review.isPublished ? 'Review unpublished' : 'Review published');
-    fetchReviews();
-  };
+  const handleTogglePublish = (review: Review) =>
+    patchReview(review.id, { isPublished: !review.isPublished },
+      review.isPublished ? 'Review unpublished' : 'Review published');
 
-  const handleToggleFeature = async (review: Review) => {
-    await fetch(`/api/reviews/${review.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isFeatured: !review.isFeatured }) });
-    toast.success(review.isFeatured ? 'Unfeatured' : 'Featured');
-    fetchReviews();
-  };
+  const handleToggleFeature = (review: Review) =>
+    patchReview(review.id, { isFeatured: !review.isFeatured },
+      review.isFeatured ? 'Unfeatured' : 'Featured');
 
-  const handleTogglePin = async (review: Review) => {
-    await fetch(`/api/reviews/${review.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isPinned: !review.isPinned }) });
-    toast.success(review.isPinned ? 'Unpinned' : 'Pinned');
-    fetchReviews();
-  };
+  const handleTogglePin = (review: Review) =>
+    patchReview(review.id, { isPinned: !review.isPinned },
+      review.isPinned ? 'Unpinned' : 'Pinned');
 
   const handleReply = async (id: string) => {
-    if (!replyText.trim()) return;
-    await fetch(`/api/reviews/${id}/reply`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reply: replyText }) });
-    toast.success('Reply added');
-    setReplyDialog(null);
-    setReplyText('');
-    fetchReviews();
+    if (!replyText.trim()) {
+      toast.error('Write a reply before sending.');
+      return;
+    }
+    try {
+      await apiFetch(`/api/reviews/${id}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ reply: replyText }),
+      });
+      toast.success('Reply added');
+      setReplyDialog(null);
+      setReplyText('');
+      fetchReviews();
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save the reply'));
+    }
   };
 
   const handleBulkAction = async (action: string) => {
-    const promises = Array.from(selectedIds).map(id => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+
+    const run = (id: string) => {
       switch (action) {
-        case 'publish': return fetch(`/api/reviews/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isPublished: true }) });
-        case 'unpublish': return fetch(`/api/reviews/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isPublished: false }) });
-        case 'feature': return fetch(`/api/reviews/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isFeatured: true }) });
-        case 'delete': return fetch(`/api/reviews/${id}`, { method: 'DELETE' });
-        default: return Promise.resolve();
+        case 'publish':   return apiFetch(`/api/reviews/${id}`, { method: 'PUT', body: JSON.stringify({ isPublished: true }) });
+        case 'unpublish': return apiFetch(`/api/reviews/${id}`, { method: 'PUT', body: JSON.stringify({ isPublished: false }) });
+        case 'feature':   return apiFetch(`/api/reviews/${id}`, { method: 'PUT', body: JSON.stringify({ isFeatured: true }) });
+        case 'delete':    return apiFetch(`/api/reviews/${id}`, { method: 'DELETE' });
+        default:          return Promise.resolve();
       }
-    });
-    await Promise.all(promises);
-    toast.success(`${action} applied to ${selectedIds.size} reviews`);
+    };
+
+    // allSettled, not all: one failure previously rejected the whole batch and still
+    // reported success for every item.
+    const results = await Promise.allSettled(ids.map(run));
+    const failed = results.filter(r => r.status === 'rejected').length;
+    const ok = results.length - failed;
+
+    if (failed === 0) {
+      toast.success(`${action} applied to ${ok} review${ok === 1 ? '' : 's'}`);
+    } else if (ok === 0) {
+      toast.error(`Could not ${action} any of the ${failed} selected reviews.`);
+    } else {
+      toast.warning(`${action} applied to ${ok}, but ${failed} failed.`);
+    }
+
     setSelectedIds(new Set());
     fetchReviews();
   };
@@ -480,7 +518,9 @@ export default function ReviewsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem><Edit3 className="w-3.5 h-3.5 mr-2" />Edit Review</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setReplyText(review.reply || ''); setReplyDialog(review.id); }}>
+                              <Edit3 className="w-3.5 h-3.5 mr-2" />{review.reply ? 'Edit Reply' : 'Add Reply'}
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(review.id)}>
                               <Trash2 className="w-3.5 h-3.5 mr-2" />Delete

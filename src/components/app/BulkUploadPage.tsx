@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 
 interface Product {
   id: string;
@@ -72,16 +73,30 @@ export default function BulkUploadPage() {
       }
       if (selectedProduct && selectedProduct !== '__none__') formData.append('productId', selectedProduct);
 
-      const res = await fetch('/api/bulk-upload', { method: 'POST', body: formData });
-      const data = await res.json();
+      // FormData body, so no JSON Content-Type — apiFetch only sets it for string bodies.
+      const data = await apiFetch<{ imported: number; failed: number; total: number; errors?: string[] }>(
+        '/api/bulk-upload', { method: 'POST', body: formData }
+      );
       setResult(data);
 
-      if (data.imported > 0) toast.success(`Successfully imported ${data.imported} reviews!`);
-      if (data.failed > 0) toast.error(`${data.failed} reviews failed to import`);
-    } catch {
-      toast.error('Upload failed. Please try again.');
+      if (data.imported > 0) {
+        toast.success(`Imported ${data.imported} review${data.imported === 1 ? '' : 's'}`);
+      }
+      if (data.failed > 0) {
+        toast.error(`${data.failed} row${data.failed === 1 ? '' : 's'} failed to import`);
+      }
+      if (data.imported === 0 && data.failed === 0) {
+        toast.info('No reviews found in that file.');
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.isPlanLimit) {
+        toast.error(err.userMessage, { description: 'Open Settings to change your plan.', duration: 8000 });
+      } else {
+        toast.error(errorMessage(err, 'Upload failed. Please try again.'));
+      }
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
   };
 
   const handleDownloadTemplate = () => {

@@ -16,6 +16,8 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
 const widgetTypes = [
   { id: 'carousel', name: 'Carousel', icon: Layers, desc: 'Sliding review cards with navigation', preview: 'carousel' },
@@ -214,27 +216,41 @@ export default function WidgetsPage() {
     fetch('/api/widgets').then(r => r.json()).then(d => setWidgets(d.widgets || []));
   }, []);
 
+  const [showCode, setShowCode] = useState(false);
+
   const handleCreateWidget = async () => {
     if (!selectedType || !widgetName) {
       toast.error('Please select a widget type and enter a name');
       return;
     }
-    const res = await fetch('/api/widgets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: widgetName, widgetType: selectedType, placement: widgetPlacement, config }),
-    });
-    const data = await res.json();
-    toast.success('Widget created!');
-    setWidgets([...widgets, data]);
-    setSelectedType(null);
-    setWidgetName('');
+    try {
+      const data = await apiFetch<Widget>('/api/widgets', {
+        method: 'POST',
+        body: JSON.stringify({ name: widgetName, widgetType: selectedType, placement: widgetPlacement, config }),
+      });
+      toast.success('Widget created');
+      setWidgets([...widgets, data]);
+      setSelectedType(null);
+      setWidgetName('');
+    } catch (err) {
+      // Free plans allow one widget of a single type. Without this check the old code
+      // announced "Widget created!" and pushed the error payload into the list.
+      if (err instanceof ApiError && err.isPlanLimit) {
+        toast.error(err.userMessage, { description: 'Open Settings to change your plan.', duration: 8000 });
+      } else {
+        toast.error(errorMessage(err, 'Could not create the widget'));
+      }
+    }
   };
 
   const handleDeleteWidget = async (id: string) => {
-    await fetch('/api/widgets', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-    toast.success('Widget deleted');
-    setWidgets(widgets.filter(w => w.id !== id));
+    try {
+      await apiFetch('/api/widgets', { method: 'DELETE', body: JSON.stringify({ id }) });
+      toast.success('Widget deleted');
+      setWidgets(widgets.filter(w => w.id !== id));
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not delete the widget'));
+    }
   };
 
   const codeSnippet = `<!-- ReviewMaster Widget -->
@@ -256,7 +272,7 @@ export default function WidgetsPage() {
           <h2 className="text-lg font-bold">Widget Builder</h2>
           <p className="text-xs text-muted-foreground">Design how reviews appear on your storefront</p>
         </div>
-        <Button variant="outline" size="sm" className="text-xs gap-1">
+        <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => setShowCode(true)}>
           <Code className="w-3.5 h-3.5" /> View Theme Code
         </Button>
       </div>
@@ -481,6 +497,43 @@ export default function WidgetsPage() {
           </Card>
         </div>
       </div>
+
+      {/* Theme code dialog — this button previously did nothing. */}
+      <Dialog open={showCode} onOpenChange={setShowCode}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base">Theme embed code</DialogTitle>
+            <DialogDescription className="text-xs">
+              Paste this into your theme where the reviews should appear. In Shopify admin go to
+              Online Store → Themes → Edit code, and add it to your product template.
+            </DialogDescription>
+          </DialogHeader>
+
+          <pre className="bg-gray-900 text-gray-100 rounded-md p-3 text-[11px] overflow-x-auto whitespace-pre-wrap">
+            <code>{codeSnippet}</code>
+          </pre>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowCode(false)}>
+              Close
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-xs"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(codeSnippet);
+                  toast.success('Code copied to clipboard');
+                } catch {
+                  toast.error('Could not copy. Select the text and copy manually.');
+                }
+              }}
+            >
+              Copy code
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
