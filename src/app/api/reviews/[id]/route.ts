@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { id } = await params;
     const review = await db.review.findFirst({
       where: { id, storeId },
@@ -29,7 +29,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { id } = await params;
     const body = await request.json();
 
@@ -66,7 +66,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { id } = await params;
 
     const review = await db.review.findFirst({ where: { id, storeId } });

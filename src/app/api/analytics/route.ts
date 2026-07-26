@@ -4,7 +4,7 @@ import { withAuth, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
 
     const [totalReviews, publishedReviews, pendingReviews, allReviews, products] = await Promise.all([
       db.review.count({ where: { storeId } }),

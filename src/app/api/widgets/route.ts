@@ -4,7 +4,7 @@ import { withAuth, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const widgets = await db.widgetConfig.findMany({
       where: { storeId },
       orderBy: { createdAt: 'desc' },
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const body = await request.json();
     const widget = await db.widgetConfig.create({
       data: {
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { id, ...data } = await request.json();
     if (!id) return NextResponse.json({ error: 'Widget ID required' }, { status: 400 });
 
@@ -60,7 +60,7 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { id } = await request.json();
     if (!id) return NextResponse.json({ error: 'Widget ID required' }, { status: 400 });
 

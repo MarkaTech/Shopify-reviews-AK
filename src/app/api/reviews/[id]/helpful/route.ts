@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { id } = await params;
     const { type } = await request.json();
 

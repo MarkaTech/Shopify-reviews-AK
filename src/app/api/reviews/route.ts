@@ -4,7 +4,7 @@ import { withAuth, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const searchParams = request.nextUrl.searchParams;
 
     const where: Record<string, unknown> = { storeId };
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const body = await request.json();
 
     let sentiment = 'neutral';

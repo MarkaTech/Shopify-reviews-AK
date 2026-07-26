@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { storeId } = withAuth(request);
+    const { storeId } = await withAuth(request);
     const { id } = await params;
     const { reply } = await request.json();
     if (!reply) return NextResponse.json({ error: 'Reply text is required' }, { status: 400 });
