@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookHmac } from '@/lib/shopify';
 import { db } from '@/lib/db';
+import { handleComplianceTopic } from '@/lib/compliance';
 
 export async function POST(
   request: NextRequest,
@@ -23,9 +24,9 @@ export async function POST(
     // hours after uninstall, by which point the store row may already be gone, and it
     // requires a 2xx regardless — bailing out early on "unknown store" would leave these
     // permanently failing in the Partner Dashboard.
-    const complianceHandler = complianceHandlers[topic];
-    if (complianceHandler) {
-      await complianceHandler(data, shopDomain);
+    // Compliance topics are handled before the store lookup: shop/redact arrives after
+    // the store may already be gone. Shared with /api/webhooks/compliance.
+    if (await handleComplianceTopic(topic, data, shopDomain)) {
       return NextResponse.json({ received: true });
     }
 
@@ -53,122 +54,6 @@ export async function POST(
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }
-
-// ── Mandatory GDPR Compliance Webhooks ──
-//
-// Shopify requires all three of these for every public app. They are configured in the
-// Partner Dashboard under App setup > Compliance webhooks (they cannot be registered via
-// the webhook API), and must be reachable, HMAC-verified, and return 2xx. Missing or
-// failing compliance webhooks are the single most common App Store rejection reason.
-//
-// URLs to enter in the Partner Dashboard:
-//   customers/data_request -> {APP_URL}/api/webhooks/customers-data_request
-//   customers/redact       -> {APP_URL}/api/webhooks/customers-redact
-//   shop/redact            -> {APP_URL}/api/webhooks/shop-redact
-
-type ComplianceHandler = (data: Record<string, unknown>, shop: string) => Promise<void>;
-
-const complianceHandlers: Record<string, ComplianceHandler> = {
-  // A merchant asked what personal data we hold about one of their customers.
-  // We have 30 days to supply it to the merchant.
-  'customers-data_request': async (data, shop) => {
-    const payload = data as {
-      customer?: { id?: number; email?: string };
-      orders_requested?: number[];
-    };
-    const email = payload.customer?.email || null;
-
-    const store = await db.store.findUnique({ where: { shopifyDomain: shop } });
-    if (!store) {
-      console.log(`[GDPR] data_request for unknown store ${shop} — nothing held`);
-      return;
-    }
-
-    // The only customer personal data this app stores is on reviews.
-    const reviews = email
-      ? await db.review.findMany({
-          where: { storeId: store.id, reviewerEmail: email },
-          select: {
-            id: true,
-            reviewerName: true,
-            reviewerEmail: true,
-            reviewerLocation: true,
-            rating: true,
-            title: true,
-            body: true,
-            reviewDate: true,
-          },
-        })
-      : [];
-
-    // Recorded for the audit trail. Fulfilment is manual within the 30-day window:
-    // export this record and send it to the merchant.
-    await db.analyticsEvent.create({
-      data: {
-        storeId: store.id,
-        eventType: 'gdpr_data_request',
-        eventData: JSON.stringify({
-          shop,
-          customerId: payload.customer?.id ?? null,
-          customerEmail: email,
-          reviewCount: reviews.length,
-          reviews,
-          requestedAt: new Date().toISOString(),
-        }),
-      },
-    });
-
-    console.log(`[GDPR] data_request for ${shop}: ${reviews.length} review(s) held`);
-  },
-
-  // A customer asked to be erased. Must delete their personal data.
-  'customers-redact': async (data, shop) => {
-    const payload = data as { customer?: { id?: number; email?: string } };
-    const email = payload.customer?.email;
-
-    const store = await db.store.findUnique({ where: { shopifyDomain: shop } });
-    if (!store || !email) return;
-
-    // Anonymise rather than delete: the rating and body are the merchant's business data
-    // and legitimately survive, but everything identifying the person must go.
-    const { count } = await db.review.updateMany({
-      where: { storeId: store.id, reviewerEmail: email },
-      data: {
-        reviewerName: 'Anonymous',
-        reviewerEmail: null,
-        reviewerAvatar: null,
-        reviewerLocation: null,
-        seoTitle: null,
-        seoDescription: null,
-        customFields: null,
-      },
-    });
-
-    console.log(`[GDPR] customers-redact for ${shop}: anonymised ${count} review(s)`);
-  },
-
-  // Sent 48 hours after uninstall. Erase everything belonging to the shop.
-  'shop-redact': async (_data, shop) => {
-    const store = await db.store.findUnique({ where: { shopifyDomain: shop } });
-    if (!store) {
-      console.log(`[GDPR] shop-redact for ${shop} — already erased`);
-      return;
-    }
-
-    const storeId = store.id;
-
-    // Children first: Review and Product carry FK references to Store.
-    await db.review.deleteMany({ where: { storeId } });
-    await db.product.deleteMany({ where: { storeId } });
-    await db.importJob.deleteMany({ where: { storeId } });
-    await db.widgetConfig.deleteMany({ where: { storeId } });
-    await db.storeSetting.deleteMany({ where: { storeId } });
-    await db.analyticsEvent.deleteMany({ where: { storeId } });
-    await db.store.delete({ where: { id: storeId } });
-
-    console.log(`[GDPR] shop-redact complete for ${shop}`);
-  },
-};
 
 // ── Webhook Topic Handlers ──
 type WebhookHandler = (data: Record<string, unknown>, storeId: string, shop: string) => Promise<void>;
