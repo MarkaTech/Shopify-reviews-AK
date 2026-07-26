@@ -2,9 +2,9 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const { storeId } = withAuth(request as unknown as Request);
+    const { storeId } = await withAuth(request);
     const settings = await db.storeSetting.findMany({ where: { storeId } });
     const settingsMap: Record<string, string> = {};
     settings.forEach(s => { settingsMap[s.key] = s.value; });
