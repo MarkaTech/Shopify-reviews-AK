@@ -1,38 +1,25 @@
-# Shopify app configuration.
-#
-# Deploy changes with:  shopify app deploy
-#
-# IMPORTANT: this file is the source of truth once you start using the CLI. Anything set
-# here overwrites what is configured in the Dev Dashboard, so keep the two in step —
-# especially use_legacy_install_flow, which this app depends on.
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "29b49298063da4f8633daaeb2e652e39"
 name = "ReviewMaster"
-handle = "reviewmaster-reviews"
 application_url = "https://reviewmaster-app.azurewebsites.net"
 embedded = true
+handle = "reviewmaster-reviews"
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "/api/webhooks/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
 [access_scopes]
-scopes = "read_products,write_products,read_orders,read_customers,read_script_tags,write_script_tags,read_themes,write_themes"
-
-# This app implements the classic OAuth authorization-code flow (/api/auth/install →
-# Shopify authorize → /api/auth/callback). Shopify's managed installation with token
-# exchange replaces that flow entirely, so it must stay disabled or installs will never
-# reach the app's callback.
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,read_orders,read_products,write_products,read_script_tags,write_script_tags,read_themes,write_themes"
 use_legacy_install_flow = true
+optional_scopes = [ ]
 
 [auth]
 redirect_urls = [
   "https://reviewmaster-app.azurewebsites.net/api/auth/callback"
 ]
-
-[webhooks]
-api_version = "2026-07"
-
-# The three mandatory privacy topics. Shopify posts all of them to this single URI and
-# identifies which is which via the X-Shopify-Topic header.
-[[webhooks.subscriptions]]
-compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
-uri = "https://reviewmaster-app.azurewebsites.net/api/webhooks/compliance"
-
-[build]

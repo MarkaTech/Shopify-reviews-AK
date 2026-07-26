@@ -37,7 +37,7 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     maxWidgets: 1,
     allowedWidgetTypes: ['list'],
     csvImport: false,
-    platformImport: false,
+    platformImport: true,
     photoReviews: false,
     advancedAnalytics: false,
     apiAccess: false,
@@ -50,7 +50,7 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     maxWidgets: 5,
     allowedWidgetTypes: null,
     csvImport: true,
-    platformImport: false,
+    platformImport: true,
     photoReviews: true,
     advancedAnalytics: false,
     apiAccess: false,
@@ -149,6 +149,20 @@ function cheapestPlanForReviews(count: number): PlanId | null {
     const max = PLANS[p].maxReviews;
     return max === null || max >= count;
   }) ?? null;
+}
+
+/**
+ * How many more reviews this store may add. null means unlimited.
+ *
+ * Used by the platform importer, which is available on every plan but bounded by the
+ * plan's total review cap — so a Free store can import, just not past 50 reviews.
+ */
+export async function getRemainingReviewCapacity(storeId: string): Promise<number | null> {
+  const plan = await getStorePlan(storeId);
+  const limit = PLANS[plan].maxReviews;
+  if (limit === null) return null;
+  const used = await db.review.count({ where: { storeId } });
+  return Math.max(0, limit - used);
 }
 
 /**
