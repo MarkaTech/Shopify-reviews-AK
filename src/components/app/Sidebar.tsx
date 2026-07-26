@@ -24,6 +24,24 @@ export type PageId = 'dashboard' | 'reviews' | 'import' | 'bulk-upload' | 'widge
 interface SidebarProps {
   currentPage: PageId;
   onPageChange: (page: PageId) => void;
+  /** Real store details. The footer previously hardcoded a fictional store on a Pro
+   *  plan, which contradicted the header and told Free-plan merchants they were paying. */
+  storeName?: string;
+  storeDomain?: string;
+  plan?: string;
+}
+
+const PLAN_META: Record<string, { label: string; short: string; price: string }> = {
+  free: { label: 'Free Plan', short: 'FREE', price: '$0/mo' },
+  starter: { label: 'Starter Plan', short: 'START', price: '$9.99/mo' },
+  pro: { label: 'Pro Plan', short: 'PRO', price: '$29.99/mo' },
+  enterprise: { label: 'Enterprise Plan', short: 'ENT', price: '$99.99/mo' },
+};
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'ST';
+  return (parts[0][0] + (parts[1]?.[0] ?? parts[0][1] ?? '')).toUpperCase();
 }
 
 const mainNav = [
@@ -43,7 +61,9 @@ const settingsNav = [
   { id: 'settings' as PageId, label: 'Settings', icon: Settings },
 ];
 
-export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
+export default function Sidebar({ currentPage, onPageChange, storeName, storeDomain, plan }: SidebarProps) {
+  const planKey = plan && plan in PLAN_META ? plan : 'free';
+  const planMeta = PLAN_META[planKey];
   const reviewsOpen = ['reviews', 'import', 'bulk-upload'].includes(currentPage);
   const settingsOpen = ['products', 'widgets', 'settings'].includes(currentPage);
 
@@ -159,27 +179,33 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
       <div className="p-3 border-t border-gray-200">
         <div className="flex items-center gap-2 px-2 mb-2">
           <Avatar className="w-7 h-7">
-            <AvatarFallback className="text-xs bg-emerald-100 text-emerald-700">MS</AvatarFallback>
+            <AvatarFallback className="text-xs bg-emerald-100 text-emerald-700">{initialsOf(storeName || '')}</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate">My Shopify Store</p>
-            <p className="text-[10px] text-muted-foreground truncate">mystore.myshopify.com</p>
+            <p className="text-xs font-medium truncate">{storeName || 'Your store'}</p>
+            <p className="text-[10px] text-muted-foreground truncate">{storeDomain || '—'}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="flex-1 h-7 text-xs gap-1.5">
-                <span className="bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 text-[10px] font-medium">PRO</span>
-                Pro Plan
+                <span className="bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 text-[10px] font-medium">{planMeta.short}</span>
+                {planMeta.label}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
               <DropdownMenuLabel>Current Plan</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Free — $0/mo</DropdownMenuItem>
-              <DropdownMenuItem className="bg-emerald-50 text-emerald-700">Pro — $29/mo ✓</DropdownMenuItem>
-              <DropdownMenuItem>Enterprise — $99/mo</DropdownMenuItem>
+              {(['free', 'starter', 'pro', 'enterprise'] as const).map((p) => (
+                <DropdownMenuItem
+                  key={p}
+                  className={p === planKey ? 'bg-emerald-50 text-emerald-700' : ''}
+                >
+                  {PLAN_META[p].label.replace(' Plan', '')} — {PLAN_META[p].price}
+                  {p === planKey ? ' ✓' : ''}
+                </DropdownMenuItem>
+              ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem>
                 <ExternalLink className="w-3.5 h-3.5 mr-2" />

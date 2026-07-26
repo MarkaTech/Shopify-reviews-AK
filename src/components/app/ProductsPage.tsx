@@ -12,6 +12,10 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
+import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 
 interface Product {
   id: string;
@@ -71,21 +75,84 @@ export default function ProductsPage() {
     return () => { cancelled = true; };
   }, [search, sortBy, sortOrder, hasReviewsFilter, refreshKey]);
 
+  // --- Add Review dialog ---------------------------------------------------------
+  // Both of these buttons were previously rendered with no onClick at all.
+  const [reviewFor, setReviewFor] = useState<Product | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ reviewerName: '', rating: 5, title: '', body: '' });
+
+  const openReviewDialog = (product: Product) => {
+    setForm({ reviewerName: '', rating: 5, title: '', body: '' });
+    setReviewFor(product);
+  };
+
+  const submitReview = async () => {
+    if (!reviewFor) return;
+    if (!form.reviewerName.trim() || !form.body.trim()) {
+      toast.error('Reviewer name and review text are required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch('/api/reviews', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: reviewFor.id,
+          reviewerName: form.reviewerName.trim(),
+          rating: form.rating,
+          title: form.title.trim() || null,
+          body: form.body.trim(),
+          source: 'direct',
+          isPublished: true,
+        }),
+      });
+      toast.success('Review added.');
+      setReviewFor(null);
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.isPlanLimit) {
+        toast.error(err.userMessage, { description: 'Open Settings to change your plan.', duration: 8000 });
+      } else {
+        toast.error(errorMessage(err, 'Could not add the review'));
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Open the product in the merchant's Shopify admin. */
+  const openInShopify = (product: Product) => {
+    if (!product.shopifyId) {
+      toast.error('This product has no Shopify ID and cannot be opened.');
+      return;
+    }
+    const url = `https://admin.shopify.com/products/${product.shopifyId}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch('/api/products/sync', { method: 'POST' });
-      const data = await res.json();
-      toast.success(`Synced ${data.synced} new products from Shopify`);
+      const data = await apiFetch<{ synced: number; total: number; source: string }>(
+        '/api/products/sync', { method: 'POST' }
+      );
+      if (data.synced === 0) {
+        toast.info(`No new products found. ${data.total} already synced.`);
+      } else {
+        toast.success(`Synced ${data.synced} new product${data.synced === 1 ? '' : 's'} from Shopify`);
+      }
       setRefreshKey(k => k + 1);
-    } catch {
-      toast.error('Sync failed');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Sync failed'));
+    } finally {
+      setSyncing(false);
     }
-    setSyncing(false);
   };
 
   const totalReviews = products.reduce((sum, p) => sum + p.reviewCount, 0);
-  const avgAllRatings = products.length
+  // Guard on totalReviews, not products.length. With 17 products and 0 reviews the old
+  // check passed and then divided by zero, rendering "NaN" on the dashboard.
+  const avgAllRatings = totalReviews > 0
     ? (products.reduce((sum, p) => sum + (p.averageRating * p.reviewCount), 0) / totalReviews).toFixed(1)
     : '0.0';
 
@@ -252,10 +319,21 @@ export default function ProductsPage() {
                 )}
 
                 <div className="flex items-center gap-2 mt-3">
-                  <Button variant="outline" size="sm" className="flex-1 h-7 text-[11px] gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 h-7 text-[11px] gap-1"
+                    onClick={() => openReviewDialog(product)}
+                  >
                     <MessageSquare className="w-3 h-3" /> Add Review
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 w-7 p-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    title="Open in Shopify admin"
+                    onClick={() => openInShopify(product)}
+                  >
                     <ExternalLink className="w-3 h-3" />
                   </Button>
                 </div>
@@ -264,6 +342,88 @@ export default function ProductsPage() {
           ))
         )}
       </div>
+
+      {/* Add Review dialog */}
+      <Dialog open={reviewFor !== null} onOpenChange={(open) => !open && setReviewFor(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Add a review</DialogTitle>
+            <DialogDescription className="text-xs">
+              {reviewFor?.title}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="reviewerName" className="text-xs">Reviewer name *</Label>
+              <Input
+                id="reviewerName"
+                value={form.reviewerName}
+                onChange={(e) => setForm(f => ({ ...f, reviewerName: e.target.value }))}
+                placeholder="Jane Doe"
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Rating *</Label>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                    onClick={() => setForm(f => ({ ...f, rating: n }))}
+                    className="p-0.5"
+                  >
+                    <Star
+                      className={`w-5 h-5 ${n <= form.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}`}
+                    />
+                  </button>
+                ))}
+                <span className="ml-2 text-xs text-muted-foreground">{form.rating} of 5</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="reviewTitle" className="text-xs">Title</Label>
+              <Input
+                id="reviewTitle"
+                value={form.title}
+                onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="Great product"
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="reviewBody" className="text-xs">Review *</Label>
+              <Textarea
+                id="reviewBody"
+                value={form.body}
+                onChange={(e) => setForm(f => ({ ...f, body: e.target.value }))}
+                placeholder="What did the customer think?"
+                rows={4}
+                className="text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setReviewFor(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-xs"
+              onClick={submitReview}
+              disabled={saving}
+            >
+              {saving ? 'Saving…' : 'Add review'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

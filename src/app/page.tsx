@@ -203,7 +203,13 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen bg-gray-50/50">
-      <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
+      <Sidebar
+        currentPage={currentPage}
+        onPageChange={setCurrentPage}
+        storeName={storeName}
+        storeDomain={storeDomain}
+        plan={storePlan}
+      />
 
       <main className="flex-1 ml-[260px]">
         <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-200/60">

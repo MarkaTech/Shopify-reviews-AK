@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 
 const platforms = [
   {
@@ -64,30 +65,46 @@ export default function ImportPage() {
   const [productId, setProductId] = useState('');
 
   useEffect(() => {
-    fetch('/api/import').then(r => r.json()).then(d => setJobs(d.jobs || []));
+    apiFetch<{ jobs: ImportJob[] }>('/api/import')
+      .then(d => setJobs(d.jobs || []))
+      .catch(() => setJobs([]));
   }, []);
 
   const handleImport = async () => {
     if (!selectedPlatform) return;
     setImporting(true);
     try {
-      const res = await fetch('/api/import', {
+      // apiFetch throws on any non-2xx. Previously this read data.importedReviews from a
+      // failed response and reported "Imported undefined reviews" as a success.
+      const data = await apiFetch<{ importedReviews: number }>('/api/import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: selectedPlatform, config: { url: importUrl, productId } }),
       });
-      const data = await res.json();
-      toast.success(`Imported ${data.importedReviews} reviews from ${selectedPlatform}`);
+
+      const n = data.importedReviews ?? 0;
+      if (n === 0) {
+        toast.info(`No reviews were found to import from ${selectedPlatform}.`);
+      } else {
+        toast.success(`Imported ${n} review${n === 1 ? '' : 's'} from ${selectedPlatform}`);
+      }
+
       setSelectedPlatform(null);
       setImportUrl('');
       setProductId('');
-      const jobsRes = await fetch('/api/import');
-      const jobsData = await jobsRes.json();
+      const jobsData = await apiFetch<{ jobs: ImportJob[] }>('/api/import');
       setJobs(jobsData.jobs || []);
-    } catch {
-      toast.error('Import failed');
+    } catch (err) {
+      if (err instanceof ApiError && err.isPlanLimit) {
+        toast.error(err.userMessage, {
+          description: 'Open Settings to change your plan.',
+          duration: 8000,
+        });
+      } else {
+        toast.error(errorMessage(err, 'Import failed'));
+      }
+    } finally {
+      setImporting(false);
     }
-    setImporting(false);
   };
 
   return (
