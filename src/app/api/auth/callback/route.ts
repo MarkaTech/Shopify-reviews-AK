@@ -16,7 +16,13 @@ const SHOP_DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    const url = new URL(request.url);
+    const { searchParams } = url;
+    // The RAW query string, exactly as Shopify sent it. searchParams.toString()
+    // re-serialises with URLSearchParams' own encoding rules, which silently rewrites
+    // things like the `=` padding on the base64 `host` value and makes it impossible to
+    // check the signature against the on-the-wire form.
+    const rawQuery = url.search.startsWith('?') ? url.search.slice(1) : url.search;
     const shop = searchParams.get('shop');
     const code = searchParams.get('code');
     const state = searchParams.get('state');
@@ -38,8 +44,9 @@ export async function GET(request: NextRequest) {
     // 64-byte digest. crypto.timingSafeEqual throws on length mismatch, so the call threw
     // a RangeError on EVERY callback and the catch below redirected to auth_failed —
     // meaning no merchant could ever complete an install. Pass the string through intact;
-    // verifyShopifyHmac strips the hmac parameter itself.
-    if (!verifyShopifyHmac(searchParams.toString())) {
+    // verifyShopifyHmac strips the hmac parameter itself, and checks both the encoded and
+    // decoded canonical forms because Shopify's spec is ambiguous about which it signs.
+    if (!verifyShopifyHmac(rawQuery)) {
       return NextResponse.redirect(`${SHOPIFY_APP_URL}/?error=invalid_hmac`);
     }
 

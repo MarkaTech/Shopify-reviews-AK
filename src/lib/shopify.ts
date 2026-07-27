@@ -38,10 +38,70 @@ function safeCompare(a: string, b: string): boolean {
 }
 
 /**
+ * Build the two candidate canonical strings Shopify might have signed.
+ *
+ * Shopify's instruction is to "transform the query string to a key-value table, remove the
+ * hmac key-value pair, and then transform your map back to a query string." That round
+ * trip is ambiguous: transforming a map back to a query string may or may not re-encode
+ * the values, and the two produce completely different digests the moment any value
+ * contains a reserved character.
+ *
+ * In practice this bites on `host`, which is base64 of `admin.shopify.com/store/<shop>`.
+ * Whenever that string's length is not a multiple of 3 the base64 carries `=` padding,
+ * which is `%3D` encoded and `=` decoded. Whether an install succeeds would otherwise
+ * depend on the character count of the shop's domain — which is exactly the kind of
+ * bug that looks intermittent and unreproducible.
+ *
+ * Rather than bet on one reading, compute both and accept either. Both are full
+ * HMAC-SHA256 checks against the real client secret, so this does not weaken the
+ * signature check: a forger still has to produce a valid digest under one of two fixed,
+ * well-defined encodings without knowing the secret.
+ *
+ * @returns [encodedForm, decodedForm] — the message as Shopify sent it on the wire, and
+ *          the same parameters with values percent-decoded.
+ */
+function canonicalMessages(queryString: string): [string, string] {
+  const rawPairs: string[] = [];
+  const decodedPairs: string[] = [];
+
+  for (const pair of queryString.split('&')) {
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    const rawKey = eq === -1 ? pair : pair.slice(0, eq);
+    const rawValue = eq === -1 ? '' : pair.slice(eq + 1);
+
+    const key = safeDecode(rawKey);
+    // Shopify excludes both hmac and the legacy signature parameter from the message.
+    if (key === 'hmac' || key === 'signature') continue;
+
+    rawPairs.push(`${rawKey}=${rawValue}`);
+    decodedPairs.push(`${key}=${safeDecode(rawValue)}`);
+  }
+
+  return [rawPairs.sort().join('&'), decodedPairs.sort().join('&')];
+}
+
+/** decodeURIComponent that returns the input unchanged rather than throwing on bad input. */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, ' '));
+  } catch {
+    return value;
+  }
+}
+
+function digest(message: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(message).digest('hex');
+}
+
+/**
  * Verify the HMAC on an OAuth / App Bridge query string.
  *
- * Pass the FULL query string including the hmac parameter — this function strips it
- * before computing the digest. Callers must not pre-strip it.
+ * Pass the RAW query string exactly as it arrived, including the hmac parameter — this
+ * function strips it before computing the digest. Do NOT pass
+ * `new URL(request.url).searchParams.toString()`: URLSearchParams re-serialises with its
+ * own encoding rules, which destroys the on-the-wire form this needs in order to check
+ * the encoded variant. Use `new URL(request.url).search.slice(1)`.
  */
 export function verifyShopifyHmac(queryString: string, secret: string = SHOPIFY_API_SECRET): boolean {
   const params = new URLSearchParams(queryString);
@@ -50,22 +110,32 @@ export function verifyShopifyHmac(queryString: string, secret: string = SHOPIFY_
   // No signature at all is a failure, not something to compare against the empty string.
   if (!hmac) return false;
 
-  // Shopify excludes both hmac and the legacy signature param from the signed message.
-  params.delete('hmac');
-  params.delete('signature');
+  const [encodedForm, decodedForm] = canonicalMessages(queryString);
 
-  const sortedParams: string[] = [];
-  params.forEach((value, key) => {
-    sortedParams.push(`${key}=${value}`);
-  });
-  const message = sortedParams.sort().join('&');
+  const encodedDigest = digest(encodedForm, secret);
+  if (safeCompare(hmac, encodedDigest)) return true;
 
-  const expectedHmac = crypto
-    .createHmac('sha256', secret)
-    .update(message)
-    .digest('hex');
+  const decodedDigest = digest(decodedForm, secret);
+  if (safeCompare(hmac, decodedDigest)) return true;
 
-  return safeCompare(hmac, expectedHmac);
+  // Neither form matched. Log enough to tell a canonicalisation problem apart from a
+  // wrong secret, without ever putting the secret — or a merchant's `code` — in a log.
+  //
+  // Parameter NAMES only. Digest prefixes are safe: the hmac is public (it travels in the
+  // URL), and 8 hex characters of a SHA-256 digest reveal nothing about the key.
+  console.error(
+    '[hmac] verification failed',
+    JSON.stringify({
+      params: Array.from(params.keys()).sort(),
+      received: hmac.slice(0, 8),
+      encodedCandidate: encodedDigest.slice(0, 8),
+      decodedCandidate: decodedDigest.slice(0, 8),
+      formsDiffer: encodedForm !== decodedForm,
+      secretLength: secret.length,
+    })
+  );
+
+  return false;
 }
 
 export function verifyWebhookHmac(body: string, hmacHeader: string, secret: string = SHOPIFY_API_SECRET): boolean {
