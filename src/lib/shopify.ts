@@ -214,6 +214,14 @@ export async function createRecurringCharge(
     return returnUrl; // Free plan — no charge needed
   }
 
+  // Development stores cannot be charged for real. Shopify rejects a live charge against
+  // one, and the error it returns ("owned by a Shop... must be migrated to the Shopify
+  // partners area") describes the wrong problem entirely, which makes it hard to diagnose.
+  // Test charges behave identically through the whole approval flow but move no money.
+  //
+  // Set SHOPIFY_BILLING_TEST=false in production once real merchants install.
+  const isTestCharge = (process.env.SHOPIFY_BILLING_TEST ?? 'true').toLowerCase() !== 'false';
+
   const chargeData = {
     recurring_application_charge: {
       name: `ReviewMaster ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
@@ -221,6 +229,7 @@ export async function createRecurringCharge(
       return_url: returnUrl,
       trial_days: 7,
       capped_amount: 500,
+      test: isTestCharge,
       terms: 'Charges will be applied monthly. Cancel anytime from your Shopify admin.',
     },
   };
