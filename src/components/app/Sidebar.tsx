@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  LayoutDashboard, Star, Upload, Download, FileSpreadsheet,
+  LayoutDashboard, Star, Upload, FileSpreadsheet,
   Settings, ShoppingBag, Palette, BarChart3, MessageSquare,
   ChevronDown, ChevronRight, LogOut, Bell, Search, User,
   HelpCircle, ExternalLink
@@ -19,7 +19,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
-export type PageId = 'dashboard' | 'reviews' | 'import' | 'bulk-upload' | 'widgets' | 'settings' | 'products';
+export type PageId = 'dashboard' | 'reviews' | 'bulk-upload' | 'widgets' | 'settings' | 'products';
 
 interface SidebarProps {
   currentPage: PageId;
@@ -49,10 +49,14 @@ const mainNav = [
   { id: 'reviews' as PageId, label: 'Reviews', icon: Star, badge: null },
 ];
 
+// The marketplace URL importer was removed. It could not work — Amazon and Alibaba block
+// automated fetches and publish no per-review structured data — and republishing another
+// seller's reviews as your own breaks the FTC Rule on Consumer Reviews and the EU Omnibus
+// Directive regardless. Legitimate review sources are a CSV of reviews the merchant owns,
+// and first-party requests sent after a real order. Both live under Import Reviews.
 const reviewSubNav = [
   { id: 'reviews' as PageId, label: 'All Reviews', icon: MessageSquare },
-  { id: 'import' as PageId, label: 'Import Reviews', icon: Download },
-  { id: 'bulk-upload' as PageId, label: 'Bulk Upload', icon: FileSpreadsheet },
+  { id: 'bulk-upload' as PageId, label: 'Import Reviews', icon: FileSpreadsheet },
 ];
 
 const settingsNav = [
@@ -64,7 +68,7 @@ const settingsNav = [
 export default function Sidebar({ currentPage, onPageChange, storeName, storeDomain, plan }: SidebarProps) {
   const planKey = plan && plan in PLAN_META ? plan : 'free';
   const planMeta = PLAN_META[planKey];
-  const reviewsOpen = ['reviews', 'import', 'bulk-upload'].includes(currentPage);
+  const reviewsOpen = ['reviews', 'bulk-upload'].includes(currentPage);
   const settingsOpen = ['products', 'widgets', 'settings'].includes(currentPage);
 
   return (

@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar, { type PageId } from '@/components/app/Sidebar';
 import DashboardPage from '@/components/app/DashboardPage';
 import ReviewsPage from '@/components/app/ReviewsPage';
-import ImportPage from '@/components/app/ImportPage';
 import BulkUploadPage from '@/components/app/BulkUploadPage';
 import WidgetsPage from '@/components/app/WidgetsPage';
 import SettingsPage from '@/components/app/SettingsPage';
@@ -19,8 +18,7 @@ import { Loader2, Store, Star, Shield, Upload, Zap, Globe } from 'lucide-react';
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
   dashboard: { title: 'Dashboard', desc: 'Overview of your reviews and analytics' },
   reviews: { title: 'Reviews', desc: 'Manage all customer reviews', parent: 'Review Management' },
-  import: { title: 'Import Reviews', desc: 'Import from Amazon, eBay, Etsy, and more', parent: 'Review Management' },
-  'bulk-upload': { title: 'Bulk Upload', desc: 'Upload reviews via CSV or manual entry', parent: 'Review Management' },
+  'bulk-upload': { title: 'Import Reviews', desc: 'Upload reviews you own via CSV, or collect them from real orders', parent: 'Review Management' },
   products: { title: 'Products', desc: 'Synced products from Shopify', parent: 'Configuration' },
   widgets: { title: 'Widgets', desc: 'Customize review display on storefront', parent: 'Configuration' },
   settings: { title: 'Settings', desc: 'App preferences and subscription', parent: 'Configuration' },
@@ -211,7 +209,6 @@ export default function Home() {
     switch (currentPage) {
       case 'dashboard': return <DashboardPage />;
       case 'reviews': return <ReviewsPage />;
-      case 'import': return <ImportPage />;
       case 'bulk-upload': return <BulkUploadPage />;
       case 'products': return <ProductsPage />;
       case 'widgets': return <WidgetsPage />;
@@ -243,7 +240,7 @@ export default function Home() {
                         className="text-xs text-muted-foreground hover:text-foreground"
                         onClick={(e) => {
                           e.preventDefault();
-                          if (currentPage === 'reviews' || currentPage === 'import' || currentPage === 'bulk-upload') setCurrentPage('reviews');
+                          if (currentPage === 'reviews' || currentPage === 'bulk-upload') setCurrentPage('reviews');
                           else if (currentPage === 'products' || currentPage === 'widgets' || currentPage === 'settings') setCurrentPage('settings');
                         }}
                       >
