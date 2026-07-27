@@ -124,8 +124,35 @@ export default function BulkUploadPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-lg font-bold">Bulk Upload</h2>
-        <p className="text-xs text-muted-foreground">Upload multiple reviews at once using CSV or manual entry</p>
+        <h2 className="text-lg font-bold">Import Reviews</h2>
+        <p className="text-xs text-muted-foreground">Bring in reviews you already own, via CSV or manual entry</p>
+      </div>
+
+      {/*
+        Replaces the marketplace URL importer, which scraped Amazon and Alibaba product
+        pages. That approach fails technically (both sites block automated fetches and
+        publish no per-review structured data) and, more importantly, republishing another
+        seller's reviews as your own is misrepresentation under the FTC Rule on Consumer
+        Reviews and the EU Omnibus Directive. This panel names the two sources that are
+        actually defensible — the same two Judge.me and Loox use.
+      */}
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+        <p className="text-xs font-semibold text-blue-900">Where reviews can come from</p>
+        <ul className="mt-1.5 space-y-1 text-[11px] text-blue-800">
+          <li>
+            <strong>Reviews you own</strong> — export them from your own seller account or
+            your previous review app, and upload the CSV below.
+          </li>
+          <li>
+            <strong>Your own customers</strong> — after an order is paid, ReviewMaster
+            emails the buyer a private link. Those come back marked as verified purchases.
+          </li>
+        </ul>
+        <p className="mt-1.5 text-[11px] text-blue-700">
+          Copying reviews from another seller&apos;s marketplace listing isn&apos;t supported:
+          they describe a different seller&apos;s transaction, and presenting them as yours
+          is illegal in the US and EU.
+        </p>
       </div>
 
       {/* Product Selection */}
