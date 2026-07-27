@@ -16,8 +16,10 @@
  * created and its link still works, so nothing is lost — it just has to be shared manually.
  */
 
+import crypto from 'crypto';
+
 export type SendResult =
-  | { sent: true; provider: 'resend' | 'sendgrid'; id?: string }
+  | { sent: true; provider: 'ses' | 'resend' | 'sendgrid'; id?: string }
   | { sent: false; reason: 'not_configured' | 'failed'; detail?: string };
 
 export interface EmailMessage {
@@ -32,10 +34,148 @@ function fromAddress(): string {
   return process.env.EMAIL_FROM?.trim() || 'ReviewMaster <onboarding@resend.dev>';
 }
 
-export function emailProvider(): 'resend' | 'sendgrid' | null {
+export function emailProvider(): 'ses' | 'resend' | 'sendgrid' | null {
+  if (process.env.AWS_ACCESS_KEY_ID?.trim() && process.env.AWS_SECRET_ACCESS_KEY?.trim()) return 'ses';
   if (process.env.RESEND_API_KEY?.trim()) return 'resend';
   if (process.env.SENDGRID_API_KEY?.trim()) return 'sendgrid';
   return null;
+}
+
+// ── AWS Signature V4 ─────────────────────────────────────────────────────────────────
+//
+// Implemented directly rather than via @aws-sdk/client-ses: that package pulls in a large
+// dependency tree, and this project's Docker build already resolves packages with
+// --legacy-peer-deps. Every dependency avoided is one less thing that can break a deploy.
+//
+// Verified against AWS's published SigV4 test vectors.
+
+function hmac(key: crypto.BinaryLike | Buffer, data: string): Buffer {
+  return crypto.createHmac('sha256', key).update(data, 'utf8').digest();
+}
+
+function sha256Hex(data: string): string {
+  return crypto.createHash('sha256').update(data, 'utf8').digest('hex');
+}
+
+export function signingKey(secret: string, date: string, region: string, service: string): Buffer {
+  return hmac(hmac(hmac(hmac(`AWS4${secret}`, date), region), service), 'aws4_request');
+}
+
+export function buildCanonicalRequest(
+  method: string,
+  path: string,
+  query: string,
+  headers: Record<string, string>,
+  payload: string
+): { canonical: string; signedHeaders: string } {
+  const sortedKeys = Object.keys(headers)
+    .map(k => k.toLowerCase())
+    .sort();
+
+  const lower: Record<string, string> = {};
+  for (const k of Object.keys(headers)) lower[k.toLowerCase()] = headers[k];
+
+  const canonicalHeaders = sortedKeys
+    .map(k => `${k}:${String(lower[k]).trim().replace(/\s+/g, ' ')}\n`)
+    .join('');
+  const signedHeaders = sortedKeys.join(';');
+
+  const canonical = [
+    method,
+    path,
+    query,
+    canonicalHeaders,
+    signedHeaders,
+    sha256Hex(payload),
+  ].join('\n');
+
+  return { canonical, signedHeaders };
+}
+
+export function buildAuthorization(opts: {
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  service: string;
+  method: string;
+  path: string;
+  query: string;
+  headers: Record<string, string>;
+  payload: string;
+  amzDate: string; // YYYYMMDDTHHMMSSZ
+}): string {
+  const date = opts.amzDate.slice(0, 8);
+  const scope = `${date}/${opts.region}/${opts.service}/aws4_request`;
+
+  const { canonical, signedHeaders } = buildCanonicalRequest(
+    opts.method, opts.path, opts.query, opts.headers, opts.payload
+  );
+
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    opts.amzDate,
+    scope,
+    sha256Hex(canonical),
+  ].join('\n');
+
+  const signature = crypto
+    .createHmac('sha256', signingKey(opts.secretAccessKey, date, opts.region, opts.service))
+    .update(stringToSign, 'utf8')
+    .digest('hex');
+
+  return `AWS4-HMAC-SHA256 Credential=${opts.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+}
+
+async function sendViaSes(msg: EmailMessage): Promise<SendResult> {
+  const region = process.env.AWS_SES_REGION?.trim() || process.env.AWS_REGION?.trim() || 'us-east-1';
+  const host = `email.${region}.amazonaws.com`;
+  const path = '/v2/email/outbound-emails';
+
+  const payload = JSON.stringify({
+    FromEmailAddress: fromAddress(),
+    Destination: { ToAddresses: [msg.to] },
+    ...(msg.replyTo ? { ReplyToAddresses: [msg.replyTo] } : {}),
+    Content: {
+      Simple: {
+        Subject: { Data: msg.subject, Charset: 'UTF-8' },
+        Body: {
+          Text: { Data: msg.text, Charset: 'UTF-8' },
+          Html: { Data: msg.html, Charset: 'UTF-8' },
+        },
+      },
+    },
+  });
+
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Host: host,
+    'X-Amz-Date': amzDate,
+  };
+  if (process.env.AWS_SESSION_TOKEN?.trim()) {
+    headers['X-Amz-Security-Token'] = process.env.AWS_SESSION_TOKEN.trim();
+  }
+
+  headers.Authorization = buildAuthorization({
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!.trim(),
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!.trim(),
+    region,
+    service: 'ses',
+    method: 'POST',
+    path,
+    query: '',
+    headers,
+    payload,
+    amzDate,
+  });
+
+  const res = await fetch(`https://${host}${path}`, { method: 'POST', headers, body: payload });
+
+  if (!res.ok) {
+    return { sent: false, reason: 'failed', detail: `SES ${res.status}: ${(await res.text()).slice(0, 300)}` };
+  }
+  const body = (await res.json().catch(() => ({}))) as { MessageId?: string };
+  return { sent: true, provider: 'ses', id: body.MessageId };
 }
 
 async function sendViaResend(msg: EmailMessage): Promise<SendResult> {
@@ -97,7 +237,9 @@ export async function sendEmail(msg: EmailMessage): Promise<SendResult> {
   if (!provider) return { sent: false, reason: 'not_configured' };
 
   try {
-    return provider === 'resend' ? await sendViaResend(msg) : await sendViaSendGrid(msg);
+    if (provider === 'ses') return await sendViaSes(msg);
+    if (provider === 'resend') return await sendViaResend(msg);
+    return await sendViaSendGrid(msg);
   } catch (err) {
     return { sent: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };
   }
