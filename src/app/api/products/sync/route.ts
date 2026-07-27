@@ -18,12 +18,12 @@ const SAMPLE_PRODUCTS = [
 
 export async function POST(request: Request) {
   try {
-    const { storeId, shop, accessToken } = await withAuth(request);
+    const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
 
     // Try real Shopify API first
     if (accessToken && shop) {
       try {
-        const shopifyProducts = await fetchShopifyProducts(shop, accessToken, 25);
+        const shopifyProducts = await fetchShopifyProducts(shop, accessToken, 25, onUnauthorized);
         let synced = 0;
 
         for (const sp of shopifyProducts) {

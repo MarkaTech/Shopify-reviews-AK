@@ -6,13 +6,24 @@
 
 import { NextResponse } from 'next/server';
 import { getShopifySession, SESSION_COOKIE_NAME } from './session';
-import { decryptToken } from './crypto';
 import { db } from './db';
+import {
+  getFreshAccessToken,
+  ReauthRequiredError,
+  tokenRefresherFor,
+  TOKEN_SELECT,
+} from './shopify-token';
 
 interface AuthContext {
   shop: string;
+  /** Guaranteed valid for at least the next 5 minutes. */
   accessToken: string;
   storeId: string;
+  /**
+   * Pass as the last argument to any Shopify helper. On a 401 it mints a replacement
+   * token and the call is retried once.
+   */
+  onUnauthorized: () => Promise<string | null>;
 }
 
 class UnauthorizedError extends Error {
@@ -35,7 +46,7 @@ export async function withAuth(request: Request): Promise<AuthContext> {
 
   const store = await db.store.findUnique({
     where: { id: session.storeId },
-    select: { id: true, shopifyDomain: true, accessToken: true, isActive: true },
+    select: { ...TOKEN_SELECT, isActive: true },
   });
 
   if (!store || !store.isActive) {
@@ -47,12 +58,24 @@ export async function withAuth(request: Request): Promise<AuthContext> {
     throw new UnauthorizedError('Unauthorized: session does not match store.');
   }
 
-  const accessToken = decryptToken(store.accessToken);
-  if (!accessToken) {
-    throw new UnauthorizedError('Unauthorized: no access token on file. Please reinstall the app.');
+  // Refreshes proactively when the 60-minute expiring token is within 5 minutes of the
+  // end of its life, and transparently upgrades legacy non-expiring tokens in place.
+  let accessToken: string;
+  try {
+    accessToken = await getFreshAccessToken(store);
+  } catch (error) {
+    if (error instanceof ReauthRequiredError) {
+      throw new UnauthorizedError(`Unauthorized: ${error.message}`);
+    }
+    throw error;
   }
 
-  return { shop: session.shop, accessToken, storeId: store.id };
+  return {
+    shop: session.shop,
+    accessToken,
+    storeId: store.id,
+    onUnauthorized: tokenRefresherFor(store.id),
+  };
 }
 
 /** Optional auth — resolves to null instead of throwing. */

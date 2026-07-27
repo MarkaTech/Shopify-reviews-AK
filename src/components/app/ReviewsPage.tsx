@@ -42,6 +42,7 @@ interface Review {
   isPublished: boolean;
   isPinned: boolean;
   reply: string | null;
+  repliedAt: string | null;
   helpfulCount: number;
   notHelpfulCount: number;
   reviewDate: string;
@@ -86,10 +87,24 @@ export default function ReviewsPage() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [showFilters, setShowFilters] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
+  /**
+   * Load the review list for the current filters.
+   *
+   * This used to be a `load()` closure declared inside the useEffect below, while five
+   * places in this component called `fetchReviews()` — a name that did not exist anywhere.
+   * Each of those calls threw `ReferenceError: fetchReviews is not defined` at runtime.
+   *
+   * The failure was doubly confusing because the throw happened AFTER the success toast
+   * and inside a try block, so publishing a review showed "Review published" immediately
+   * followed by "Could not update the review", and the list never refreshed. Every action
+   * on this page actually worked server-side; only the refresh was broken.
+   *
+   * `typescript.ignoreBuildErrors: true` in next.config.ts is why this shipped — tsc had
+   * been reporting it the whole time.
+   */
+  const fetchReviews = useCallback(async () => {
+    setLoading(true);
+    try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (ratingFilter !== 'all') params.set('rating', ratingFilter);
@@ -103,17 +118,26 @@ export default function ReviewsPage() {
       params.set('page', String(page));
       params.set('limit', '20');
 
-      const res = await fetch(`/api/reviews?${params}`, { credentials: 'include' });
-      if (!cancelled) {
-        const data = await res.json();
-        setReviews(data.reviews || []);
-        setTotal(data.total || 0);
-        setLoading(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
+      const data = await apiFetch<{ reviews?: Review[]; total?: number }>(
+        `/api/reviews?${params}`
+      );
+      setReviews(data.reviews || []);
+      setTotal(data.total || 0);
+    } catch (err) {
+      // The raw fetch here ignored res.ok and fed an error body straight into setReviews,
+      // which is how an expired session rendered as "0 reviews" instead of a prompt to
+      // reinstall.
+      toast.error(errorMessage(err, 'Could not load reviews'));
+      setReviews([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
   }, [search, ratingFilter, sourceFilter, sentimentFilter, publishedFilter, verifiedFilter, imagesFilter, sortBy, sortOrder, page]);
+
+  useEffect(() => {
+    fetchReviews();
+  }, [fetchReviews]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -133,7 +157,7 @@ export default function ReviewsPage() {
     try {
       await apiFetch(`/api/reviews/${id}`, { method: 'PUT', body: JSON.stringify(data) });
       toast.success(successMsg);
-      fetchReviews();
+      await fetchReviews();
     } catch (err) {
       // Previously every one of these reported success unconditionally, so a failed
       // request still showed "Review published" while nothing had changed.
@@ -145,7 +169,7 @@ export default function ReviewsPage() {
     try {
       await apiFetch(`/api/reviews/${id}`, { method: 'DELETE' });
       toast.success('Review deleted');
-      fetchReviews();
+      await fetchReviews();
     } catch (err) {
       toast.error(errorMessage(err, 'Could not delete the review'));
     }
@@ -176,7 +200,7 @@ export default function ReviewsPage() {
       toast.success('Reply added');
       setReplyDialog(null);
       setReplyText('');
-      fetchReviews();
+      await fetchReviews();
     } catch (err) {
       toast.error(errorMessage(err, 'Could not save the reply'));
     }
@@ -211,7 +235,7 @@ export default function ReviewsPage() {
     }
 
     setSelectedIds(new Set());
-    fetchReviews();
+    await fetchReviews();
   };
 
   const activeFilterCount = [ratingFilter, sourceFilter, sentimentFilter, publishedFilter, verifiedFilter, imagesFilter].filter(f => f !== 'all').length;

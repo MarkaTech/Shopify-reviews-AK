@@ -51,6 +51,25 @@ export default function Home() {
   // Check existing session on mount
   const checkSession = useCallback(async () => {
     try {
+      // Coming back from Shopify's subscription approval screen.
+      //
+      // Shopify redirects here with ?billing=success after the merchant approves (or
+      // declines) a charge. Confirm the plan straight away rather than waiting on the
+      // APP_SUBSCRIPTIONS_UPDATE webhook, which can lag by seconds to minutes — without
+      // this the merchant pays and then sees "Free plan" on the very next screen.
+      //
+      // The endpoint deliberately ignores anything in this URL and asks Shopify what is
+      // actually active, so a hand-edited query string cannot grant a paid tier.
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('billing') === 'success') {
+          params.delete('billing');
+          const rest = params.toString();
+          window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+          await fetch('/api/billing/confirm').catch(() => undefined);
+        }
+      }
+
       const res = await fetch('/api/store');
       if (res.ok) {
         const data = await res.json();

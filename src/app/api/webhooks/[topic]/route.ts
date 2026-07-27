@@ -63,7 +63,15 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     // Deactivate store but keep data for potential re-install
     await db.store.update({
       where: { id: storeId },
-      data: { isActive: false, accessToken: null },
+      // Drop every credential on uninstall. Leaving the refresh token behind would keep a
+      // 90-day renewable grant on file for a store that has revoked us.
+      data: {
+        isActive: false,
+        accessToken: null,
+        refreshToken: null,
+        tokenExpiresAt: null,
+        refreshTokenExpiresAt: null,
+      },
     });
     console.log(`Store ${storeId} uninstalled the app`);
   },
@@ -222,40 +230,36 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     });
   },
 
-  'app-charges-accepted': async (data, storeId, shop) => {
-    const charge = data as {
-      recurring_application_charge?: {
-        name: string;
-        price: number;
-        status: string;
-      };
-    };
+  /**
+   * Subscription state changed: approved, declined, cancelled, expired or frozen.
+   *
+   * Replaces the old 'app-charges-accepted' handler, which listened for a REST topic that
+   * does not exist in GraphQL — every paid upgrade webhook was being dropped.
+   *
+   * The payload's status is NOT trusted for entitlement. It tells us something changed;
+   * we then ask Shopify what is actually active. That closes the window where a cancelled
+   * or declined subscription leaves a merchant on a paid tier, and it means a downgrade is
+   * handled by exactly the same code path as an upgrade.
+   */
+  'app_subscriptions-update': async (data, storeId, shop) => {
+    const payload = data as { app_subscription?: { name?: string; status?: string } };
+    const reported = payload.app_subscription?.status ?? 'unknown';
 
-    if (charge.recurring_application_charge) {
-      const planName = charge.recurring_application_charge.name.toLowerCase();
-      let plan = 'free';
-      if (planName.includes('starter')) plan = 'starter';
-      else if (planName.includes('pro')) plan = 'pro';
-      else if (planName.includes('enterprise')) plan = 'enterprise';
+    const { resolveActivePlan } = await import('@/lib/shopify');
+    const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
 
-      await db.store.update({
-        where: { id: storeId },
-        data: { plan },
-      });
+    try {
+      // No session here — the token is loaded, decrypted, and refreshed if the 60-minute
+      // expiring token lapsed since the merchant last opened the app. A webhook arriving
+      // hours after the last page load is precisely the case a non-refreshing
+      // implementation gets wrong.
+      const token = await getFreshAccessTokenByStoreId(storeId);
+      const plan = await resolveActivePlan(shop, token, tokenRefresherFor(storeId));
 
-      // Activate the charge. The stored token is encrypted at rest, so decrypt before use.
-      const { activateCharge } = await import('@/lib/shopify');
-      const { decryptToken } = await import('@/lib/crypto');
-      const store = await db.store.findUnique({ where: { id: storeId } });
-      const token = decryptToken(store?.accessToken);
-      if (token) {
-        try {
-          const chargeId = String((data as Record<string, unknown>).id);
-          await activateCharge(shop, token, chargeId);
-        } catch (err) {
-          console.error('Failed to activate charge:', err);
-        }
-      }
+      await db.store.update({ where: { id: storeId }, data: { plan } });
+      console.info(`[billing] ${shop} -> ${plan} (subscription status: ${reported})`);
+    } catch (err) {
+      console.error(`[billing] failed to resolve plan for ${shop}:`, err);
     }
   },
 };

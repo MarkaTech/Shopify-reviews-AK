@@ -67,3 +67,6 @@ _to_delete/
 # local fix artifacts
 reviewmaster-fixes.tgz
 _backup_pre_fix/
+
+# transfer archives
+*.tgz

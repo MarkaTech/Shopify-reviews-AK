@@ -1,33 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { activateCharge } from '@/lib/shopify';
+import { resolveActivePlan } from '@/lib/shopify';
 import { db } from '@/lib/db';
 
+/**
+ * Landing point after the merchant approves (or declines) a subscription in Shopify.
+ *
+ * Two things changed here, both of them bugs rather than refactors:
+ *
+ * 1. SECURITY — the plan used to come from `?plan=` in the query string, which the browser
+ *    controls. Anyone could visit /api/billing/confirm?charge_id=1&plan=enterprise and be
+ *    granted the $99.99 tier without paying. The plan is now read from Shopify's own list
+ *    of active subscriptions, which is the only trustworthy source.
+ *
+ * 2. CORRECTNESS — there is no longer an "activate the charge" step. That belonged to the
+ *    REST recurring_application_charges flow, which this app can no longer use (new public
+ *    apps must be GraphQL-only). With appSubscriptionCreate, merchant approval activates
+ *    the subscription; we just read back what Shopify says is active.
+ *
+ * If the merchant declined, there is no active subscription and this correctly resolves to
+ * the free plan rather than silently upgrading them.
+ */
 export async function GET(request: NextRequest) {
   try {
-    const { shop, accessToken, storeId } = await withAuth(request);
-    const { searchParams } = new URL(request.url);
-    const chargeId = searchParams.get('charge_id');
+    const { shop, accessToken, storeId, onUnauthorized } = await withAuth(request);
 
-    if (!chargeId) {
-      return NextResponse.json({ error: 'charge_id is required' }, { status: 400 });
-    }
+    const plan = await resolveActivePlan(shop, accessToken, onUnauthorized);
 
-    // Activate the charge
-    await activateCharge(shop, accessToken, chargeId);
-
-    // Determine plan from charge name (simplified)
-    const plan = searchParams.get('plan') || 'pro';
-
-    // Update store plan
     await db.store.update({
       where: { id: storeId },
       data: { plan },
     });
 
-    return NextResponse.json({ success: true, plan, activated: true });
+    return NextResponse.json({
+      success: true,
+      plan,
+      activated: plan !== 'free',
+    });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to activate charge';
+    const message = error instanceof Error ? error.message : 'Failed to confirm subscription';
     const status = (error as Error & { status?: number }).status || 500;
     return NextResponse.json({ error: message }, { status });
   }
