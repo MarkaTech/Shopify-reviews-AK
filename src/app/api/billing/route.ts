@@ -4,7 +4,7 @@ import { createRecurringCharge, SHOPIFY_APP_URL } from '@/lib/shopify';
 
 export async function POST(request: NextRequest) {
   try {
-    const { shop, accessToken, storeId } = await withAuth(request);
+    const { shop, accessToken, storeId, onUnauthorized } = await withAuth(request);
 
     const body = await request.json() as { plan: string; returnUrl?: string };
     const { plan, returnUrl } = body;
@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
       shop,
       accessToken,
       plan,
-      chargeReturnUrl
+      chargeReturnUrl,
+      onUnauthorized
     );
 
     return NextResponse.json({

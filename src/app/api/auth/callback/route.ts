@@ -50,16 +50,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${SHOPIFY_APP_URL}/?error=invalid_state`);
     }
 
-    const accessToken = await exchangeAccessToken(shop, code);
+    // Requests an EXPIRING offline token (expiring=1). A non-expiring one is rejected by
+    // the Admin API for public apps created on or after 1 Apr 2026 — the 403 that was
+    // blocking every billing charge.
+    const tokens = await exchangeAccessToken(shop, code);
+    const accessToken = tokens.accessToken;
     const shopInfo = await fetchShopifyShop(shop, accessToken);
 
-    // Encrypted at rest — see src/lib/crypto.ts
+    // Both secrets encrypted at rest — see src/lib/crypto.ts. The refresh token is the
+    // more sensitive of the pair: it mints new access tokens for 90 days.
     const storeFields = {
       name: shopInfo.name,
       domain: shopInfo.domain,
       shopifyUrl: `https://${shop}`,
       shopifyDomain: shop,
       accessToken: encryptToken(accessToken),
+      refreshToken: tokens.refreshToken ? encryptToken(tokens.refreshToken) : null,
+      tokenExpiresAt: tokens.expiresAt,
+      refreshTokenExpiresAt: tokens.refreshExpiresAt,
       email: shopInfo.email || null,
       isActive: true,
       installedAt: new Date(),

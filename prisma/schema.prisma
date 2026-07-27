@@ -15,6 +15,21 @@ model Store {
   shopifyUrl      String?
   shopifyDomain   String?  @unique   // e.g. "my-store.myshopify.com"
   accessToken     String?              // Shopify access token, AES-256-GCM encrypted at rest (see src/lib/crypto.ts)
+
+  // ── Expiring offline token state ──
+  // Shopify requires expiring offline tokens for public apps created on or after
+  // 1 Apr 2026 (and for ALL public apps from 1 Jan 2027). The access token lives 60
+  // minutes and is rotated with a refresh token that lives 90 days.
+  //
+  // refreshToken is at least as sensitive as the access token — it mints new ones — so it
+  // is encrypted with the same AES-256-GCM helper.
+  //
+  // tokenExpiresAt null with no refreshToken means "legacy non-expiring token": upgraded
+  // in place on first use via token exchange, with no merchant interaction.
+  refreshToken          String?
+  tokenExpiresAt        DateTime?
+  refreshTokenExpiresAt DateTime?
+
   email           String?
   plan            String   @default("free") // free, starter, pro, enterprise
   isActive        Boolean  @default(true)

@@ -7,7 +7,7 @@ embedded = true
 handle = "reviewmaster-reviews"
 
 [webhooks]
-api_version = "2026-07"
+api_version = "2026-04"
 
   [[webhooks.subscriptions]]
   uri = "/api/webhooks/compliance"

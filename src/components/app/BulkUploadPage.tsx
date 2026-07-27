@@ -77,7 +77,10 @@ export default function BulkUploadPage() {
       const data = await apiFetch<{ imported: number; failed: number; total: number; errors?: string[] }>(
         '/api/bulk-upload', { method: 'POST', body: formData }
       );
-      setResult(data);
+      // errors is optional on the wire but required by the result state, so default it.
+      // Without this the type mismatch was masked by ignoreBuildErrors and `errors` could
+      // land as undefined, crashing the error list render below.
+      setResult({ ...data, errors: data.errors ?? [] });
 
       if (data.imported > 0) {
         toast.success(`Imported ${data.imported} review${data.imported === 1 ? '' : 's'}`);
