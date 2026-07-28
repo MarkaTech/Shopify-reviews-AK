@@ -467,16 +467,35 @@ export default function ReviewsPage() {
                       {review.title && <p className="text-sm font-medium mt-2">{review.title}</p>}
                       <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{review.body}</p>
 
-                      {/* Review Images */}
-                      {images.length > 0 && (
-                        <div className="flex gap-2 mt-2">
-                          {images.slice(0, 4).map((img: string, i: number) => (
-                            <img key={i} src={img} alt="" className="w-16 h-16 rounded-lg object-cover bg-gray-100 cursor-pointer hover:opacity-80 transition-opacity" />
+                      {/* Review media.
+                          Moderators need to SEE what a shopper attached before approving it —
+                          a review that reads well can carry an image that must not go on a
+                          storefront. Photos open full size; video plays inline with controls. */}
+                      {(images.length > 0 || review.videoUrl) && (
+                        <div className="flex gap-2 mt-2 flex-wrap items-start">
+                          {images.map((img: string, i: number) => (
+                            <a
+                              key={i}
+                              href={img}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open full size"
+                            >
+                              <img
+                                src={img}
+                                alt={`Photo ${i + 1} from ${review.reviewerName}`}
+                                loading="lazy"
+                                className="w-16 h-16 rounded-lg object-cover bg-gray-100 cursor-pointer hover:opacity-80 transition-opacity"
+                              />
+                            </a>
                           ))}
-                          {images.length > 4 && (
-                            <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-xs font-medium text-muted-foreground">
-                              +{images.length - 4}
-                            </div>
+                          {review.videoUrl && (
+                            <video
+                              src={review.videoUrl}
+                              controls
+                              preload="metadata"
+                              className="h-16 rounded-lg bg-gray-900"
+                            />
                           )}
                         </div>
                       )}

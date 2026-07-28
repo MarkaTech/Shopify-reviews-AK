@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { assertReviewCapacity, planLimitResponse } from '@/lib/plans';
+import { decryptToken } from '@/lib/crypto';
+import { validateFiles, uploadToShopify, MediaError } from '@/lib/media';
+import { getFreshAccessToken, tokenRefresherFor, TOKEN_SELECT } from '@/lib/shopify-token';
 
 /**
  * Public review submission, from the storefront widget.
@@ -83,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     const store = await db.store.findUnique({
       where: { shopifyDomain: shop },
-      select: { id: true, isActive: true },
+      select: { ...TOKEN_SELECT, isActive: true },
     });
     if (!store || !store.isActive) {
       return NextResponse.json({ error: 'Unknown store' }, { status: 404, headers: CORS });
@@ -116,6 +119,59 @@ export async function POST(request: NextRequest) {
 
     await assertReviewCapacity(store.id, 1);
 
+    // ── Media ──
+    //
+    // Validated before a byte leaves this process: MIME allowlist, magic-byte sniffing,
+    // size and count caps. Uploaded to Shopify Files under the merchant's own token, so
+    // the media sits on their CDN at no storage cost to us.
+    //
+    // Upload failures do NOT sink the review. A shopper who wrote a thoughtful review and
+    // attached a photo that Shopify choked on should still have their words saved — losing
+    // the review to save the photo is the wrong trade. The text is kept and the media is
+    // reported as failed.
+    let imageUrls: string[] = [];
+    let videoUrl: string | null = null;
+    let pendingGids: string[] = [];
+    let mediaWarning: string | null = null;
+
+    const rawFiles = form.getAll('media').filter((f): f is File => f instanceof File && f.size > 0);
+
+    if (rawFiles.length) {
+      try {
+        const validated = await validateFiles(rawFiles);
+        const token = await getFreshAccessToken(store);
+        const uploaded = await uploadToShopify(
+          shop,
+          token,
+          validated,
+          tokenRefresherFor(store.id)
+        );
+
+        for (const m of uploaded) {
+          if (!m.url) {
+            // Still transcoding — keep the GID so the URL can be resolved later rather
+            // than making the shopper wait on it.
+            pendingGids.push(m.gid);
+            continue;
+          }
+          if (m.kind === 'video') videoUrl = m.url;
+          else imageUrls.push(m.url);
+        }
+
+        if (pendingGids.length) {
+          mediaWarning = 'Your video is still processing and will appear shortly.';
+        }
+      } catch (err) {
+        if (err instanceof MediaError) {
+          // A validation problem is the shopper's to fix, so tell them plainly and stop
+          // before creating anything — otherwise they resubmit and get a duplicate.
+          return NextResponse.json({ error: err.message }, { status: 400, headers: CORS });
+        }
+        console.error('[storefront/submit] media upload failed:', err);
+        mediaWarning = 'Your review was saved, but we could not attach your files.';
+      }
+    }
+
     await db.review.create({
       data: {
         storeId: store.id,
@@ -133,11 +189,19 @@ export async function POST(request: NextRequest) {
         // Always moderated. Never publish unauthenticated input to a storefront.
         isPublished: false,
         reviewDate: new Date(),
+        images: imageUrls.length ? JSON.stringify(imageUrls) : null,
+        videoUrl,
+        pendingMedia: pendingGids.length ? JSON.stringify(pendingGids) : null,
       },
     });
 
     return NextResponse.json(
-      { success: true, message: 'Thank you. Your review has been submitted for approval.' },
+      {
+        success: true,
+        message: 'Thank you. Your review has been submitted for approval.',
+        warning: mediaWarning,
+        media: { images: imageUrls.length, video: videoUrl ? 1 : 0, pending: pendingGids.length },
+      },
       { status: 201, headers: CORS }
     );
   } catch (error: unknown) {

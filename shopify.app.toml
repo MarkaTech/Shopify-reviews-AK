@@ -17,7 +17,7 @@ api_version = "2026-04"
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # ScriptTag scopes removed — the theme app extension in extensions/reviewmaster
 # replaces storefront script injection entirely.
-scopes = "read_customers,read_orders,read_products,write_products,read_themes,write_themes"
+scopes = "read_customers,read_orders,read_products,write_products,read_themes,write_themes,write_files"
 use_legacy_install_flow = true
 optional_scopes = [ ]
 
