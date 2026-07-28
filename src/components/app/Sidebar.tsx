@@ -35,7 +35,7 @@ const PLAN_META: Record<string, { label: string; short: string; price: string }>
   free: { label: 'Free Plan', short: 'FREE', price: '$0/mo' },
   starter: { label: 'Starter Plan', short: 'START', price: '$9.99/mo' },
   pro: { label: 'Pro Plan', short: 'PRO', price: '$29.99/mo' },
-  enterprise: { label: 'Enterprise Plan', short: 'ENT', price: '$99.99/mo' },
+  growth: { label: 'Growth Plan', short: 'GRW', price: '$19.99/mo' },
 };
 
 function initialsOf(name: string): string {
@@ -201,7 +201,7 @@ export default function Sidebar({ currentPage, onPageChange, storeName, storeDom
             <DropdownMenuContent align="start" className="w-48">
               <DropdownMenuLabel>Current Plan</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {(['free', 'starter', 'pro', 'enterprise'] as const).map((p) => (
+              {(['free', 'starter', 'growth', 'pro'] as const).map((p) => (
                 <DropdownMenuItem
                   key={p}
                   className={p === planKey ? 'bg-emerald-50 text-emerald-700' : ''}

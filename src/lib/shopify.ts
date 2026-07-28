@@ -30,6 +30,10 @@ const DEFAULT_SCOPES = [
   'read_customers',
   'read_themes',
   'write_themes',
+  // Photo and video reviews are stored in Shopify Files rather than our own bucket, so
+  // the media lives on the merchant's CDN, costs us nothing to store, and stays with them
+  // if they uninstall. That requires write_files.
+  'write_files',
 ];
 
 const SCOPES = (process.env.SHOPIFY_SCOPES || DEFAULT_SCOPES.join(','))
@@ -572,11 +576,13 @@ export async function fetchShopifyProducts(
 
 // ── Subscription Billing ──
 
+// Must stay in step with PLANS in src/lib/plans.ts. Duplicated rather than imported
+// because plans.ts imports the database and this module deliberately does not.
 const PLAN_PRICES: Record<string, number> = {
   free: 0,
   starter: 9.99,
-  pro: 29.99,
-  enterprise: 99.99,
+  growth: 19.99,
+  pro: 49.99,
 };
 
 export function planDisplayName(plan: string): string {
@@ -586,7 +592,9 @@ export function planDisplayName(plan: string): string {
 /** Map a Shopify subscription name back to one of our plan keys. */
 export function planFromSubscriptionName(name: string): string {
   const n = name.toLowerCase();
-  if (n.includes('enterprise')) return 'enterprise';
+  // Order matters: 'growth' and 'starter' must be tested before 'pro', since a name like
+  // "ReviewMaster Pro Growth Plan" would otherwise resolve to the wrong tier.
+  if (n.includes('growth')) return 'growth';
   if (n.includes('starter')) return 'starter';
   if (n.includes('pro')) return 'pro';
   return 'free';
