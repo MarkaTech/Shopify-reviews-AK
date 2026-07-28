@@ -142,6 +142,11 @@ model Review {
   isIncentivized  Boolean  @default(false)
   incentiveType   String?  // discount, points, gift
 
+  // Shopify File GIDs for media that had not finished processing when the review was
+  // saved. Video transcoding can take minutes; blocking a shopper's form submit on it
+  // would be unacceptable, so the GIDs are kept and resolved to CDN URLs later.
+  pendingMedia    String?
+
   // ── AI-derived, never AI-authored ──
   // Review text is always human. These are derived signals only: generating review
   // content violates Google's Product Ratings policy and FTC 465.2.
