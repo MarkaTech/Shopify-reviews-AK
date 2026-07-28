@@ -112,3 +112,19 @@
 
 /* Honeypot: off-screen rather than display:none, which some bots detect. */
 .rm-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+/* Styled file picker. The real <input type=file> is visually hidden but still focusable
+   and still bound to its label, so keyboard and screen-reader users are unaffected. */
+.rm-file { display: inline-flex; align-items: center; gap: .6rem; cursor: pointer; }
+.rm-file__input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.rm-file__btn { display: inline-block; border: 1px solid #d4d4d8; background: #fff;
+  border-radius: var(--rm-radius, 8px); padding: .45rem .9rem; font-size: .85rem; }
+.rm-file:hover .rm-file__btn { border-color: var(--rm-accent, #059669); }
+.rm-file__input:focus-visible + .rm-file__btn { outline: 2px solid var(--rm-accent, #059669);
+  outline-offset: 2px; }
+.rm-file__name { font-size: .8rem; opacity: .6; }
+
+/* Post-submit confirmation. Sits outside the form so it survives the form closing. */
+.rm-notice { margin: 1rem 0; padding: .75rem 1rem; background: #ecfdf5; color: #065f46;
+  border-radius: var(--rm-radius, 8px); font-size: .9rem; }

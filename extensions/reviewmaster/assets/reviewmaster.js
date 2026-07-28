@@ -116,9 +116,12 @@
     list.innerHTML = '';
 
     if (!data.reviews || !data.reviews.length) {
-      list.appendChild(el('p', 'rm-empty', this.rating || this.mediaOnly
-        ? 'No reviews match that filter.'
-        : 'No reviews yet.'));
+      // Only speak up when a FILTER emptied the list. With no filters the Liquid summary
+      // above already renders "No reviews yet", and repeating it puts the same sentence
+      // on screen twice.
+      if (this.rating || this.mediaOnly) {
+        list.appendChild(el('p', 'rm-empty', 'No reviews match that filter.'));
+      }
       // Release the reserved height once we know the real content is empty, so an
       // unreviewed product does not carry 400px of blank space forever.
       list.style.minHeight = '0';
@@ -282,6 +285,21 @@
     p.appendChild(btn('›', this.page + 1, this.page >= pages));
   };
 
+  /** A dismissible confirmation that lives outside the form, so it survives closing. */
+  Widget.prototype.showNotice = function (message) {
+    var existing = this.root.querySelector('.rm-notice');
+    if (existing) existing.remove();
+    var n = el('div', 'rm-notice', message);
+    n.setAttribute('role', 'status');
+    n.setAttribute('aria-live', 'polite');
+    var summary = this.root.querySelector('.rm-summary');
+    if (summary && summary.parentNode) {
+      summary.parentNode.insertBefore(n, summary.nextSibling);
+    } else {
+      this.root.appendChild(n);
+    }
+  };
+
   Widget.prototype.bindForm = function () {
     var self = this;
     var wrap = this.root.querySelector('[data-rm-form-wrap]');
@@ -296,6 +314,20 @@
       if (input) input.focus();
     });
     if (cancel) cancel.addEventListener('click', function () { wrap.hidden = true; });
+
+    // Native file inputs render an unstyleable "Choose files / No file chosen". The input
+    // is visually hidden and driven by a styled label; this keeps the label text honest
+    // about what the shopper actually picked.
+    var fileInput = form.querySelector('[data-rm-file]');
+    var fileName = form.querySelector('[data-rm-file-name]');
+    if (fileInput && fileName) {
+      fileInput.addEventListener('change', function () {
+        var n = fileInput.files ? fileInput.files.length : 0;
+        fileName.textContent = n === 0
+          ? 'No files selected'
+          : (n === 1 ? fileInput.files[0].name : n + ' files selected');
+      });
+    }
 
     var chosen = 0;
     var rateWrap = form.querySelector('[data-rm-rating-input]');
@@ -322,17 +354,37 @@
       fd.append('shop', self.shop);
       if (self.productId) fd.append('product_id', self.productId);
 
+      var submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
       status.textContent = 'Submitting…';
+
       fetch(self.appUrl + '/api/storefront/submit', { method: 'POST', body: fd })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (res) {
           if (!res.ok) throw new Error(res.j && res.j.error);
+
+          // Reset and close. Leaving a filled-in form open after a successful submit
+          // invites a duplicate submission, and the confirmation is easy to miss when it
+          // sits below a form that still looks unsent.
           form.reset();
           chosen = 0;
-          status.textContent = 'Thank you. Your review has been submitted for approval.';
+          Array.prototype.forEach.call(rateWrap ? rateWrap.children : [], function (c) {
+            c.classList.remove('is-on');
+            c.setAttribute('aria-checked', 'false');
+          });
+          var nameEl = form.querySelector('[data-rm-file-name]');
+          if (nameEl) nameEl.textContent = 'No files selected';
+          status.textContent = '';
+          wrap.hidden = true;
+
+          // Confirmation goes OUTSIDE the form, so it survives the form being hidden.
+          self.showNotice('Thank you. Your review has been submitted for approval.');
         })
         .catch(function (err) {
           status.textContent = (err && err.message) || 'Could not submit your review.';
+        })
+        .finally(function () {
+          if (submitBtn) submitBtn.disabled = false;
         });
     });
   };

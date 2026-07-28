@@ -15,6 +15,10 @@
     "add_photos": "Add photos or video",
     "submit": "Submit review",
     "cancel": "Cancel",
-    "stars_n": "{{ count }} stars"
+    "stars_n": "{{ count }} stars",
+    "choose_files": "Add photos",
+    "no_file": "No files selected",
+    "files_selected": "{{ count }} file(s) selected",
+    "submitted": "Thank you. Your review has been submitted for approval."
   }
 }
