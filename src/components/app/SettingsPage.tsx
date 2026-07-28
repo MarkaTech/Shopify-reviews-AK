@@ -22,22 +22,47 @@ import { apiFetch, errorMessage } from '@/lib/api-client';
 const plans = [
   {
     id: 'free', name: 'Free', price: 0, interval: 'month',
-    features: ['50 reviews', '1 widget type', 'Platform imports (up to your limit)', 'Basic filters', 'Email support'],
+    features: [
+      '100 reviews',
+      'Photo reviews',
+      'Star rating + review widget',
+      'CSV import & migration',
+      'Google rich snippets',
+    ],
     color: 'border-gray-200'
   },
   {
     id: 'starter', name: 'Starter', price: 9.99, interval: 'month',
-    features: ['500 reviews', 'All widget types', 'Platform imports', 'CSV import', 'Photo & video reviews', 'Email review requests'],
+    features: [
+      '1,000 reviews',
+      'All widget types',
+      'Video reviews',
+      'Questions & answers',
+      'Review incentives',
+      'Email review requests',
+    ],
     color: 'border-gray-200'
   },
   {
-    id: 'pro', name: 'Pro', price: 29.99, interval: 'month',
-    features: ['Unlimited reviews', 'Unlimited widgets', 'Unlimited platform imports', 'Advanced analytics', 'Custom CSS', 'Priority support'],
+    id: 'growth', name: 'Growth', price: 19.99, interval: 'month',
+    features: [
+      'Unlimited reviews & widgets',
+      'Google Shopping star ratings',
+      'Shop app syndication',
+      'Advanced analytics',
+      'Everything in Starter',
+    ],
     color: 'border-emerald-500 ring-2 ring-emerald-200', popular: true
   },
   {
-    id: 'enterprise', name: 'Enterprise', price: 99.99, interval: 'month',
-    features: ['Everything in Pro', 'API access', 'White-label widgets', 'Custom branding', 'Dedicated support', 'SLA guarantee'],
+    id: 'pro', name: 'Pro', price: 49.99, interval: 'month',
+    features: [
+      'Everything in Growth',
+      'API access',
+      'White-label widgets',
+      'Remove ReviewMaster branding',
+      'Priority support',
+    ],
     color: 'border-gray-200'
   },
 ];

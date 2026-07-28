@@ -11,7 +11,7 @@
 
 import { db } from './db';
 
-export type PlanId = 'free' | 'starter' | 'pro' | 'enterprise';
+export type PlanId = 'free' | 'starter' | 'growth' | 'pro';
 
 export interface PlanLimits {
   label: string;
@@ -24,21 +24,67 @@ export interface PlanLimits {
   csvImport: boolean;
   platformImport: boolean;
   photoReviews: boolean;
+  /** Video is a separate gate from photo — it costs far more to store and serve. */
+  videoReviews: boolean;
+  questionsAndAnswers: boolean;
+  incentives: boolean;
+  /** Google Merchant Center product ratings feed. */
+  googleFeed: boolean;
+  /** Shop app syndication via the product_review metaobject. */
+  shopSyndication: boolean;
   advancedAnalytics: boolean;
   apiAccess: boolean;
   whiteLabel: boolean;
 }
 
+/**
+ * Pricing.
+ *
+ * The market context that sets these numbers: Judge.me charges a flat $15/month — "the
+ * most you can ever pay" — and owns the volume end. Loox charges from $49.99 and meters by
+ * order count, reaching roughly $499/month at 3,000 orders. Undercutting Judge.me is not a
+ * strategy; nobody wins a race to $15 flat against an incumbent with 42,000 reviews.
+ *
+ * So the shape here is deliberate:
+ *
+ *  - **A genuinely useful free tier.** 100 reviews rather than 50, and photo reviews
+ *    included. Free plans in this category exist to get the widget onto a storefront; one
+ *    that cannot show a photo review does not demonstrate the product. Acquisition beats
+ *    squeezing merchants who were never going to pay.
+ *
+ *  - **Gate on distribution, not on volume.** The features worth paying for are the ones
+ *    that put reviews in front of people who have not visited the store yet: the Google
+ *    Shopping feed, Shop app syndication, unlimited widgets. Review count caps annoy
+ *    everyone and convert badly, because a merchant hitting one feels punished for
+ *    succeeding. A merchant who sees Shopping traffic arrive feels the value.
+ *
+ *  - **Growth sits at $19.99, between Judge.me's $15 and Loox's $49.99.** Priced above
+ *    Judge.me on purpose: at $15 you are competing on price with an app that has a decade
+ *    of reviews. $19.99 with Google Shopping and Shop app distribution is a different
+ *    product, not a cheaper one.
+ *
+ *  - **No order-volume metering.** Loox's model punishes exactly the merchants you most
+ *    want as references, and it makes cost unpredictable — the most common complaint about
+ *    them. Flat pricing per tier is a feature, and worth saying out loud in the listing.
+ *
+ * Shopify takes 0% of the first $1M in app revenue, then 15%. At the $19.99 tier with AI
+ * enabled later, gross margin stays around 90%.
+ */
 export const PLANS: Record<PlanId, PlanLimits> = {
   free: {
     label: 'Free',
     price: 0,
-    maxReviews: 50,
-    maxWidgets: 1,
-    allowedWidgetTypes: ['list'],
-    csvImport: false,
-    platformImport: true,
-    photoReviews: false,
+    maxReviews: 100,
+    maxWidgets: 2,
+    allowedWidgetTypes: ['list', 'badge'],
+    csvImport: true,        // Migration must be free, or nobody ever switches to you.
+    platformImport: false,
+    photoReviews: true,     // A free tier that cannot show a photo review sells nothing.
+    videoReviews: false,
+    questionsAndAnswers: false,
+    incentives: false,
+    googleFeed: false,
+    shopSyndication: false,
     advancedAnalytics: false,
     apiAccess: false,
     whiteLabel: false,
@@ -46,38 +92,55 @@ export const PLANS: Record<PlanId, PlanLimits> = {
   starter: {
     label: 'Starter',
     price: 9.99,
-    maxReviews: 500,
+    maxReviews: 1000,
     maxWidgets: 5,
     allowedWidgetTypes: null,
     csvImport: true,
-    platformImport: true,
+    platformImport: false,
     photoReviews: true,
+    videoReviews: true,
+    questionsAndAnswers: true,
+    incentives: true,
+    googleFeed: false,
+    shopSyndication: false,
     advancedAnalytics: false,
+    apiAccess: false,
+    whiteLabel: false,
+  },
+  growth: {
+    label: 'Growth',
+    price: 19.99,
+    maxReviews: null,
+    maxWidgets: null,
+    allowedWidgetTypes: null,
+    csvImport: true,
+    platformImport: false,
+    photoReviews: true,
+    videoReviews: true,
+    questionsAndAnswers: true,
+    incentives: true,
+    // The two features that justify the tier: they put reviews in front of people who
+    // have never seen the store.
+    googleFeed: true,
+    shopSyndication: true,
+    advancedAnalytics: true,
     apiAccess: false,
     whiteLabel: false,
   },
   pro: {
     label: 'Pro',
-    price: 29.99,
+    price: 49.99,
     maxReviews: null,
     maxWidgets: null,
     allowedWidgetTypes: null,
     csvImport: true,
-    platformImport: true,
+    platformImport: false,
     photoReviews: true,
-    advancedAnalytics: true,
-    apiAccess: false,
-    whiteLabel: false,
-  },
-  enterprise: {
-    label: 'Enterprise',
-    price: 99.99,
-    maxReviews: null,
-    maxWidgets: null,
-    allowedWidgetTypes: null,
-    csvImport: true,
-    platformImport: true,
-    photoReviews: true,
+    videoReviews: true,
+    questionsAndAnswers: true,
+    incentives: true,
+    googleFeed: true,
+    shopSyndication: true,
     advancedAnalytics: true,
     apiAccess: true,
     whiteLabel: true,
@@ -88,6 +151,11 @@ export type FeatureFlag =
   | 'csvImport'
   | 'platformImport'
   | 'photoReviews'
+  | 'videoReviews'
+  | 'questionsAndAnswers'
+  | 'incentives'
+  | 'googleFeed'
+  | 'shopSyndication'
   | 'advancedAnalytics'
   | 'apiAccess'
   | 'whiteLabel';
@@ -138,13 +206,13 @@ export async function getStorePlan(storeId: string): Promise<PlanId> {
 
 /** The cheapest plan that provides a given feature. */
 function cheapestPlanWith(feature: FeatureFlag): PlanId | null {
-  const order: PlanId[] = ['free', 'starter', 'pro', 'enterprise'];
+  const order: PlanId[] = ['free', 'starter', 'growth', 'pro'];
   return order.find((p) => PLANS[p][feature] === true) ?? null;
 }
 
 /** The cheapest plan that allows at least `count` reviews. */
 function cheapestPlanForReviews(count: number): PlanId | null {
-  const order: PlanId[] = ['free', 'starter', 'pro', 'enterprise'];
+  const order: PlanId[] = ['free', 'starter', 'growth', 'pro'];
   return order.find((p) => {
     const max = PLANS[p].maxReviews;
     return max === null || max >= count;
@@ -196,10 +264,16 @@ export async function assertFeature(storeId: string, feature: FeatureFlag): Prom
   const plan = await getStorePlan(storeId);
   if (PLANS[plan][feature]) return;
 
+  // Written for a merchant reading an upgrade prompt, not for a developer reading a log.
   const labels: Record<FeatureFlag, string> = {
     csvImport: 'CSV import',
-    platformImport: 'Importing from Amazon, eBay and other platforms',
-    photoReviews: 'Photo and video reviews',
+    platformImport: 'Importing from other marketplaces',
+    photoReviews: 'Photo reviews',
+    videoReviews: 'Video reviews',
+    questionsAndAnswers: 'Questions & answers',
+    incentives: 'Review incentives',
+    googleFeed: 'Google Shopping star ratings',
+    shopSyndication: 'Shop app syndication',
     advancedAnalytics: 'Advanced analytics',
     apiAccess: 'API access',
     whiteLabel: 'White-label widgets',
