@@ -38,7 +38,7 @@
           {% if product.selected_or_first_available_variant.sku != blank %}"sku": {{ product.selected_or_first_available_variant.sku | json }},{% endif %}
           "aggregateRating": {
             "@type": "AggregateRating",
-            "ratingValue": {{ rating.value.value | json }},
+            "ratingValue": {{ rating.value.rating | json }},
             "bestRating": {{ rating.value.scale_max | default: 5 | json }},
             "worstRating": {{ rating.value.scale_min | default: 1 | json }},
             "reviewCount": {{ rating_count | json }}

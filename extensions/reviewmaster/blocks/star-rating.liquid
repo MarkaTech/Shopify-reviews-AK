@@ -16,8 +16,14 @@
 -%}
 
 {%- if rating != blank and rating_count > 0 -%}
+  {%- comment -%}
+    NOTE the property name. A `rating` metafield exposes a Liquid object whose numeric
+    property is `.rating` — NOT `.value`. Writing `rating.value.value` resolves to nil,
+    which `times: 1.0` turns into 0, so the widget renders "0.0" with five grey stars
+    while the review COUNT beside it is correct. That mismatch is the tell.
+  {%- endcomment -%}
   {%- liquid
-    assign value = rating.value.value | times: 1.0
+    assign value = rating.value.rating | times: 1.0
     assign scale_max = rating.value.scale_max | times: 1.0
     if scale_max == 0
       assign scale_max = 5
@@ -113,8 +119,8 @@
       "type": "checkbox",
       "id": "show_when_empty",
       "label": "Show a prompt when there are no reviews",
-      "default": true,
-      "info": "Keeps the layout stable and invites the first review."
+      "default": false,
+      "info": "Only turn this on if the full review widget is NOT on this template — otherwise you get two 'write a review' prompts."
     }
   ]
 }
