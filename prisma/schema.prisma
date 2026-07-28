@@ -42,6 +42,9 @@ model Store {
   importJobs      ImportJob[]
   widgets         WidgetConfig[]
   settings        StoreSetting[]
+  questions       Question[]
+  productRatings  ProductRating[]
+  incentives      Incentive[]
 }
 
 // Products synced from Shopify
@@ -63,6 +66,8 @@ model Product {
 
   store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   reviews         Review[]
+  questions       Question[]
+  rating          ProductRating?
 
   @@unique([storeId, shopifyId])
   @@index([storeId])
@@ -82,7 +87,21 @@ model Review {
   reviewerEmail   String?
   reviewerAvatar  String?
   reviewerLocation String?
+
+  // Legacy boolean, retained so existing rows and widget code keep working.
+  // verificationStatus below is the authoritative field.
   verifiedPurchase Boolean @default(false)
+
+  // Three-state verification, matching Shopify's product_review metaobject contract.
+  //   verified_buyer    — matched to a real paid order for this product
+  //   verified_reviewer — identity confirmed but no order match (e.g. emailed link, no order)
+  //   unverified        — imported, CSV, or submitted with no verification at all
+  // A boolean cannot express this, and Shop app syndication rejects reviews without it.
+  // Claiming "verified purchase" without an order match is also an FTC misrepresentation.
+  verificationStatus String @default("unverified")
+
+  // Order this review is attributable to, when known. Required for verified_buyer.
+  shopifyOrderId  String?
 
   // Review content
   rating          Int      // 1-5
@@ -113,6 +132,28 @@ model Review {
   // Custom fields (JSON)
   customFields    String?
 
+  // Structured attribute answers, e.g. {"fit":"true_to_size","quality":4}
+  attributes      String?
+
+  // ── Incentives ──
+  // FTC 16 CFR 465.4: an incentivised review must be disclosed to shoppers, and the
+  // incentive must never be conditioned on sentiment. Shopify's Shop app bans
+  // incentivised reviews outright, so these are excluded from syndication entirely.
+  isIncentivized  Boolean  @default(false)
+  incentiveType   String?  // discount, points, gift
+
+  // ── AI-derived, never AI-authored ──
+  // Review text is always human. These are derived signals only: generating review
+  // content violates Google's Product Ratings policy and FTC 465.2.
+  aiSentiment     String?  // positive, neutral, mixed, negative
+  aiTopics        String?  // JSON array of extracted topic strings
+  language        String?  // ISO 639-1, detected or declared
+
+  // ── Shop app syndication state ──
+  metaobjectId    String?  // gid://shopify/Metaobject/... once syndicated
+  syncedAt        DateTime?
+  syncError       String?
+
   // Timestamps
   reviewDate      DateTime @default(now())
   createdAt       DateTime @default(now())
@@ -127,6 +168,8 @@ model Review {
   @@index([source])
   @@index([isPublished])
   @@index([reviewDate])
+  @@index([verificationStatus])
+  @@index([storeId, productId, isPublished])
 }
 
 // Import Jobs
@@ -258,4 +301,175 @@ model ReviewRequest {
   @@index([storeId])
   @@index([expiresAt])
   @@index([submittedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Product Q&A
+//
+// Shoppers ask, the merchant (or another shopper) answers. Present in roughly
+// half the market and one of the most requested additions.
+// ─────────────────────────────────────────────────────────────────────────────
+model Question {
+  id            String   @id @default(cuid())
+  storeId       String
+  productId     String?
+
+  askerName     String
+  askerEmail    String?
+  body          String
+
+  isPublished   Boolean  @default(false)
+  isPinned      Boolean  @default(false)
+  helpfulCount  Int      @default(0)
+
+  // Notify the asker when an answer is published.
+  notifiedAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product       Product? @relation(fields: [productId], references: [id])
+  answers       Answer[]
+
+  @@index([storeId])
+  @@index([productId])
+  @@index([isPublished])
+}
+
+model Answer {
+  id            String   @id @default(cuid())
+  questionId    String
+
+  authorName    String
+  // merchant | customer — shoppers weigh an official answer differently, so the
+  // distinction has to survive to the storefront.
+  authorType    String   @default("merchant")
+  body          String
+
+  isPublished   Boolean  @default(true)
+  helpfulCount  Int      @default(0)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  question      Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cached per-product aggregates.
+//
+// Recomputed on every review create, update, delete and publish-status change,
+// then pushed to Shopify's reviews.rating / reviews.rating_count metafields.
+//
+// Shopify's syndication program requires aggregates to be exact at all times, and
+// the FTC and CMA both require that removing a review flows through to the
+// displayed average. Deriving this on demand with a COUNT/AVG on every storefront
+// request would not survive traffic, so it is materialised here and treated as
+// the single source of truth for both the widget and the metafield.
+// ─────────────────────────────────────────────────────────────────────────────
+model ProductRating {
+  id            String   @id @default(cuid())
+  storeId       String
+  productId     String   @unique
+
+  average       Float    @default(0)
+  count         Int      @default(0)
+  // Star histogram, so the bar chart needs no extra query.
+  count1        Int      @default(0)
+  count2        Int      @default(0)
+  count3        Int      @default(0)
+  count4        Int      @default(0)
+  count5        Int      @default(0)
+
+  // AI summary of this product's reviews, refreshed when the review count moves
+  // materially. Cached because generating on request would be slow and expensive.
+  aiSummary     String?
+  aiTopics      String?  // JSON array of {topic, sentiment, count}
+  aiSummaryAt   DateTime?
+  aiSummaryBasis Int     @default(0) // review count the summary was built from
+
+  // Metafield push state.
+  metafieldSyncedAt DateTime?
+  metafieldError    String?
+
+  updatedAt     DateTime @updatedAt
+
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Review incentives (coupons).
+//
+// Compliance is load-bearing here. FTC 16 CFR 465.4 makes it unlawful to condition
+// an incentive on the sentiment of the review, so this model deliberately has no
+// "minimum rating" field — there is nowhere to express that idea. The disclosure
+// text is mandatory and rendered next to any review that earned a reward.
+// ─────────────────────────────────────────────────────────────────────────────
+model Incentive {
+  id            String   @id @default(cuid())
+  storeId       String
+
+  name          String
+  isActive      Boolean  @default(false)
+
+  // percentage | fixed_amount | free_shipping
+  rewardType    String   @default("percentage")
+  rewardValue   Float    @default(10)
+
+  // Optional uplift for a photo or video review. Media is a content type, not a
+  // sentiment, so rewarding it more is lawful.
+  requiresMedia Boolean  @default(false)
+
+  // Shown to the shopper before they write, and on every resulting review.
+  disclosureText String  @default("This reviewer received a discount in exchange for an honest review.")
+
+  expiryDays    Int      @default(30)
+  usageLimit    Int?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  grants        IncentiveGrant[]
+
+  @@index([storeId])
+}
+
+model IncentiveGrant {
+  id            String   @id @default(cuid())
+  incentiveId   String
+  reviewId      String?
+  customerEmail String
+  discountCode  String   @unique
+  priceRuleId   String?  // Shopify discount node id
+  redeemedAt    DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  incentive     Incentive @relation(fields: [incentiveId], references: [id], onDelete: Cascade)
+
+  @@index([incentiveId])
+  @@index([customerEmail])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cached AI translations. Translating on every page view would be slow and
+// costly; translations are immutable for a given (review, language) pair.
+// ─────────────────────────────────────────────────────────────────────────────
+model ReviewTranslation {
+  id            String   @id @default(cuid())
+  reviewId      String
+  language      String   // ISO 639-1
+  title         String?
+  body          String
+  createdAt     DateTime @default(now())
+
+  @@unique([reviewId, language])
+  @@index([reviewId])
 }

@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { assertFeature, assertReviewCapacity, planLimitResponse } from '@/lib/plans';
+import { updateProductRating } from '@/lib/ratings';
 
 export async function GET() {
   const csvTemplate = `reviewerName,rating,title,body,reviewDate,reviewerEmail,reviewerLocation,verifiedPurchase,source,images
@@ -15,7 +16,7 @@ Jane Doe,4,Great value,"Good quality for the price. Would buy again.",2025-02-20
 
 export async function POST(request: NextRequest) {
   try {
-    const { storeId } = await withAuth(request);
+    const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const productId = formData.get('productId') as string | null;
@@ -63,7 +64,14 @@ export async function POST(request: NextRequest) {
             reviewerName: row.reviewerName,
             reviewerEmail: row.reviewerEmail || null,
             reviewerLocation: row.reviewerLocation || null,
+            // A CSV row cannot prove a purchase. The uploader may assert
+            // verifiedPurchase=true and we keep it for their own display purposes, but
+            // verificationStatus stays 'unverified' because we have no order to point at
+            // — and Shopify's syndication contract, plus FTC 16 CFR 465, both turn on
+            // that distinction. Only the tokenised post-purchase flow earns
+            // 'verified_buyer'.
             verifiedPurchase: row.verifiedPurchase === 'true',
+            verificationStatus: 'unverified',
             rating,
             title: row.title || null,
             body: row.body,
@@ -80,6 +88,14 @@ export async function POST(request: NextRequest) {
         errors.push(`Row ${i + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
         failed++;
       }
+    }
+
+    // Imported reviews are published immediately, so every affected product's aggregate
+    // is now stale. Recompute once per product rather than once per row — a 500-row CSV
+    // against 20 products should make 20 metafield calls, not 500.
+    if (imported > 0 && productId) {
+      await updateProductRating(storeId, productId, { shop, accessToken, onUnauthorized })
+        .catch(err => console.error('[bulk-upload] rating sync failed:', err));
     }
 
     return NextResponse.json({ total: lines.length - 1, imported, failed, errors });

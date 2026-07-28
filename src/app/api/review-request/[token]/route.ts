@@ -101,8 +101,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         title: r.title?.trim().slice(0, 200) || null,
         body: r.body!.trim().slice(0, 5000),
         source: 'direct',
-        // The whole point of this flow: the order is real, so the badge is earned.
+        // The whole point of this flow: the token was issued against a real paid order,
+        // so this is the strongest verification tier Shopify recognises. Everything else
+        // — CSV, manual entry, imports — is 'unverified' and must never claim otherwise.
         verifiedPurchase: true,
+        verificationStatus: 'verified_buyer',
+        shopifyOrderId: state.request.shopifyOrderId,
         sentiment: r.rating! >= 4 ? 'positive' : r.rating! <= 2 ? 'negative' : 'neutral',
         // Merchants moderate before anything appears on the storefront.
         isPublished: false,

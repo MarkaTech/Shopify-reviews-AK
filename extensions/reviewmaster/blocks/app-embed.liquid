@@ -1,0 +1,66 @@
+{% comment %}
+  App embed block — global, enabled once from Theme settings > App embeds.
+
+  Its only job is structured data, and it does that entirely in Liquid from the
+  reviews.rating metafields. No JavaScript, no fetch, no cost.
+
+  Why this matters more than it looks: Google reads rich results from the server-rendered
+  HTML. Review widgets that inject JSON-LD from JavaScript after page load are a common
+  reason star ratings never appear in search results — the markup arrives after the
+  crawler has moved on. Rendering from a metafield the theme already has is both instant
+  and always exactly consistent with the visible rating.
+{% endcomment %}
+
+{%- if block.settings.enable_rich_snippets -%}
+  {%- if template contains 'product' and product != blank -%}
+    {%- liquid
+      assign rating = product.metafields.reviews.rating
+      assign rating_count = product.metafields.reviews.rating_count.value | default: 0
+    -%}
+    {%- if rating != blank and rating_count > 0 -%}
+      {%- comment -%}
+        Product-level AggregateRating only.
+
+        Deliberately NOT Organization or LocalBusiness. Reviews a merchant collects about
+        their own business are "self-serving" under Google's structured data policy;
+        emitting Organization/LocalBusiness AggregateRating for them is ignored at best
+        and a manual action at worst. There is no setting to turn that on, because the
+        only reason to want it is to do the penalised thing.
+      {%- endcomment -%}
+      <script type="application/ld+json">
+        {
+          "@context": "https://schema.org/",
+          "@type": "Product",
+          "name": {{ product.title | json }},
+          "url": {{ shop.url | append: product.url | json }},
+          {% if product.featured_image %}"image": {{ product.featured_image | image_url: width: 1200 | prepend: 'https:' | json }},{% endif %}
+          {% if product.vendor != blank %}"brand": { "@type": "Brand", "name": {{ product.vendor | json }} },{% endif %}
+          {% if product.selected_or_first_available_variant.sku != blank %}"sku": {{ product.selected_or_first_available_variant.sku | json }},{% endif %}
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": {{ rating.value.value | json }},
+            "bestRating": {{ rating.value.scale_max | default: 5 | json }},
+            "worstRating": {{ rating.value.scale_min | default: 1 | json }},
+            "reviewCount": {{ rating_count | json }}
+          }
+        }
+      </script>
+    {%- endif -%}
+  {%- endif -%}
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "ReviewMaster",
+  "target": "head",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enable_rich_snippets",
+      "label": "Add review rich snippets for Google",
+      "default": true,
+      "info": "Adds Product structured data with your aggregate rating so stars can appear in Google results. If your theme already outputs a rating in its own Product schema, turn this off to avoid duplicate markup — check with Google's Rich Results Test."
+    }
+  ]
+}
+{% endschema %}
