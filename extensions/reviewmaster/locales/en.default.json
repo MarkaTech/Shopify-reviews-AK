@@ -1,0 +1,20 @@
+{
+  "reviewmaster": {
+    "rating_aria": "Rated {{ value }} out of {{ max }} stars based on {{ count }} reviews",
+    "review_count": "{{ count }} reviews",
+    "based_on": "Based on {{ count }} reviews",
+    "no_reviews_yet": "No reviews yet",
+    "be_first": "Be the first to write a review",
+    "write_review": "Write a review",
+    "your_rating": "Your rating",
+    "your_name": "Your name",
+    "your_email": "Your email",
+    "email_privacy": "Not published. Used only to verify your review.",
+    "review_title": "Title",
+    "review_body": "Your review",
+    "add_photos": "Add photos or video",
+    "submit": "Submit review",
+    "cancel": "Cancel",
+    "stars_n": "{{ count }} stars"
+  }
+}

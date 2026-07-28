@@ -1,0 +1,114 @@
+/* ReviewMaster storefront styles.
+   Scoped under .rm-* so nothing leaks into the merchant's theme, and every colour comes
+   from a CSS custom property set by the Liquid block, so merchants restyle from the theme
+   editor without touching CSS. Budget: Shopify allows 100KB; this is a fraction of it. */
+
+.rm-stars__icons { display: inline-flex; gap: 1px; line-height: 1; }
+.rm-star { color: #d4d4d8; font-size: 1em; }
+.rm-star--full { color: var(--rm-star-color, #F5A623); }
+.rm-star--half { background: linear-gradient(90deg, var(--rm-star-color, #F5A623) 50%, #d4d4d8 50%);
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rm-stars { display: inline-flex; align-items: center; gap: .4em; }
+.rm-stars--small { font-size: .85rem; }
+.rm-stars--medium { font-size: 1rem; }
+.rm-stars--large { font-size: 1.3rem; }
+.rm-stars__count { font-size: .85em; color: inherit; opacity: .7; text-decoration: none; }
+.rm-stars__count:hover { text-decoration: underline; }
+
+.rm-widget { margin: 2rem 0; font-size: .95rem; }
+.rm-widget__heading { margin: 0 0 1rem; font-size: 1.25rem; }
+
+.rm-summary { display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 1rem; padding: 1rem 0; border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb; }
+.rm-summary__score { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.rm-summary__number { font-size: 1.75rem; font-weight: 700; line-height: 1; }
+.rm-summary__count { opacity: .7; font-size: .85rem; }
+
+.rm-btn { border: 1px solid transparent; border-radius: var(--rm-radius, 8px);
+  padding: .55rem 1rem; font: inherit; font-size: .9rem; cursor: pointer; }
+.rm-btn--primary { background: var(--rm-accent, #059669); color: #fff; }
+.rm-btn--primary:hover { filter: brightness(.94); }
+.rm-btn--ghost { background: transparent; border-color: #d4d4d8; }
+
+.rm-histogram { display: grid; gap: .25rem; margin: 1rem 0; max-width: 320px; }
+.rm-hist__row { display: flex; align-items: center; gap: .5rem; background: none;
+  border: 0; padding: .15rem 0; cursor: pointer; font: inherit; text-align: left; }
+.rm-hist__row:hover .rm-hist__fill { filter: brightness(.9); }
+.rm-hist__label { width: 2.2em; font-size: .8rem; opacity: .8; }
+.rm-hist__track { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+.rm-hist__fill { display: block; height: 100%; background: var(--rm-star-color, #F5A623); }
+.rm-hist__n { width: 2em; font-size: .8rem; opacity: .7; text-align: right; }
+
+.rm-filters { display: flex; gap: .5rem; margin: 1rem 0; flex-wrap: wrap; }
+.rm-filters__sort, .rm-filters__media { border: 1px solid #d4d4d8;
+  border-radius: var(--rm-radius, 8px); padding: .4rem .7rem; font: inherit;
+  font-size: .85rem; background: #fff; cursor: pointer; }
+.rm-filters__media.is-active { background: var(--rm-accent, #059669); color: #fff;
+  border-color: transparent; }
+
+.rm-list { display: grid; gap: 1.25rem; }
+.rm-review { padding-bottom: 1.25rem; border-bottom: 1px solid #f1f5f9; }
+.rm-review__head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.rm-review__who { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.rm-review__author { font-weight: 600; }
+.rm-review__loc, .rm-review__date { font-size: .8rem; opacity: .6; }
+.rm-review__date { margin-left: auto; }
+.rm-review__title { margin: .5rem 0 .25rem; font-size: 1rem; }
+.rm-review__body { margin: .25rem 0; line-height: 1.55; white-space: pre-wrap; }
+.rm-review__media { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; }
+.rm-review__media img { width: 96px; height: 96px; object-fit: cover;
+  border-radius: var(--rm-radius, 8px); }
+.rm-review__reply { margin-top: .75rem; padding: .75rem; background: #f8fafc;
+  border-left: 3px solid var(--rm-accent, #059669); border-radius: 0 var(--rm-radius,8px) var(--rm-radius,8px) 0; }
+.rm-review__reply p { margin: .25rem 0 0; }
+
+.rm-badge { font-size: .7rem; padding: .15rem .45rem; border-radius: 999px;
+  white-space: nowrap; }
+.rm-badge--verified { background: #ecfdf5; color: #047857; }
+/* Incentivised disclosure is a legal requirement (FTC 16 CFR 465.4), so it is styled to
+   be noticed rather than tucked away. */
+.rm-badge--incentive { background: #fef3c7; color: #92400e; }
+
+.rm-skeleton { display: grid; gap: 1.25rem; }
+.rm-skeleton__row { height: 72px; border-radius: var(--rm-radius, 8px);
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
+  background-size: 400% 100%; animation: rm-shimmer 1.4s ease infinite; }
+@keyframes rm-shimmer { 0% { background-position: 100% 50% } 100% { background-position: 0 50% } }
+@media (prefers-reduced-motion: reduce) { .rm-skeleton__row { animation: none; } }
+
+.rm-empty { opacity: .7; padding: 1rem 0; }
+.rm-pagination { display: flex; align-items: center; gap: .75rem; justify-content: center;
+  margin-top: 1.25rem; }
+.rm-page { border: 1px solid #d4d4d8; background: #fff; border-radius: var(--rm-radius,8px);
+  padding: .3rem .7rem; cursor: pointer; font: inherit; }
+.rm-page[disabled] { opacity: .4; cursor: default; }
+.rm-page__info { font-size: .85rem; opacity: .7; }
+
+.rm-form-wrap { margin-top: 1.5rem; padding: 1.25rem; border: 1px solid #e5e7eb;
+  border-radius: var(--rm-radius, 8px); }
+.rm-form__title { margin: 0 0 1rem; font-size: 1.05rem; }
+.rm-form__field { display: block; margin-bottom: .9rem; }
+.rm-form__field > span, .rm-form__field > legend { display: block; margin-bottom: .3rem;
+  font-size: .85rem; font-weight: 600; }
+.rm-form__field input[type=text], .rm-form__field input[type=email],
+.rm-form__field textarea { width: 100%; padding: .55rem .7rem; border: 1px solid #d4d4d8;
+  border-radius: var(--rm-radius, 8px); font: inherit; }
+.rm-form__field small { display: block; margin-top: .25rem; font-size: .75rem; opacity: .6; }
+.rm-form__rating { border: 0; padding: 0; margin-bottom: .9rem; }
+.rm-rating-input { display: inline-flex; gap: .15rem; }
+.rm-rating-input__star { background: none; border: 0; font-size: 1.6rem; color: #d4d4d8;
+  cursor: pointer; padding: 0 .05em; line-height: 1; }
+.rm-rating-input__star.is-on { color: var(--rm-star-color, #F5A623); }
+.rm-rating-input__star:focus-visible { outline: 2px solid var(--rm-accent, #059669);
+  outline-offset: 2px; }
+.rm-form__actions { display: flex; gap: .5rem; margin-top: 1rem; }
+.rm-form__status { margin: .75rem 0 0; font-size: .85rem; min-height: 1.2em; }
+
+@media (max-width: 600px) {
+  .rm-review__date { margin-left: 0; width: 100%; }
+  .rm-summary { flex-direction: column; align-items: flex-start; }
+}
+
+/* Honeypot: off-screen rather than display:none, which some bots detect. */
+.rm-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }

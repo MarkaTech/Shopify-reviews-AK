@@ -9,16 +9,34 @@ const SHOPIFY_API_KEY = process.env.NEXT_PUBLIC_SHOPIFY_API_KEY || 'test_key';
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || 'test_secret';
 const SHOPIFY_APP_URL = process.env.SHOPIFY_APP_URL || 'http://localhost:3000';
 
-const SCOPES = [
+/**
+ * OAuth scopes.
+ *
+ * read_script_tags / write_script_tags were removed when the theme app extension landed.
+ * ScriptTag is a legacy API and requesting a scope the app no longer uses is both a
+ * needless permission prompt for the merchant and an App Store review finding.
+ *
+ * write_product_reviews and read_metaobjects are NOT listed here on purpose. They are
+ * only granted after Shopify approves the Standard Product Review Syndication Program
+ * and a review-specific amendment to the Partner Agreement is signed. Requesting a scope
+ * that has not been granted makes Shopify reject the whole OAuth request, which would
+ * break every install. Once approved, add them via SHOPIFY_SCOPES rather than editing
+ * this file, so the change is a config toggle instead of a deploy.
+ */
+const DEFAULT_SCOPES = [
   'read_products',
   'write_products',
   'read_orders',
   'read_customers',
-  'read_script_tags',
-  'write_script_tags',
   'read_themes',
   'write_themes',
-].join(',');
+];
+
+const SCOPES = (process.env.SHOPIFY_SCOPES || DEFAULT_SCOPES.join(','))
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .join(',');
 
 // ── HMAC Verification ──
 

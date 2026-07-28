@@ -1,0 +1,121 @@
+{% comment %}
+  Star rating badge — the small "★★★★☆ (42)" line that sits under a product title.
+
+  This block renders ENTIRELY from Shopify metafields, with no JavaScript and no network
+  request. That is the whole point of writing reviews.rating and reviews.rating_count in
+  src/lib/ratings.ts: the most-rendered widget on the most performance-sensitive page
+  costs zero bytes of JS and zero round trips.
+
+  Every competitor that fetches this over XHR pays a request, a layout shift, and a
+  Lighthouse penalty on the exact page Shopify weights most heavily.
+{% endcomment %}
+
+{%- liquid
+  assign rating = product.metafields.reviews.rating
+  assign rating_count = product.metafields.reviews.rating_count.value | default: 0
+-%}
+
+{%- if rating != blank and rating_count > 0 -%}
+  {%- liquid
+    assign value = rating.value.value | times: 1.0
+    assign scale_max = rating.value.scale_max | times: 1.0
+    if scale_max == 0
+      assign scale_max = 5
+    endif
+    assign full_stars = value | floor
+    assign remainder = value | minus: full_stars
+    assign empty_stars = scale_max | minus: full_stars
+    if remainder >= 0.25
+      assign empty_stars = empty_stars | minus: 1
+    endif
+  -%}
+
+  <div
+    class="rm-stars rm-stars--{{ block.settings.size }}"
+    style="--rm-star-color: {{ block.settings.star_color }};"
+    {{ block.shopify_attributes }}
+  >
+    {%- comment -%}
+      role="img" with a single aria-label, rather than ten decorative star glyphs a screen
+      reader would read out one at a time.
+    {%- endcomment -%}
+    <span
+      class="rm-stars__icons"
+      role="img"
+      aria-label="{{ 'reviewmaster.rating_aria' | t: value: value, max: scale_max, count: rating_count }}"
+    >
+      {%- for i in (1..full_stars) -%}<span class="rm-star rm-star--full" aria-hidden="true">★</span>{%- endfor -%}
+      {%- if remainder >= 0.25 -%}<span class="rm-star rm-star--half" aria-hidden="true">★</span>{%- endif -%}
+      {%- for i in (1..empty_stars) -%}<span class="rm-star rm-star--empty" aria-hidden="true">★</span>{%- endfor -%}
+    </span>
+
+    {%- if block.settings.show_count -%}
+      <a class="rm-stars__count" href="#reviewmaster-reviews">
+        {%- if block.settings.count_style == 'parentheses' -%}
+          ({{ rating_count }})
+        {%- else -%}
+          {{ 'reviewmaster.review_count' | t: count: rating_count }}
+        {%- endif -%}
+      </a>
+    {%- endif -%}
+  </div>
+
+{%- elsif block.settings.show_when_empty -%}
+  {%- comment -%}
+    No reviews yet. Rendering a prompt keeps the vertical space stable so the page does not
+    reflow once a first review lands, and gives the merchant a call to action.
+  {%- endcomment -%}
+  <div class="rm-stars rm-stars--empty-state" {{ block.shopify_attributes }}>
+    <a href="#reviewmaster-reviews">{{ 'reviewmaster.be_first' | t }}</a>
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Review stars",
+  "target": "section",
+  "stylesheet": "reviewmaster.css",
+  "settings": [
+    {
+      "type": "select",
+      "id": "size",
+      "label": "Star size",
+      "default": "medium",
+      "options": [
+        { "value": "small", "label": "Small" },
+        { "value": "medium", "label": "Medium" },
+        { "value": "large", "label": "Large" }
+      ]
+    },
+    {
+      "type": "color",
+      "id": "star_color",
+      "label": "Star colour",
+      "default": "#F5A623"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_count",
+      "label": "Show review count",
+      "default": true
+    },
+    {
+      "type": "select",
+      "id": "count_style",
+      "label": "Count style",
+      "default": "parentheses",
+      "options": [
+        { "value": "parentheses", "label": "(42)" },
+        { "value": "words", "label": "42 reviews" }
+      ]
+    },
+    {
+      "type": "checkbox",
+      "id": "show_when_empty",
+      "label": "Show a prompt when there are no reviews",
+      "default": true,
+      "info": "Keeps the layout stable and invites the first review."
+    }
+  ]
+}
+{% endschema %}

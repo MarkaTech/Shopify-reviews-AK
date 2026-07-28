@@ -1,0 +1,21 @@
+# ReviewMaster theme app extension
+#
+# This replaces ScriptTag injection. Three reasons that is not optional:
+#
+#  1. ScriptTag is a legacy API. Shopify has been steering apps off it for years and
+#     Built for Shopify status is effectively unreachable while an app injects storefront
+#     JavaScript that way.
+#  2. App blocks let merchants place widgets in the theme editor by drag-and-drop, with a
+#     live preview, and remove them cleanly on uninstall. A ScriptTag leaves orphaned
+#     markup behind.
+#  3. Performance. Shopify's storefront Lighthouse score is weighted 83% toward product
+#     and collection pages — exactly where a review widget renders — and Built for Shopify
+#     allows a maximum 10-point drop. Theme extension assets are served from Shopify's CDN
+#     and are budgeted: 10 MB total, 30 blocks, 100 KB Liquid per block, 100 KB CSS, and a
+#     recommended 10 KB JavaScript ceiling. We stay under all of them.
+api_version = "2026-04"
+
+[[extensions]]
+type = "theme"
+name = "ReviewMaster Reviews"
+handle = "reviewmaster"
