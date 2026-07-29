@@ -315,17 +315,17 @@ export async function uploadToShopify(
 /**
  * Poll Shopify until files reach READY and expose a CDN URL.
  *
- * Bounded, with backoff. Images almost always resolve on the first or second attempt.
- * Video may still be transcoding when we give up — that is expected, and the caller keeps
- * the GID so the URL can be resolved later rather than blocking a shopper's form submit
- * for a minute.
+ * Bounded, with backoff. Nothing interactive waits on this any more — the submit endpoint
+ * runs the whole upload after the response has flushed — so a few hundred milliseconds
+ * here costs the shopper nothing. Anything still processing keeps its GID for
+ * /api/media/resolve to pick up later.
  */
 export async function resolveMediaUrls(
   shop: string,
   accessToken: string,
   gids: string[],
   onUnauthorized?: () => Promise<string | null>,
-  attempts = 5
+  attempts = 3
 ): Promise<UploadedMedia[]> {
   if (!gids.length) return [];
 

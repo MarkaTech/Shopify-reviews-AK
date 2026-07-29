@@ -56,10 +56,32 @@ export async function PUT(request: NextRequest) {
     const widget = await db.widgetConfig.findFirst({ where: { id, storeId } });
     if (!widget) return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
 
-    const updated = await db.widgetConfig.update({
-      where: { id },
-      data: { ...data, config: data.config ? JSON.stringify(data.config) : undefined },
-    });
+    // Allowlist rather than spreading the request body.
+    //
+    // `data: { ...data }` let a caller write any column on the row — including storeId,
+    // which would have moved another merchant's widget into this store. Same class of bug
+    // that was fixed on the review update route; fixing it in one place and not the other
+    // is how it comes back.
+    const patch: Record<string, unknown> = {};
+    if (typeof data.name === 'string') patch.name = data.name.slice(0, 200);
+    if (typeof data.widgetType === 'string') patch.widgetType = data.widgetType.slice(0, 50);
+    if (typeof data.placement === 'string' || data.placement === null) {
+      patch.placement = data.placement ? String(data.placement).slice(0, 50) : null;
+    }
+    if (typeof data.isActive === 'boolean') patch.isActive = data.isActive;
+    if (data.config !== undefined) patch.config = JSON.stringify(data.config);
+
+    if (!Object.keys(patch).length) {
+      return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+    }
+
+    // Changing an inactive widget's type to one the plan does not cover, then activating
+    // it, would otherwise route around the limit checked at creation.
+    if (patch.widgetType || patch.isActive === true) {
+      await assertWidgetAllowed(storeId, String(patch.widgetType ?? widget.widgetType), id);
+    }
+
+    const updated = await db.widgetConfig.update({ where: { id }, data: patch });
     return NextResponse.json(updated);
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();

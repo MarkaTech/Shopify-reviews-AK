@@ -78,12 +78,21 @@
 @media (prefers-reduced-motion: reduce) { .rm-skeleton__row { animation: none; } }
 
 .rm-empty { opacity: .7; padding: 1rem 0; }
-.rm-pagination { display: flex; align-items: center; gap: .75rem; justify-content: center;
-  margin-top: 1.25rem; }
-.rm-page { border: 1px solid #d4d4d8; background: #fff; border-radius: var(--rm-radius,8px);
-  padding: .3rem .7rem; cursor: pointer; font: inherit; }
-.rm-page[disabled] { opacity: .4; cursor: default; }
-.rm-page__info { font-size: .85rem; opacity: .7; }
+.rm-pagination { display: flex; flex-direction: column; align-items: center; gap: .6rem;
+  margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid #f1f5f9; }
+.rm-pagination__info { font-size: .8rem; opacity: .65; }
+.rm-pagination__nav { display: flex; align-items: center; gap: .25rem; flex-wrap: wrap;
+  justify-content: center; }
+.rm-page { min-width: 2.1rem; height: 2.1rem; border: 1px solid #e5e7eb; background: #fff;
+  border-radius: var(--rm-radius, 8px); padding: 0 .5rem; cursor: pointer; font: inherit;
+  font-size: .85rem; display: inline-flex; align-items: center; justify-content: center; }
+.rm-page:hover:not([disabled]):not(.is-current) { border-color: var(--rm-accent, #059669); }
+.rm-page.is-current { background: var(--rm-accent, #059669); color: #fff;
+  border-color: transparent; font-weight: 600; cursor: default; }
+.rm-page[disabled] { opacity: .35; cursor: default; }
+.rm-page--arrow { font-size: 1.1rem; line-height: 1; }
+.rm-page:focus-visible { outline: 2px solid var(--rm-accent, #059669); outline-offset: 2px; }
+.rm-page__gap { padding: 0 .2rem; opacity: .5; font-size: .85rem; }
 
 .rm-form-wrap { margin-top: 1.5rem; padding: 1.25rem; border: 1px solid #e5e7eb;
   border-radius: var(--rm-radius, 8px); }
@@ -128,3 +137,193 @@
 /* Post-submit confirmation. Sits outside the form so it survives the form closing. */
 .rm-notice { margin: 1rem 0; padding: .75rem 1rem; background: #ecfdf5; color: #065f46;
   border-radius: var(--rm-radius, 8px); font-size: .9rem; }
+
+/* Media thumbnails and lightbox */
+.rm-thumb { padding: 0; border: 0; background: none; cursor: pointer; line-height: 0;
+  border-radius: var(--rm-radius, 8px); overflow: hidden; position: relative; }
+.rm-thumb img { display: block; width: 96px; height: 96px; object-fit: cover; }
+.rm-thumb:focus-visible { outline: 2px solid var(--rm-accent, #059669); outline-offset: 2px; }
+.rm-thumb--video { width: 96px; height: 96px; background: #1f2937; display: grid;
+  place-items: center; }
+.rm-thumb__play { color: #fff; font-size: 1.6rem; line-height: 1; }
+
+.rm-lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.85);
+  display: grid; place-items: center; padding: 2rem; }
+.rm-lightbox__media { max-width: min(92vw, 1100px); max-height: 88vh; border-radius: 6px; }
+.rm-lightbox__close { position: absolute; top: 1rem; right: 1.25rem; background: none;
+  border: 0; color: #fff; font-size: 2.2rem; line-height: 1; cursor: pointer; padding: .25rem; }
+.rm-lightbox__close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* Verified badge colours are merchant-configurable; the custom properties fall back to the
+   original values so an unconfigured store looks identical to before. */
+.rm-badge--verified { background: var(--rm-verified-bg, #ecfdf5); color: var(--rm-verified-text, #047857); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Layouts
+   ───────────────────────────────────────────────────────────────────────────
+   Nine display styles, almost entirely in CSS. The JavaScript budget for a theme
+   app extension is 10KB and this runs on product pages, where Shopify weights 83%
+   of the storefront Lighthouse score. The CSS budget is 100KB and costs nothing at
+   runtime, so every layout that can be a class name is a class name.
+
+   Grid, masonry, list and testimonial are the same cards under different rules.
+   Carousel adds scroll snapping. Badge, floating, popup and sidebar restructure. */
+
+/* Card surface colours, so a merchant on a dark theme is not stuck with white cards. */
+.rm-review { background: var(--rm-card-bg, transparent); color: var(--rm-card-text, inherit); }
+.rm-widget--grid .rm-review,
+.rm-widget--masonry .rm-widget .rm-review,
+.rm-widget--masonry .rm-review,
+.rm-widget--carousel .rm-review {
+  padding: 1rem; border: 1px solid var(--rm-border, #e5e7eb);
+  border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, #fff);
+}
+
+/* ── Grid ── */
+.rm-widget--grid .rm-list {
+  display: grid; gap: 1rem;
+  grid-template-columns: repeat(var(--rm-columns, 3), minmax(0, 1fr));
+}
+@media (max-width: 900px) { .rm-widget--grid .rm-list { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 600px) { .rm-widget--grid .rm-list { grid-template-columns: 1fr; } }
+
+/* ── Masonry ──
+   CSS multi-column rather than a JS layout pass: no measuring, no reflow on image
+   load, and it reads top-to-bottom in each column the way a Pinterest grid should.
+   break-inside stops a card being split across a column boundary. */
+.rm-widget--masonry .rm-list {
+  display: block; column-count: var(--rm-columns, 3); column-gap: 1rem;
+}
+.rm-widget--masonry .rm-review {
+  break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 1rem;
+  display: inline-block; width: 100%;
+}
+@media (max-width: 900px) { .rm-widget--masonry .rm-list { column-count: 2; } }
+@media (max-width: 600px) { .rm-widget--masonry .rm-list { column-count: 1; } }
+
+/* ── Carousel ──
+   Native horizontal scrolling with snap points. Works with a trackpad, a touch
+   swipe, arrow keys and the buttons, and degrades to a scrollable row if the
+   script never runs. */
+.rm-widget--carousel .rm-list {
+  display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory;
+  padding-bottom: .5rem; scrollbar-width: thin;
+}
+.rm-widget--carousel .rm-review {
+  flex: 0 0 300px; scroll-snap-align: start; border-bottom: 1px solid var(--rm-border, #e5e7eb);
+}
+@media (max-width: 600px) { .rm-widget--carousel .rm-review { flex-basis: 85%; } }
+.rm-carousel-nav { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .5rem; }
+
+/* ── Testimonial ── */
+.rm-widget--testimonial .rm-review {
+  border: 0; text-align: center; padding: 2rem 1.5rem;
+  background: var(--rm-card-bg, #f8fafc); border-radius: var(--rm-radius, 8px);
+}
+.rm-widget--testimonial .rm-review__head { justify-content: center; }
+.rm-widget--testimonial .rm-review__date { margin-left: 0; }
+.rm-widget--testimonial .rm-review__body {
+  font-size: 1.15rem; line-height: 1.6; font-style: italic; margin: .75rem 0;
+}
+.rm-widget--testimonial .rm-review__media { justify-content: center; }
+.rm-widget--testimonial .rm-review__foot { justify-content: center; }
+
+/* ── Badge ──
+   Summary only. Compact enough to sit under an Add to Cart button. */
+.rm-widget--badge { margin: 1rem 0; }
+.rm-widget--badge .rm-summary {
+  border: 1px solid var(--rm-border, #e5e7eb); border-radius: var(--rm-radius, 8px);
+  padding: 1rem; justify-content: flex-start; gap: 1.25rem;
+}
+.rm-widget--badge .rm-histogram { margin: 0; flex: 1; min-width: 180px; }
+.rm-widget--badge .rm-widget__heading { display: none; }
+
+/* ── Overlay layouts: floating, popup, sidebar ──
+   Same panel, three entrances. */
+.rm-widget--floating, .rm-widget--popup, .rm-widget--sidebar { margin: 0; }
+
+.rm-trigger {
+  position: fixed; z-index: 2147483000; display: inline-flex; align-items: center;
+  gap: .4rem; border: 0; cursor: pointer; font: inherit; font-size: .9rem;
+  padding: .7rem 1.1rem; border-radius: 999px; color: #fff;
+  background: var(--rm-accent, #059669); box-shadow: 0 4px 16px rgba(0,0,0,.18);
+  right: 1.25rem; bottom: 1.25rem;
+}
+.rm-trigger:hover { filter: brightness(.94); }
+.rm-trigger__star { color: var(--rm-star-color, #F5A623); }
+.rm-widget--popup .rm-trigger { display: none; }
+
+.rm-panel {
+  position: fixed; z-index: 2147483001; background: var(--rm-card-bg, #fff);
+  color: var(--rm-card-text, inherit); box-shadow: 0 10px 40px rgba(0,0,0,.22);
+  overflow-y: auto; padding: 1.5rem; display: none;
+}
+.rm-widget.is-open .rm-panel { display: block; }
+.rm-panel__close {
+  position: absolute; top: .5rem; right: .75rem; border: 0; background: none;
+  font-size: 1.6rem; line-height: 1; cursor: pointer; color: inherit; opacity: .6;
+}
+.rm-panel__close:hover { opacity: 1; }
+
+/* Floating and sidebar slide in from the edge; popup centres. */
+.rm-widget--floating .rm-panel, .rm-widget--sidebar .rm-panel {
+  top: 0; right: 0; bottom: 0; width: min(420px, 92vw);
+  border-radius: var(--rm-radius, 8px) 0 0 var(--rm-radius, 8px);
+}
+.rm-widget--popup .rm-panel {
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(560px, 92vw); max-height: 86vh; border-radius: var(--rm-radius, 8px);
+}
+.rm-widget--popup.is-open::before {
+  content: ''; position: fixed; inset: 0; z-index: 2147483000;
+  background: rgba(0,0,0,.45);
+}
+
+/* Reserved height belongs to inline layouts. Inside a panel it just adds dead scroll. */
+.rm-widget--floating .rm-list, .rm-widget--popup .rm-list,
+.rm-widget--sidebar .rm-list, .rm-widget--badge .rm-list { min-height: 0 !important; }
+
+/* ── Helpful vote ── */
+.rm-review__foot { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; }
+.rm-helpful {
+  border: 1px solid var(--rm-border, #d4d4d8); border-radius: 999px;
+  background: transparent; color: inherit; font: inherit; font-size: .78rem;
+  padding: .25rem .7rem; cursor: pointer; opacity: .8;
+}
+.rm-helpful:hover:not(:disabled) { opacity: 1; border-color: var(--rm-accent, #059669); }
+.rm-helpful.is-voted { border-color: var(--rm-accent, #059669);
+  color: var(--rm-accent, #059669); cursor: default; opacity: 1; }
+.rm-helpful__n { font-size: .78rem; opacity: .6; }
+
+.rm-badge--source { background: #f1f5f9; color: #475569; text-transform: capitalize; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Themes
+   Presets, not a design system. Each changes the handful of properties that
+   actually read as a different style, and nothing else — so a merchant switching
+   theme never loses the colours they picked. */
+
+.rm-theme--classic .rm-review {
+  border-bottom: 1px solid var(--rm-border, #e5e7eb); border-radius: 0;
+}
+.rm-theme--classic .rm-review__title { font-family: Georgia, 'Times New Roman', serif; }
+.rm-theme--classic .rm-btn { border-radius: 2px; }
+
+.rm-theme--minimal .rm-review { border: 0; background: transparent; padding-left: 0; padding-right: 0; }
+.rm-theme--minimal .rm-summary { border: 0; }
+.rm-theme--minimal .rm-btn--primary { background: transparent; color: var(--rm-accent, #059669);
+  border: 1px solid currentColor; }
+.rm-theme--minimal .rm-histogram { display: none; }
+
+.rm-theme--bold .rm-widget__heading { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
+.rm-theme--bold .rm-review { border: 2px solid var(--rm-card-text, #1f2937);
+  border-radius: var(--rm-radius, 8px); padding: 1.1rem; }
+.rm-theme--bold .rm-summary__number { font-size: 2.5rem; }
+.rm-theme--bold .rm-btn--primary { font-weight: 700; }
+
+/* Respect a shopper who has asked the OS for less motion. Carousel autoplay is
+   already interaction-cancelled; this covers the smooth scroll and any transition. */
+@media (prefers-reduced-motion: reduce) {
+  .rm-widget--carousel .rm-list { scroll-behavior: auto; }
+  .rm-panel, .rm-trigger { transition: none !important; }
+}

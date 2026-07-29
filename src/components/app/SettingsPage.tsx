@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Settings, Bell, Shield, Palette, Globe, Mail, ToggleLeft,
-  CheckCircle, CreditCard, Crown, Zap, Lock, Info
+  Settings, Bell, Palette, CheckCircle, CreditCard, Crown, AlertTriangle,
+  RotateCcw, Send, Loader2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,48 +22,23 @@ import { apiFetch, errorMessage } from '@/lib/api-client';
 const plans = [
   {
     id: 'free', name: 'Free', price: 0, interval: 'month',
-    features: [
-      '100 reviews',
-      'Photo reviews',
-      'Star rating + review widget',
-      'CSV import & migration',
-      'Google rich snippets',
-    ],
-    color: 'border-gray-200'
+    features: ['100 reviews', 'Photo reviews', 'Star rating + review widget', 'CSV import & migration', 'Google rich snippets'],
+    color: 'border-gray-200',
   },
   {
     id: 'starter', name: 'Starter', price: 9.99, interval: 'month',
-    features: [
-      '1,000 reviews',
-      'All widget types',
-      'Video reviews',
-      'Questions & answers',
-      'Review incentives',
-      'Email review requests',
-    ],
-    color: 'border-gray-200'
+    features: ['1,000 reviews', 'All widget types', 'Video reviews', 'Questions & answers', 'Review incentives', 'Email review requests'],
+    color: 'border-gray-200',
   },
   {
     id: 'growth', name: 'Growth', price: 19.99, interval: 'month',
-    features: [
-      'Unlimited reviews & widgets',
-      'Google Shopping star ratings',
-      'Shop app syndication',
-      'Advanced analytics',
-      'Everything in Starter',
-    ],
-    color: 'border-emerald-500 ring-2 ring-emerald-200', popular: true
+    features: ['Unlimited reviews & widgets', 'Google Shopping star ratings', 'Shop app syndication', 'Advanced analytics', 'Everything in Starter'],
+    color: 'border-emerald-500 ring-2 ring-emerald-200', popular: true,
   },
   {
     id: 'pro', name: 'Pro', price: 49.99, interval: 'month',
-    features: [
-      'Everything in Growth',
-      'API access',
-      'White-label widgets',
-      'Remove ReviewMaster branding',
-      'Priority support',
-    ],
-    color: 'border-gray-200'
+    features: ['Everything in Growth', 'API access', 'White-label widgets', 'Remove ReviewMaster branding', 'Priority support'],
+    color: 'border-gray-200',
   },
 ];
 
@@ -75,54 +50,247 @@ interface Usage {
   widgets: { used: number; limit: number | null; percentUsed: number };
 }
 
+/**
+ * The config shape returned by /api/storefront-config. Mirrors StorefrontConfig in
+ * src/lib/storefront-config.ts — that file is the source of truth for what is valid; this
+ * is the client's view of it.
+ */
+interface StorefrontConfig {
+  colors: Record<string, string>;
+  layout: Record<string, string | number | boolean>;
+  text: Record<string, string>;
+  behaviour: Record<string, string | number | boolean>;
+  customCss: string;
+}
+
+interface NotificationSettings {
+  newReview: boolean;
+  negativeReview: boolean;
+  weeklySummary: boolean;
+  negativeThreshold: number;
+  email: string;
+}
+
+/** A labelled switch row. Repeated fifteen times otherwise. */
+function ToggleRow({
+  title, description, checked, onChange, disabled,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-xs font-medium">{title}</p>
+        <p className="text-[11px] text-muted-foreground">{description}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
+    </div>
+  );
+}
+
+function ColorRow({
+  label, value, onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <Label className="text-xs">{label}</Label>
+      <div className="flex gap-2 mt-1.5">
+        <input
+          type="color"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="w-9 h-9 rounded-lg border cursor-pointer p-0"
+          aria-label={label}
+        />
+        <Input
+          className="h-9 text-xs flex-1 font-mono"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          spellCheck={false}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [config, setConfig] = useState<StorefrontConfig | null>(null);
+  const [notif, setNotif] = useState<NotificationSettings | null>(null);
+  const [mailProvider, setMailProvider] = useState<string | null>(null);
+  const [fallbackEmail, setFallbackEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [upgrading, setUpgrading] = useState<string | null>(null);
 
-  useEffect(() => {
-    apiFetch<{ settings: Record<string, string> }>('/api/settings')
-      .then(d => setSettings(d.settings || {}))
+  // Only what the merchant actually changed is sent. Sending the whole config on every
+  // save would write ~70 rows per click and, worse, would persist every default as an
+  // explicit override — so a later change to a default would never reach existing stores.
+  const [dirty, setDirty] = useState<Record<string, string>>({});
+  const [dirtyNotif, setDirtyNotif] = useState<Record<string, string>>({});
+
+  // No setLoading(true) here on purpose. `loading` starts true, and calling setState
+  // synchronously from an effect body triggers a cascading render — which is what
+  // react-hooks/set-state-in-effect flags. The reset handler has its own `saving` state,
+  // so nothing needs the skeleton to reappear on a refetch.
+  const load = useCallback(() => {
+    Promise.all([
+      apiFetch<{ config: StorefrontConfig }>('/api/storefront-config'),
+      apiFetch<{
+        settings: NotificationSettings;
+        provider: string | null;
+        fallbackEmail: string | null;
+      }>('/api/notifications'),
+    ])
+      .then(([c, n]) => {
+        setConfig(c.config);
+        setNotif(n.settings);
+        setMailProvider(n.provider);
+        setFallbackEmail(n.fallbackEmail);
+        setDirty({});
+        setDirtyNotif({});
+      })
       .catch(err => toast.error(errorMessage(err, 'Could not load settings')))
       .finally(() => setLoading(false));
 
-    apiFetch<Usage>('/api/usage')
-      .then(setUsage)
-      .catch(() => setUsage(null));
+    apiFetch<Usage>('/api/usage').then(setUsage).catch(() => setUsage(null));
   }, []);
+
+  useEffect(load, [load]);
 
   const currentPlan = usage?.plan ?? 'free';
 
-  /**
-   * Start a plan change. The server creates a Shopify recurring charge and returns a
-   * confirmation URL; the merchant approves it in their Shopify admin and Shopify bills
-   * them. This button previously had no handler at all, so there was no way to pay.
-   */
+  // ── Config editing ────────────────────────────────────────────────────────────────
+  const setBehaviour = (field: string, value: string | number | boolean) => {
+    setConfig(c => (c ? { ...c, behaviour: { ...c.behaviour, [field]: value } } : c));
+    setDirty(d => ({ ...d, [`sf.behaviour.${field}`]: String(value) }));
+  };
+  const setColor = (field: string, value: string) => {
+    setConfig(c => (c ? { ...c, colors: { ...c.colors, [field]: value } } : c));
+    setDirty(d => ({ ...d, [`sf.color.${field}`]: value }));
+  };
+  const setLayout = (field: string, value: string | number | boolean) => {
+    setConfig(c => (c ? { ...c, layout: { ...c.layout, [field]: value } } : c));
+    setDirty(d => ({ ...d, [`sf.layout.${field}`]: String(value) }));
+  };
+  const setCss = (value: string) => {
+    setConfig(c => (c ? { ...c, customCss: value } : c));
+    setDirty(d => ({ ...d, 'sf.customCss': value }));
+  };
+  const setNotifField = (field: keyof NotificationSettings, value: string | number | boolean) => {
+    setNotif(n => (n ? { ...n, [field]: value } : n));
+    setDirtyNotif(d => ({ ...d, [`notify.${field}`]: String(value) }));
+  };
+
+  const bool = (v: unknown) => v === true || v === 'true';
+  const b = (field: string) => bool(config?.behaviour[field]);
+  const num = (v: unknown, fallback: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  const hasChanges = Object.keys(dirty).length > 0 || Object.keys(dirtyNotif).length > 0;
+
+  const save = async () => {
+    if (!hasChanges) {
+      toast.info('Nothing to save');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (Object.keys(dirty).length) {
+        const res = await apiFetch<{ rejected: string[]; config: StorefrontConfig }>(
+          '/api/storefront-config',
+          { method: 'PUT', body: JSON.stringify({ updates: dirty }) }
+        );
+        setConfig(res.config);
+        // Rejected keys are surfaced, not swallowed. A merchant who typed "emerald" into a
+        // colour field deserves to know that field did not save, rather than discover it
+        // by looking at their storefront.
+        if (res.rejected?.length) {
+          toast.warning(`${res.rejected.length} setting(s) were not valid and were not saved`, {
+            description: res.rejected.map(k => k.split('.').pop()).join(', '),
+          });
+        }
+        setDirty({});
+      }
+
+      if (Object.keys(dirtyNotif).length) {
+        const res = await apiFetch<{ settings: NotificationSettings; rejected: string[] }>(
+          '/api/notifications',
+          { method: 'PUT', body: JSON.stringify({ updates: dirtyNotif }) }
+        );
+        setNotif(res.settings);
+        if (res.rejected?.length) {
+          toast.warning('Some notification settings were not valid');
+        }
+        setDirtyNotif({});
+      }
+
+      toast.success('Saved. Your storefront updates within about five minutes.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not save settings'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetAll = async () => {
+    setSaving(true);
+    try {
+      await apiFetch('/api/storefront-config', { method: 'DELETE' });
+      toast.success('Reset to defaults');
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not reset'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendTest = async () => {
+    setTesting(true);
+    try {
+      const res = await apiFetch<{ to: string }>('/api/notifications', { method: 'POST' });
+      toast.success(`Test notification sent to ${res.to}`);
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not send the test'));
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const handleUpgrade = async (planId: string) => {
     if (planId === currentPlan) return;
     setUpgrading(planId);
     try {
-      const data = await apiFetch<{ confirmationUrl?: string; plan?: string; activated?: boolean }>(
-        '/api/billing',
-        { method: 'POST', body: JSON.stringify({ plan: planId }) }
-      );
-
+      const data = await apiFetch<{ confirmationUrl?: string; activated?: boolean }>('/api/billing', {
+        method: 'POST',
+        body: JSON.stringify({ plan: planId }),
+      });
       if (data.confirmationUrl) {
-        // Shopify hosts the approval screen. Top-level redirect so it works inside the
-        // embedded admin iframe as well as standalone.
-        if (window.top) {
-          window.top.location.href = data.confirmationUrl;
-        } else {
-          window.location.href = data.confirmationUrl;
-        }
+        // Shopify hosts the approval screen and refuses to be framed, so this has to break
+        // out of the embedded admin iframe. `window.top.location` is the only way to do
+        // that; the lint rule below is about React state, and a navigation is neither
+        // React state nor something an effect can express.
+        // eslint-disable-next-line react-hooks/immutability
+        if (window.top) window.top.location.href = data.confirmationUrl;
+        // eslint-disable-next-line react-hooks/immutability
+        else window.location.href = data.confirmationUrl;
         return;
       }
-
       if (data.activated) {
         toast.success(`Switched to the ${planId} plan.`);
-        const fresh = await apiFetch<Usage>('/api/usage');
-        setUsage(fresh);
+        setUsage(await apiFetch<Usage>('/api/usage'));
       }
     } catch (err) {
       toast.error(errorMessage(err, 'Could not start the plan change'));
@@ -131,36 +299,36 @@ export default function SettingsPage() {
     }
   };
 
-  const updateSetting = (key: string, value: string) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const saveSettings = async () => {
-    try {
-      await apiFetch('/api/settings', {
-        method: 'PUT',
-        body: JSON.stringify({ settings }),
-      });
-      toast.success('Settings saved successfully!');
-    } catch (err) {
-      // Previously this always claimed success, even when the request failed.
-      toast.error(errorMessage(err, 'Could not save settings'));
-    }
-  };
-
-  const getBool = (key: string) => settings[key] === 'true';
-  const getStr = (key: string) => settings[key] || '';
-
-  if (loading) {
+  if (loading || !config || !notif) {
     return <div className="space-y-4 animate-pulse"><div className="h-96 bg-gray-100 rounded-xl" /></div>;
   }
 
+  const SaveBar = (
+    <div className="flex items-center gap-2">
+      <Button onClick={save} disabled={saving || !hasChanges} className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
+        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+        {hasChanges ? 'Save changes' : 'Saved'}
+      </Button>
+      {hasChanges && (
+        <span className="text-[11px] text-amber-600">
+          {Object.keys(dirty).length + Object.keys(dirtyNotif).length} unsaved change(s)
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-lg font-bold">Settings</h2>
-        <p className="text-xs text-muted-foreground">Configure your review app preferences</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold">Settings</h2>
+          <p className="text-xs text-muted-foreground">
+            These apply to every ReviewMaster widget on your storefront.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={resetAll} disabled={saving}>
+          <RotateCcw className="w-3.5 h-3.5" /> Reset to defaults
+        </Button>
       </div>
 
       <Tabs defaultValue="general" className="space-y-4">
@@ -171,218 +339,374 @@ export default function SettingsPage() {
           <TabsTrigger value="subscription" className="text-xs h-8 gap-1.5"><CreditCard className="w-3.5 h-3.5" />Plan</TabsTrigger>
         </TabsList>
 
-        {/* General Settings */}
+        {/* ── General ───────────────────────────────────────────────────────────────── */}
         <TabsContent value="general">
           <div className="space-y-4">
             <Card className="border-0 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Review Settings</CardTitle>
-                <CardDescription className="text-xs">Configure how reviews are submitted and displayed</CardDescription>
+                <CardTitle className="text-sm">Moderation</CardTitle>
+                <CardDescription className="text-xs">What happens when a shopper submits a review</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium">Auto-publish reviews</p>
-                    <p className="text-[11px] text-muted-foreground">New reviews are published immediately without approval</p>
-                  </div>
-                  <Switch checked={getBool('auto_publish')} onCheckedChange={v => updateSetting('auto_publish', String(v))} />
+                {/*
+                  One control, not two. "Auto-publish" and "Require approval" were separate
+                  switches that could both be on, and the storefront can only do one of
+                  them — so whichever the code happened to check silently won.
+                */}
+                <div>
+                  <Label className="text-xs">New reviews are</Label>
+                  <Select
+                    value={b('autoPublish') ? 'auto' : 'moderated'}
+                    onValueChange={v => setBehaviour('autoPublish', v === 'auto')}
+                  >
+                    <SelectTrigger className="h-8 text-xs mt-1.5"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="moderated">Held for your approval (recommended)</SelectItem>
+                      <SelectItem value="auto">Published immediately</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {b('autoPublish') && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 mt-2 flex gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                      <span>
+                        Anything submitted through the public form goes live with no review.
+                        Reviews still never show a &ldquo;Verified Purchase&rdquo; badge unless
+                        we can match a real order.
+                      </span>
+                    </p>
+                  )}
                 </div>
+
                 <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium">Require approval</p>
-                    <p className="text-[11px] text-muted-foreground">All reviews must be approved before publishing</p>
-                  </div>
-                  <Switch checked={getBool('require_approval')} onCheckedChange={v => updateSetting('require_approval', String(v))} />
-                </div>
+
+                <ToggleRow
+                  title="Allow anonymous reviews"
+                  description="Let shoppers submit without giving a name. They appear as “Anonymous”."
+                  checked={b('allowAnonymous')}
+                  onChange={v => setBehaviour('allowAnonymous', v)}
+                />
                 <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium">Allow anonymous reviews</p>
-                    <p className="text-[11px] text-muted-foreground">Let customers submit reviews without a name</p>
-                  </div>
-                  <Switch checked={getBool('allow_anonymous')} onCheckedChange={v => updateSetting('allow_anonymous', String(v))} />
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium">Enable photo reviews</p>
-                    <p className="text-[11px] text-muted-foreground">Allow customers to upload photos with reviews</p>
-                  </div>
-                  <Switch checked={getBool('enable_photo_reviews')} onCheckedChange={v => updateSetting('enable_photo_reviews', String(v))} />
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium">Enable video reviews</p>
-                    <p className="text-[11px] text-muted-foreground">Allow customers to submit video reviews</p>
-                  </div>
-                  <Switch checked={getBool('enable_video_reviews')} onCheckedChange={v => updateSetting('enable_video_reviews', String(v))} />
-                </div>
+                <ToggleRow
+                  title="Require an email address"
+                  description="Used to spot duplicate submissions and to verify purchases. Never published."
+                  checked={b('requireEmail')}
+                  onChange={v => setBehaviour('requireEmail', v)}
+                />
                 <Separator />
                 <div>
                   <p className="text-xs font-medium">Minimum review length</p>
-                  <p className="text-[11px] text-muted-foreground mb-1.5">Minimum characters required for a review body</p>
-                  <Input type="number" className="h-8 text-xs max-w-[120px]" value={getStr('min_review_length')} onChange={e => updateSetting('min_review_length', e.target.value)} />
+                  <p className="text-[11px] text-muted-foreground mb-1.5">
+                    Characters required in the review body. 0 means no minimum.
+                  </p>
+                  <Input
+                    type="number" min={0} max={1000}
+                    className="h-8 text-xs max-w-[120px]"
+                    value={num(config.behaviour.minReviewLength, 5)}
+                    onChange={e => setBehaviour('minReviewLength', Number(e.target.value))}
+                  />
                 </div>
               </CardContent>
             </Card>
 
             <Card className="border-0 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Review Form</CardTitle>
+                <CardTitle className="text-sm">What shoppers can attach</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <Label className="text-xs">Form Position</Label>
-                  <Select value={getStr('review_form_position')} onValueChange={v => updateSetting('review_form_position', v)}>
-                    <SelectTrigger className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="above_reviews">Above Reviews</SelectItem>
-                      <SelectItem value="below_reviews">Below Reviews</SelectItem>
-                      <SelectItem value="separate_tab">Separate Tab</SelectItem>
-                      <SelectItem value="floating_button">Floating Button</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <ToggleRow
+                  title="Photo uploads"
+                  description="Up to 5 images per review, 10MB each. Stored in your Shopify Files."
+                  checked={b('allowPhotos')}
+                  onChange={v => setBehaviour('allowPhotos', v)}
+                />
+                <Separator />
+                <ToggleRow
+                  title="Video uploads"
+                  description="One video per review, up to 50MB. Starter plan and above."
+                  checked={b('allowVideo')}
+                  onChange={v => setBehaviour('allowVideo', v)}
+                />
               </CardContent>
             </Card>
 
-            <Button onClick={saveSettings} className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
-              <CheckCircle className="w-3.5 h-3.5" /> Save Settings
-            </Button>
-          </div>
-        </TabsContent>
-
-        {/* Display Settings */}
-        <TabsContent value="display">
-          <div className="space-y-4">
             <Card className="border-0 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Colors & Appearance</CardTitle>
+                <CardTitle className="text-sm">Reading experience</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-xs">Primary Color</Label>
-                    <div className="flex gap-2 mt-1.5">
-                      <input type="color" value={getStr('primary_color')} onChange={e => updateSetting('primary_color', e.target.value)} className="w-9 h-9 rounded-lg border cursor-pointer" />
-                      <Input className="h-9 text-xs flex-1" value={getStr('primary_color')} onChange={e => updateSetting('primary_color', e.target.value)} />
-                    </div>
+                    <Label className="text-xs">Reviews per page</Label>
+                    <Input
+                      type="number" min={1} max={50}
+                      className="h-8 text-xs mt-1.5"
+                      value={num(config.behaviour.perPage, 5)}
+                      onChange={e => setBehaviour('perPage', Number(e.target.value))}
+                    />
                   </div>
                   <div>
-                    <Label className="text-xs">Star Color</Label>
-                    <div className="flex gap-2 mt-1.5">
-                      <input type="color" value={getStr('star_color')} onChange={e => updateSetting('star_color', e.target.value)} className="w-9 h-9 rounded-lg border cursor-pointer" />
-                      <Input className="h-9 text-xs flex-1" value={getStr('star_color')} onChange={e => updateSetting('star_color', e.target.value)} />
-                    </div>
+                    <Label className="text-xs">Default sort</Label>
+                    <Select
+                      value={String(config.behaviour.defaultSort || 'recent')}
+                      onValueChange={v => setBehaviour('defaultSort', v)}
+                    >
+                      <SelectTrigger className="h-8 text-xs mt-1.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="recent">Most recent</SelectItem>
+                        <SelectItem value="highest">Highest rating</SelectItem>
+                        <SelectItem value="lowest">Lowest rating</SelectItem>
+                        <SelectItem value="helpful">Most helpful</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-                <div>
-                  <Label className="text-xs">Widget Theme</Label>
-                  <Select value={getStr('widget_theme')} onValueChange={v => updateSetting('widget_theme', v)}>
-                    <SelectTrigger className="h-8 text-xs mt-1.5"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="modern">Modern</SelectItem>
-                      <SelectItem value="classic">Classic</SelectItem>
-                      <SelectItem value="minimal">Minimal</SelectItem>
-                      <SelectItem value="bold">Bold</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <Separator />
+                <ToggleRow title="Show the rating breakdown" description="The 5-to-1 star histogram above the list" checked={b('showHistogram')} onChange={v => setBehaviour('showHistogram', v)} />
+                <Separator />
+                <ToggleRow title="Show sort and filter controls" description="Lets shoppers sort and filter to photos only" checked={b('showFilters')} onChange={v => setBehaviour('showFilters', v)} />
+                <Separator />
+                <ToggleRow title="Show the “Write a review” button" description="Turn off if you only collect reviews by email" checked={b('showWriteButton')} onChange={v => setBehaviour('showWriteButton', v)} />
+              </CardContent>
+            </Card>
+
+            {SaveBar}
+          </div>
+        </TabsContent>
+
+        {/* ── Display ───────────────────────────────────────────────────────────────── */}
+        <TabsContent value="display">
+          <div className="space-y-4">
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Colours</CardTitle>
+                <CardDescription className="text-xs">
+                  Applied to every widget. A colour set in the theme editor on a specific block wins over these.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <ColorRow label="Accent" value={config.colors.accent} onChange={v => setColor('accent', v)} />
+                  <ColorRow label="Stars" value={config.colors.star} onChange={v => setColor('star', v)} />
+                  <ColorRow label="Card background" value={config.colors.cardBg} onChange={v => setColor('cardBg', v)} />
+                  <ColorRow label="Card text" value={config.colors.cardText} onChange={v => setColor('cardText', v)} />
+                  <ColorRow label="Borders" value={config.colors.border} onChange={v => setColor('border', v)} />
+                  <ColorRow label="Verified badge" value={config.colors.verifiedBg} onChange={v => setColor('verifiedBg', v)} />
+                </div>
+
+                {/* A preview beats a hex code. This is the actual card, with the actual values. */}
+                <div className="rounded-lg border p-3" style={{ background: '#fafafa' }}>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Preview</p>
+                  <div
+                    className="p-3 border"
+                    style={{
+                      background: config.colors.cardBg,
+                      color: config.colors.cardText,
+                      borderColor: config.colors.border,
+                      borderRadius: `${num(config.layout.borderRadius, 8)}px`,
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span style={{ color: config.colors.star, letterSpacing: '1px' }}>★★★★★</span>
+                      <span className="text-xs font-semibold">Sarah M.</span>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded-full"
+                        style={{ background: config.colors.verifiedBg, color: config.colors.verifiedText }}
+                      >
+                        Verified Purchase
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1.5">Exceeded my expectations — the quality is outstanding.</p>
+                    <button
+                      className="mt-2 text-[11px] px-2.5 py-1 rounded-md"
+                      style={{ background: config.colors.accent, color: '#fff' }}
+                      type="button"
+                    >
+                      Write a review
+                    </button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
             <Card className="border-0 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Badges</CardTitle>
+                <CardTitle className="text-sm">Style</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs font-medium">Show Verified Purchase Badge</p>
-                    <p className="text-[11px] text-muted-foreground">Display badge for verified buyers</p>
+                    <Label className="text-xs">Widget theme</Label>
+                    <Select value={String(config.layout.theme || 'modern')} onValueChange={v => setLayout('theme', v)}>
+                      <SelectTrigger className="h-8 text-xs mt-1.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="modern">Modern — rounded cards, soft borders</SelectItem>
+                        <SelectItem value="classic">Classic — serif titles, square edges</SelectItem>
+                        <SelectItem value="minimal">Minimal — no cards, no histogram</SelectItem>
+                        <SelectItem value="bold">Bold — heavy borders, large type</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <Switch checked={getBool('show_verified_badge')} onCheckedChange={v => updateSetting('show_verified_badge', String(v))} />
+                  <div>
+                    <Label className="text-xs">Corner radius</Label>
+                    <Input
+                      type="number" min={0} max={40}
+                      className="h-8 text-xs mt-1.5"
+                      value={num(config.layout.borderRadius, 8)}
+                      onChange={e => setLayout('borderRadius', Number(e.target.value))}
+                    />
+                  </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">What each review shows</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <ToggleRow title="Verified Purchase badge" description="Only ever shown when we matched a real order to the reviewer" checked={b('showVerifiedBadge')} onChange={v => setBehaviour('showVerifiedBadge', v)} />
                 <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium">Show Source Badge</p>
-                    <p className="text-[11px] text-muted-foreground">Show where the review was imported from</p>
-                  </div>
-                  <Switch checked={getBool('show_source_badge')} onCheckedChange={v => updateSetting('show_source_badge', String(v))} />
-                </div>
+                <ToggleRow title="Source badge" description="Shows where an imported review came from, e.g. Judge.me" checked={b('showSourceBadge')} onChange={v => setBehaviour('showSourceBadge', v)} />
                 <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium">Show Ratings Summary</p>
-                    <p className="text-[11px] text-muted-foreground">Display average rating breakdown</p>
-                  </div>
-                  <Switch checked={getBool('show_ratings_summary')} onCheckedChange={v => updateSetting('show_ratings_summary', String(v))} />
-                </div>
+                <ToggleRow title="Photos and video" description="Attached media, opened full size in a lightbox" checked={b('showMedia')} onChange={v => setBehaviour('showMedia', v)} />
+                <Separator />
+                <ToggleRow title="Your replies" description="Store responses, shown under the review they answer" checked={b('showReply')} onChange={v => setBehaviour('showReply', v)} />
+                <Separator />
+                <ToggleRow title="“Helpful” button" description="Lets shoppers upvote reviews, and enables sorting by most helpful" checked={b('showHelpful')} onChange={v => setBehaviour('showHelpful', v)} />
+                <Separator />
+                <ToggleRow title="Review date" description="" checked={b('showDates')} onChange={v => setBehaviour('showDates', v)} />
+                <Separator />
+                <ToggleRow title="Reviewer location" description="Only shown where we have it" checked={b('showReviewerLocation')} onChange={v => setBehaviour('showReviewerLocation', v)} />
               </CardContent>
             </Card>
 
             <Card className="border-0 shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Custom CSS</CardTitle>
-                <CardDescription className="text-xs">Add custom CSS to override default styles</CardDescription>
+                <CardDescription className="text-xs">
+                  Injected on your storefront. Widget classes are prefixed <code className="text-[10px]">rm-</code> —
+                  e.g. <code className="text-[10px]">.rm-review</code>, <code className="text-[10px]">.rm-btn--primary</code>.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <textarea
                   className="w-full h-32 p-3 border rounded-lg text-xs font-mono bg-gray-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder=".review-card { border-radius: 10px; }"
-                  value={getStr('custom_css')}
-                  onChange={e => updateSetting('custom_css', e.target.value)}
+                  placeholder=".rm-review { box-shadow: 0 1px 3px rgba(0,0,0,.08); }"
+                  value={config.customCss}
+                  onChange={e => setCss(e.target.value)}
+                  spellCheck={false}
+                />
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  <code>@import</code>, angle brackets and non-HTTPS <code>url()</code> are stripped when saved —
+                  they are script-execution paths on your storefront.
+                </p>
+              </CardContent>
+            </Card>
+
+            {SaveBar}
+          </div>
+        </TabsContent>
+
+        {/* ── Notifications ─────────────────────────────────────────────────────────── */}
+        <TabsContent value="notifications">
+          <div className="space-y-4">
+            {!mailProvider && (
+              <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-px" />
+                <div>
+                  <p className="font-medium">No email provider is configured yet.</p>
+                  <p className="mt-0.5">
+                    These preferences will save, but nothing will send until an email provider is set up on the server.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Where to send</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <Label className="text-xs">Notification email</Label>
+                  <Input
+                    type="email"
+                    className="h-9 text-xs mt-1.5"
+                    placeholder={fallbackEmail || 'you@yourstore.com'}
+                    value={notif.email}
+                    onChange={e => setNotifField('email', e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    {fallbackEmail
+                      ? <>Leave blank to use your store address, <strong>{fallbackEmail}</strong>.</>
+                      : 'We have no address on file for your store, so this one is required.'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">What to send</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <ToggleRow
+                  title="Every new review"
+                  description="One email per submission. Off by default — a busy store would get dozens a day."
+                  checked={notif.newReview}
+                  onChange={v => setNotifField('newReview', v)}
+                />
+                <Separator />
+                <ToggleRow
+                  title="Negative review alerts"
+                  description="Sent straight away. A public reply within a few hours is what turns these around."
+                  checked={notif.negativeReview}
+                  onChange={v => setNotifField('negativeReview', v)}
+                />
+                {notif.negativeReview && (
+                  <div className="pl-4 border-l-2 border-gray-100">
+                    <Label className="text-xs">Alert me at or below</Label>
+                    <Select
+                      value={String(notif.negativeThreshold)}
+                      onValueChange={v => setNotifField('negativeThreshold', Number(v))}
+                    >
+                      <SelectTrigger className="h-8 text-xs mt-1.5 max-w-[180px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1 star</SelectItem>
+                        <SelectItem value="2">2 stars</SelectItem>
+                        <SelectItem value="3">3 stars</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <Separator />
+                <ToggleRow
+                  title="Weekly summary"
+                  description="Review count, average rating and how many are waiting for approval. Skipped in a week with no activity."
+                  checked={notif.weeklySummary}
+                  onChange={v => setNotifField('weeklySummary', v)}
                 />
               </CardContent>
             </Card>
 
-            <Button onClick={saveSettings} className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
-              <CheckCircle className="w-3.5 h-3.5" /> Save Display Settings
-            </Button>
+            <div className="flex items-center gap-2">
+              {SaveBar}
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs gap-1.5"
+                onClick={sendTest}
+                disabled={testing || !mailProvider || hasChanges}
+                title={hasChanges ? 'Save your changes first' : undefined}
+              >
+                {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Send a test
+              </Button>
+            </div>
           </div>
         </TabsContent>
 
-        {/* Notification Settings */}
-        <TabsContent value="notifications">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Notification Preferences</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium">Email Notifications</p>
-                  <p className="text-[11px] text-muted-foreground">Get notified when a new review is submitted</p>
-                </div>
-                <Switch checked={getBool('email_notifications')} onCheckedChange={v => updateSetting('email_notifications', String(v))} />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium">Negative Review Alerts</p>
-                  <p className="text-[11px] text-muted-foreground">Immediate alert for 1-2 star reviews</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium">Weekly Summary</p>
-                  <p className="text-[11px] text-muted-foreground">Get a weekly email with review statistics</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-            </CardContent>
-          </Card>
-          <Button onClick={saveSettings} className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5 mt-4">
-            <CheckCircle className="w-3.5 h-3.5" /> Save Notifications
-          </Button>
-        </TabsContent>
-
-        {/* Subscription Plans */}
+        {/* ── Plan ──────────────────────────────────────────────────────────────────── */}
         <TabsContent value="subscription">
           <div className="space-y-4">
             <Card className="border-0 shadow-sm bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100">
@@ -391,9 +715,7 @@ export default function SettingsPage() {
                   <Crown className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold">
-                    Current Plan: {usage?.planLabel ?? 'Free'}
-                  </p>
+                  <p className="text-sm font-semibold">Current Plan: {usage?.planLabel ?? 'Free'}</p>
                   <p className="text-xs text-emerald-600">
                     {usage
                       ? usage.price === 0

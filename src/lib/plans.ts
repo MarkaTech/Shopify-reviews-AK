@@ -287,7 +287,17 @@ export async function assertFeature(storeId: string, feature: FeatureFlag): Prom
 }
 
 /** Check widget count and type against the plan. Throws PlanLimitError if not allowed. */
-export async function assertWidgetAllowed(storeId: string, widgetType: string): Promise<void> {
+/**
+ * @param excludeId When updating an existing widget, its own id — so the count check does
+ *   not include the row being edited. Without this, a merchant on the Free plan (one
+ *   widget) could never edit the widget they already have: the count would see 1 of 1 used
+ *   and reject the change.
+ */
+export async function assertWidgetAllowed(
+  storeId: string,
+  widgetType: string,
+  excludeId?: string
+): Promise<void> {
   const plan = await getStorePlan(storeId);
   const limits = PLANS[plan];
 
@@ -299,7 +309,9 @@ export async function assertWidgetAllowed(storeId: string, widgetType: string): 
   }
 
   if (limits.maxWidgets !== null) {
-    const used = await db.widgetConfig.count({ where: { storeId } });
+    const used = await db.widgetConfig.count({
+      where: { storeId, ...(excludeId ? { NOT: { id: excludeId } } : {}) },
+    });
     if (used >= limits.maxWidgets) {
       throw new PlanLimitError(
         `You have reached the ${limits.label} plan limit of ${limits.maxWidgets} widget${limits.maxWidgets === 1 ? '' : 's'}.`,
