@@ -14,7 +14,6 @@
 #     and are budgeted: 10 MB total, 30 blocks, 100 KB Liquid per block, 100 KB CSS, and a
 #     recommended 10 KB JavaScript ceiling. We stay under all of them.
 api_version = "2026-04"
-uid = "8c1bed51-dc77-ef46-87d8-28bfba7405dfdc3dc115"
 
 [[extensions]]
 type = "theme"

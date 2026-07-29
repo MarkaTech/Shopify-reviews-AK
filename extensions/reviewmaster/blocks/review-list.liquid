@@ -17,6 +17,46 @@
 {%- liquid
   assign rating = product.metafields.reviews.rating
   assign rating_count = product.metafields.reviews.rating_count.value | default: 0
+
+  comment
+    Colour precedence, and why it is not simply "the theme block wins".
+
+    These settings have defaults, so an untouched block still renders
+    `--rm-accent: #059669` inline. The widget script only fills in a custom property that
+    is not already set — so an inline value from an untouched block silently outranked
+    whatever the merchant chose in the app, and Settings -> Display appeared to do nothing
+    at all. That is the bug this comparison fixes.
+
+    So: emit the variable only when the merchant has actually moved it off the default.
+    Untouched, the app config applies. Changed here, this block wins — which is right,
+    because the merchant is looking at a live preview of this specific placement.
+  endcomment
+
+  comment
+    These must match the "default" values in the schema below. If you change one there,
+    change it here too — otherwise the block starts emitting an override the merchant
+    never asked for, and Settings -> Display goes dead again.
+  endcomment
+  assign default_accent = '#059669'
+  assign default_star = '#f5a623'
+  assign default_radius = 8
+
+  assign style = ''
+  if block.settings.accent_color != blank and block.settings.accent_color != default_accent
+    assign style = style | append: '--rm-accent:' | append: block.settings.accent_color | append: ';'
+  endif
+  if block.settings.star_color != blank and block.settings.star_color != default_star
+    assign style = style | append: '--rm-star-color:' | append: block.settings.star_color | append: ';'
+  endif
+  if block.settings.corner_radius != default_radius
+    assign style = style | append: '--rm-radius:' | append: block.settings.corner_radius | append: 'px;'
+  endif
+
+  comment
+    Reserved height is different: it is a layout hint about THIS placement's rendered
+    height, not a style choice, so it always applies.
+  endcomment
+  assign style = style | append: '--rm-min-height:' | append: block.settings.reserved_height | append: 'px;'
 -%}
 
 <div
@@ -27,14 +67,15 @@
   data-rm-product="{{ product.id }}"
   data-rm-per-page="{{ block.settings.per_page }}"
   data-rm-sort="{{ block.settings.default_sort }}"
+  {%- comment -%}
+    Where this block sits, so the app can apply the widget the merchant designed for this
+    placement. Without it a merchant who built a carousel for the home page and a list for
+    product pages would get whichever we guessed.
+  {%- endcomment -%}
+  data-rm-placement="{{ block.settings.placement }}"
   data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' }}"
   data-rm-allow-media="{{ block.settings.allow_media }}"
-  style="
-    --rm-accent: {{ block.settings.accent_color }};
-    --rm-star-color: {{ block.settings.star_color }};
-    --rm-radius: {{ block.settings.corner_radius }}px;
-    --rm-min-height: {{ block.settings.reserved_height }}px;
-  "
+  style="{{ style }}"
   {{ block.shopify_attributes }}
 >
   {%- if block.settings.heading != blank -%}
@@ -201,6 +242,20 @@
       "default": "https://reviewmaster-app.azurewebsites.net",
       "info": "Leave as-is unless you run ReviewMaster on a custom domain."
     },
+    {
+      "type": "select",
+      "id": "placement",
+      "label": "This block is on",
+      "default": "product_page",
+      "info": "Tells ReviewMaster which of your saved widgets to use here. Design widgets in the app under Widgets.",
+      "options": [
+        { "value": "product_page", "label": "Product page" },
+        { "value": "collection_page", "label": "Collection page" },
+        { "value": "home_page", "label": "Home page" },
+        { "value": "all_pages", "label": "Anywhere" },
+        { "value": "custom", "label": "Custom position" }
+      ]
+    },
     { "type": "color", "id": "accent_color", "label": "Accent colour", "default": "#059669" },
     { "type": "color", "id": "star_color", "label": "Star colour", "default": "#F5A623" },
     {
@@ -213,7 +268,8 @@
       "type": "range",
       "id": "per_page",
       "label": "Reviews per page",
-      "min": 3, "max": 25, "step": 1, "default": 5
+      "min": 3, "max": 25, "step": 1, "default": 5,
+      "info": "Pagination appears once there are more reviews than this. Existing blocks keep whatever was saved when they were added — set it here to change it."
     },
     {
       "type": "select",

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getProductRating } from '@/lib/ratings';
 import { buildProductStructuredData } from '@/lib/structured-data';
+import { getStorefrontConfig } from '@/lib/storefront-config';
 
 /**
  * Public storefront read API.
@@ -49,8 +50,12 @@ export async function GET(request: NextRequest) {
     }
 
     const page = Math.max(1, Number(searchParams.get('page')) || 1);
-    const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit')) || 10));
-    const sort = searchParams.get('sort') || 'recent';
+    const requestedLimit = Number(searchParams.get('limit'));
+    const sortParam = searchParams.get('sort');
+    // Where the block sits, so the merchant's widget for that placement is the one that
+    // applies. Passed through even when null: a merchant with a single widget and no
+    // placement set still expects to see it.
+    const placement = searchParams.get('placement');
     const ratingFilter = Number(searchParams.get('rating')) || null;
     const mediaOnly = searchParams.get('media') === '1';
 
@@ -61,6 +66,21 @@ export async function GET(request: NextRequest) {
     if (!store || !store.isActive) {
       return NextResponse.json({ error: 'Unknown store' }, { status: 404, headers: CORS });
     }
+
+    // The merchant's layout, colours and copy ride along with the reviews. A separate
+    // config request would be a second round trip on the most performance-sensitive page
+    // in the store, for data that is a couple of kilobytes.
+    const config = await getStorefrontConfig(store.id, placement);
+
+    // The merchant's configured page size wins over the theme block's, because the theme
+    // block's value is frozen at whatever the default was when it was added — which is
+    // exactly why an old block kept showing ten per page after the default moved to five.
+    // An explicit ?limit= from the widget still wins over both, so paging works.
+    const limit = Math.min(
+      50,
+      Math.max(1, requestedLimit || config.behaviour.perPage || 10)
+    );
+    const sort = sortParam || config.behaviour.defaultSort || 'recent';
 
     const product = shopifyProductId
       ? await db.product.findUnique({
@@ -73,7 +93,7 @@ export async function GET(request: NextRequest) {
       // Product not synced yet — an empty result, not an error. A widget on a brand new
       // product should render "no reviews", not a failure state.
       return NextResponse.json(
-        { reviews: [], total: 0, aggregate: { average: 0, count: 0, distribution: {} } },
+        { reviews: [], total: 0, aggregate: { average: 0, count: 0, distribution: {} }, config },
         { headers: { ...CORS, 'Cache-Control': CACHE } }
       );
     }
@@ -173,7 +193,7 @@ export async function GET(request: NextRequest) {
         : null;
 
     return NextResponse.json(
-      { reviews, total, page, limit, aggregate, structuredData },
+      { reviews, total, page, limit, aggregate, structuredData, config },
       { headers: { ...CORS, 'Cache-Control': CACHE } }
     );
   } catch (error) {

@@ -36,9 +36,28 @@
     endif
   -%}
 
+  {%- comment -%}
+    Only emit the colour when the merchant actually changed it here.
+
+    This block has no JavaScript and makes no request — that is the point of it, since it
+    lands on collection pages where every byte is measured. So it cannot read the app's
+    configured colour directly. Instead, leaving the variable unset lets it inherit the
+    value the review widget publishes to the document root when it loads elsewhere on the
+    page, and falls back to the CSS default otherwise.
+
+    Emitting it unconditionally meant an untouched block always won, and the star colour in
+    Settings -> Display could never reach this block at all.
+  {%- endcomment -%}
+  {%- liquid
+    assign star_style = ''
+    if block.settings.star_color != blank and block.settings.star_color != '#f5a623'
+      assign star_style = '--rm-star-color:' | append: block.settings.star_color | append: ';'
+    endif
+  -%}
+
   <div
     class="rm-stars rm-stars--{{ block.settings.size }}"
-    style="--rm-star-color: {{ block.settings.star_color }};"
+    style="{{ star_style }}"
     {{ block.shopify_attributes }}
   >
     {%- comment -%}
