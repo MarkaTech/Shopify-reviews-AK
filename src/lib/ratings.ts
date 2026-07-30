@@ -86,29 +86,45 @@ export async function recomputeProductRating(
   // metafield and the JSON-LD in exact agreement rather than each rounding differently.
   const average = total === 0 ? 0 : Math.round((sum / total) * 10) / 10;
 
-  await db.productRating.upsert({
-    where: { productId },
-    create: {
-      storeId,
-      productId,
-      average,
-      count: total,
-      count1: distribution[1],
-      count2: distribution[2],
-      count3: distribution[3],
-      count4: distribution[4],
-      count5: distribution[5],
-    },
-    update: {
-      average,
-      count: total,
-      count1: distribution[1],
-      count2: distribution[2],
-      count3: distribution[3],
-      count4: distribution[4],
-      count5: distribution[5],
-    },
+  const counts = {
+    average,
+    count: total,
+    count1: distribution[1],
+    count2: distribution[2],
+    count3: distribution[3],
+    count4: distribution[4],
+    count5: distribution[5],
+  };
+
+  // Store-scoped write, not a bare upsert on the globally-unique productId.
+  //
+  // `ProductRating.productId` is unique across the whole table, so `upsert({ where: {
+  // productId } })` would happily take the update branch on a row belonging to a different
+  // merchant if a caller ever passed a foreign product id. Callers now validate ownership
+  // before they get here (see lib/ownership.ts), but this function is the sink every path
+  // funnels through and it should not depend on all of them being careful forever.
+  //
+  // updateMany with both keys is the guard: a row owned by another store matches zero
+  // records and changes nothing.
+  const updated = await db.productRating.updateMany({
+    where: { productId, storeId },
+    data: counts,
   });
+
+  if (updated.count === 0) {
+    try {
+      await db.productRating.create({ data: { storeId, productId, ...counts } });
+    } catch (error) {
+      // A unique-constraint failure here means a row exists for this productId under a
+      // DIFFERENT storeId — which should be impossible now, and is worth knowing about
+      // rather than swallowing. The aggregate is recomputed from scratch on every change,
+      // so skipping this one write loses nothing permanent.
+      console.error(
+        `[ratings] could not create ProductRating for product ${productId} in store ${storeId}:`,
+        error
+      );
+    }
+  }
 
   return { average, count: total, distribution };
 }

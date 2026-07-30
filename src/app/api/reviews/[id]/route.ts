@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { updateProductRating } from '@/lib/ratings';
 import { syncReviewToShop, unsyndicateReview, isSyndicationEnabled } from '@/lib/syndication';
 
@@ -73,6 +74,14 @@ export async function PUT(
       if (field in body) data[field] = body[field];
     }
 
+    // productId is editable (a merchant reassigning an unmatched imported review), but the
+    // ownership check above only proved the REVIEW belongs to this store. Moving it onto
+    // another merchant's product rewrites that merchant's star rating and, if the review is
+    // unpublished in the same call, deletes their reviews.rating metafield.
+    if ('productId' in data) {
+      data.productId = await assertProductInStore(storeId, data.productId);
+    }
+
     if (typeof data.rating === 'number') {
       data.rating = Math.min(5, Math.max(1, Math.round(data.rating)));
       // Keep the cheap rule-based sentiment in step with the rating. The AI sentiment in
@@ -127,6 +136,8 @@ export async function PUT(
 
     return NextResponse.json(updated);
   } catch (error: unknown) {
+    const owned = ownershipErrorResponse(error);
+    if (owned) return NextResponse.json(owned.body, { status: owned.status });
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
     console.error('[Failed to update review]', error);
     return NextResponse.json({ error: 'Failed to update review' }, { status: 500 });

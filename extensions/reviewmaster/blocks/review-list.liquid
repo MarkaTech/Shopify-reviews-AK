@@ -40,6 +40,8 @@
   assign default_accent = '#059669'
   assign default_star = '#f5a623'
   assign default_radius = 8
+  assign default_per_page = 5
+  assign default_sort_value = 'recent'
 
   assign style = ''
   if block.settings.accent_color != blank and block.settings.accent_color != default_accent
@@ -65,8 +67,15 @@
   data-rm-widget
   data-rm-shop="{{ shop.permanent_domain }}"
   data-rm-product="{{ product.id }}"
-  data-rm-per-page="{{ block.settings.per_page }}"
-  data-rm-sort="{{ block.settings.default_sort }}"
+  {%- comment -%}
+    Emitted only when the merchant moved them off the schema defaults — same rule as the
+    colours above. Emitting them always meant the widget sent limit= and sort= on every
+    request, so the page size and default sort in the app's Settings screen could never
+    take effect: the server's fallback to the merchant's config sat behind a value that
+    was always present.
+  {%- endcomment -%}
+  {%- if block.settings.per_page != default_per_page -%}data-rm-per-page="{{ block.settings.per_page }}"{%- endif -%}
+  {%- if block.settings.default_sort != default_sort_value -%}data-rm-sort="{{ block.settings.default_sort }}"{%- endif -%}
   {%- comment -%}
     Where this block sits, so the app can apply the widget the merchant designed for this
     placement. Without it a merchant who built a carousel for the home page and a list for
@@ -269,7 +278,7 @@
       "id": "per_page",
       "label": "Reviews per page",
       "min": 3, "max": 25, "step": 1, "default": 5,
-      "info": "Pagination appears once there are more reviews than this. Existing blocks keep whatever was saved when they were added — set it here to change it."
+      "info": "Leave at 5 to use the page size from the app's Settings screen. Change it here to override this one placement."
     },
     {
       "type": "select",
