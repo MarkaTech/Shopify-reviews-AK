@@ -41,6 +41,7 @@
  */
 
 import { db } from './db';
+import { getStorePlan, PLANS } from './plans';
 
 /** The nine display styles offered on the Widgets page. */
 export const LAYOUTS = [
@@ -521,6 +522,14 @@ export async function saveStorefrontConfig(
         rejected.push(key);
         continue;
       }
+    } else if (key === `${PREFIX}layout.theme`) {
+      // This value becomes a CSS class on the widget root. Unvalidated, any string the
+      // Settings screen sent would be persisted and rendered — THEMES was exported and
+      // then never used to check anything.
+      if (!THEMES.includes(value as (typeof THEMES)[number])) {
+        rejected.push(key);
+        continue;
+      }
     } else if (key.startsWith(`${PREFIX}text.`)) {
       // Cap length, and strip angle brackets. Merchant copy is rendered into the widget;
       // treating it as trusted HTML would let a compromised merchant account inject script
@@ -589,6 +598,15 @@ export async function getSubmissionRules(storeId: string): Promise<{
     } else if (field in out) {
       (out as Record<string, unknown>)[field] = row.value === 'true';
     }
+  }
+
+  // Video reviews are sold as a Starter-plan feature, and the Settings screen says so.
+  // Until now nothing enforced it: a Free-plan merchant could switch the toggle on and
+  // accept 50MB uploads into their Shopify Files. Enforced here rather than at the toggle
+  // so it holds regardless of what the stored setting says.
+  if (out.allowVideo) {
+    const plan = await getStorePlan(storeId);
+    if (!PLANS[plan].videoReviews) out.allowVideo = false;
   }
 
   return out;

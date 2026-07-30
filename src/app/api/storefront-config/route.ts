@@ -6,6 +6,7 @@ import {
   resetStorefrontConfig,
   DEFAULT_CONFIG,
 } from '@/lib/storefront-config';
+import { resetNotificationSettings } from '@/lib/notifications';
 
 /** Merchant-facing read of the storefront appearance and copy. */
 export async function GET(request: NextRequest) {
@@ -46,7 +47,10 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { storeId } = await withAuth(request);
-    await resetStorefrontConfig(storeId);
+    // Both, because the button sits above all four Settings tabs and says "Reset to
+    // defaults". Resetting only the storefront half left the notification settings behind
+    // and quietly contradicted the label.
+    await Promise.all([resetStorefrontConfig(storeId), resetNotificationSettings(storeId)]);
     return NextResponse.json({ success: true, config: DEFAULT_CONFIG });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();

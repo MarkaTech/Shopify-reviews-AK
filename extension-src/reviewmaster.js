@@ -229,8 +229,13 @@
     this.appUrl = (root.dataset.rmAppUrl || '').replace(/\/$/, '');
     // Theme setting first; the app-level default covers blocks saved before the setting
     // existed, which is why an old block kept showing 10 per page.
-    this.perPage = parseInt(root.dataset.rmPerPage, 10) || 5;
-    this.sort = root.dataset.rmSort || 'recent';
+    // 0 / '' mean "the theme block did not override this", so the merchant's app-level
+    // setting applies. The block used to emit both unconditionally from its schema
+    // defaults, which meant the widget always sent limit= and sort= — and the server's
+    // `requestedLimit || config.behaviour.perPage` fallback could never be reached. The
+    // Settings controls for page size and default sort were dead for exactly that reason.
+    this.perPage = parseInt(root.dataset.rmPerPage, 10) || 0;
+    this.sort = root.dataset.rmSort || '';
     // Which of the merchant's widgets applies here. The server resolves this against the
     // Widgets page; if they never built one, it falls through to the default list layout.
     this.placement = root.dataset.rmPlacement || '';
@@ -246,8 +251,9 @@
   }
 
   Widget.prototype.url = function () {
-    var p = ['shop=' + encodeURIComponent(this.shop), 'page=' + this.page,
-             'limit=' + this.perPage, 'sort=' + encodeURIComponent(this.sort)];
+    var p = ['shop=' + encodeURIComponent(this.shop), 'page=' + this.page];
+    if (this.perPage) p.push('limit=' + this.perPage);
+    if (this.sort) p.push('sort=' + encodeURIComponent(this.sort));
     if (this.productId) p.push('product_id=' + encodeURIComponent(this.productId));
     if (this.placement) p.push('placement=' + encodeURIComponent(this.placement));
     if (this.rating) p.push('rating=' + this.rating);
@@ -307,6 +313,12 @@
   Widget.prototype.applyConfig = function (data) {
     if (!data || !data.config) return;
     CONFIG = data.config;
+
+    // Adopt whatever the server actually applied. It is the only party that knows the
+    // merchant's configured page size and sort, and pagination maths below has to use the
+    // same number the query used or "Showing 1-5 of 10" drifts out of step with reality.
+    if (data.limit) this.perPage = data.limit;
+    if (!this.sort) this.sort = CONFIG.behaviour.defaultSort || 'recent';
     applyColors(this.root, data.config.colors);
     applyCustomCss(data.config.customCss);
     this.applyLayout();
@@ -509,6 +521,13 @@
   Widget.prototype.renderHistogram = function (agg) {
     var self = this;
     var h = this.histEl;
+    if (!h) return;
+
+    // Checked HERE, not only in applyText. applyText runs before the first render and set
+    // hidden = true, and then this function unconditionally set hidden = false again — so
+    // turning the breakdown off did nothing on any product that had reviews.
+    if (behaviour('showHistogram', true) === false) { h.hidden = true; return; }
+
     h.innerHTML = '';
     h.hidden = false;
     for (var s = 5; s >= 1; s--) {
@@ -538,6 +557,13 @@
   Widget.prototype.renderFilters = function () {
     var self = this;
     var f = this.filtersEl;
+    if (!f) return;
+
+    // Same ordering bug as the histogram, with a nastier symptom: the filters appeared on
+    // first load and then vanished the moment a shopper used one, because the rebuild is
+    // guarded by rmBuilt and only the second pass reached the hiding code.
+    if (behaviour('showFilters', true) === false) { f.hidden = true; return; }
+
     if (f.dataset.rmBuilt) return;
     f.dataset.rmBuilt = '1';
     f.hidden = false;

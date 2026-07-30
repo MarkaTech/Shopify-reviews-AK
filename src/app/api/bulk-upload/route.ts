@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { assertFeature, assertReviewCapacity, planLimitResponse } from '@/lib/plans';
 import { updateProductRating } from '@/lib/ratings';
 import {
@@ -37,7 +38,13 @@ export async function POST(request: NextRequest) {
     const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
-    const fallbackProductId = (formData.get('productId') as string | null) || null;
+    // Every imported row without its own product match lands on this product, and imported
+    // rows default to published — so an unvalidated value here rewrites another merchant's
+    // aggregate rating from a one-row CSV.
+    const fallbackProductId = await assertProductInStore(
+      storeId,
+      (formData.get('productId') as string | null) || null
+    );
     const dryRun = formData.get('dryRun') === 'true';
 
     if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
@@ -188,6 +195,8 @@ export async function POST(request: NextRequest) {
       errors: errors.slice(0, 20).map((e) => (e.row ? `Row ${e.row}: ${e.reason}` : e.reason)),
     });
   } catch (error: unknown) {
+    const owned = ownershipErrorResponse(error);
+    if (owned) return NextResponse.json(owned.body, { status: owned.status });
     const limit = planLimitResponse(error);
     if (limit) return NextResponse.json(limit.body, { status: limit.status });
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();

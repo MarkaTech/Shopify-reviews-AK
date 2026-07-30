@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { assertReviewCapacity, assertFeature, planLimitResponse } from '@/lib/plans';
 
 export async function GET(request: NextRequest) {
@@ -118,10 +119,17 @@ export async function POST(request: NextRequest) {
     if (body.rating >= 4) sentiment = 'positive';
     else if (body.rating <= 2) sentiment = 'negative';
 
+    // A productId from the request body is a value we are being handed, not the record
+    // being addressed — so the usual "does this record belong to the caller" check in the
+    // handler does not cover it. Unvalidated, it foreign-keys this store's review to
+    // another merchant's product, which then leaks that product's title and image in the
+    // response below and arms a cross-store aggregate rewrite on the next rating update.
+    const productId = await assertProductInStore(storeId, body.productId);
+
     const review = await db.review.create({
       data: {
         storeId,
-        productId: body.productId || null,
+        productId,
         reviewableType: body.reviewableType || 'product',
         reviewableId: body.reviewableId || null,
         reviewerName: body.reviewerName || 'Anonymous',
@@ -149,6 +157,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(review, { status: 201 });
   } catch (error: unknown) {
+    const owned = ownershipErrorResponse(error);
+    if (owned) return NextResponse.json(owned.body, { status: owned.status });
     const limit = planLimitResponse(error);
     if (limit) return NextResponse.json(limit.body, { status: limit.status });
     if (error instanceof Error && error.message.includes('Unauthorized')) {

@@ -110,6 +110,11 @@ export async function saveNotificationSettings(
   return { saved, rejected };
 }
 
+/** Drop every notification override, restoring the defaults. */
+export async function resetNotificationSettings(storeId: string): Promise<void> {
+  await db.storeSetting.deleteMany({ where: { storeId, key: { startsWith: PREFIX } } });
+}
+
 function esc(s: unknown): string {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
