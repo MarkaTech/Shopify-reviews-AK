@@ -64,11 +64,18 @@ export default function ProductsPage() {
       if (hasReviewsFilter !== 'all') params.set('hasReviews', hasReviewsFilter);
       params.set('limit', '50');
 
-      const res = await fetch(`/api/products?${params}`, { credentials: 'include' });
-      if (!cancelled) {
-        const data = await res.json();
-        setProducts(data.products || []);
-        setLoading(false);
+      try {
+        const data = await apiFetch<{ products: Product[] }>(`/api/products?${params}`);
+        if (!cancelled) setProducts(data.products || []);
+      } catch (err) {
+        // Previously an unhandled rejection: a failed load left the spinner up forever
+        // with nothing in the console a merchant could act on.
+        if (!cancelled) {
+          setProducts([]);
+          toast.error(errorMessage(err, 'Could not load products'));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
     load();

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Store, Star, Shield, Upload, Zap, Globe } from 'lucide-react';
+import { apiFetch } from '@/lib/api-client';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
   dashboard: { title: 'Dashboard', desc: 'Overview of your reviews and analytics' },
@@ -64,20 +65,20 @@ export default function Home() {
           params.delete('billing');
           const rest = params.toString();
           window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
-          await fetch('/api/billing/confirm').catch(() => undefined);
+          await apiFetch('/api/billing/confirm').catch(() => undefined);
         }
       }
 
-      const res = await fetch('/api/store');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.store) {
-          setStoreName(data.store.name);
-          setStoreDomain(data.store.shopifyDomain || data.store.domain);
-          setStorePlan(data.store.plan);
-          setIsAuthenticated(true);
-          return;
-        }
+      // apiFetch, not fetch: it attaches the App Bridge session token. A bare fetch here
+      // relied entirely on the cookie, which is exactly what stops working in Safari and
+      // what Shopify's pre-submission check rejects.
+      const data = await apiFetch<{ store?: { name: string; shopifyDomain?: string; domain?: string; plan: string } }>('/api/store');
+      if (data.store) {
+        setStoreName(data.store.name);
+        setStoreDomain(data.store.shopifyDomain || data.store.domain || '');
+        setStorePlan(data.store.plan);
+        setIsAuthenticated(true);
+        return;
       }
       setIsAuthenticated(false);
     } catch {

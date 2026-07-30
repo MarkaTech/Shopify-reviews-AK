@@ -35,7 +35,9 @@ export default function BulkUploadPage() {
   const [mode, setMode] = useState<'file' | 'manual'>('file');
 
   useEffect(() => {
-    fetch('/api/products').then(r => r.json()).then(d => setProducts(d.products || []));
+    apiFetch<{ products: Product[] }>('/api/products')
+      .then(d => setProducts(d.products || []))
+      .catch(() => setProducts([]));
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
