@@ -19,6 +19,7 @@
     "choose_files": "Add photos",
     "no_file": "No files selected",
     "files_selected": "{{ count }} file(s) selected",
-    "submitted": "Thank you. Your review has been submitted for approval."
+    "submitted": "Thank you. Your review has been submitted for approval.",
+    "heading": "Customer reviews"
   }
 }

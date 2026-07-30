@@ -40,8 +40,6 @@
   assign default_accent = '#059669'
   assign default_star = '#f5a623'
   assign default_radius = 8
-  assign default_per_page = 5
-  assign default_sort_value = 'recent'
 
   assign style = ''
   if block.settings.accent_color != blank and block.settings.accent_color != default_accent
@@ -68,28 +66,22 @@
   data-rm-shop="{{ shop.permanent_domain }}"
   data-rm-product="{{ product.id }}"
   {%- comment -%}
-    Emitted only when the merchant moved them off the schema defaults — same rule as the
-    colours above. Emitting them always meant the widget sent limit= and sort= on every
-    request, so the page size and default sort in the app's Settings screen could never
-    take effect: the server's fallback to the merchant's config sat behind a value that
-    was always present.
-  {%- endcomment -%}
-  {%- if block.settings.per_page != default_per_page -%}data-rm-per-page="{{ block.settings.per_page }}"{%- endif -%}
-  {%- if block.settings.default_sort != default_sort_value -%}data-rm-sort="{{ block.settings.default_sort }}"{%- endif -%}
-  {%- comment -%}
     Where this block sits, so the app can apply the widget the merchant designed for this
     placement. Without it a merchant who built a carousel for the home page and a list for
     product pages would get whichever we guessed.
   {%- endcomment -%}
   data-rm-placement="{{ block.settings.placement }}"
   data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' }}"
-  data-rm-allow-media="{{ block.settings.allow_media }}"
   style="{{ style }}"
   {{ block.shopify_attributes }}
 >
-  {%- if block.settings.heading != blank -%}
-    <h2 class="rm-widget__heading">{{ block.settings.heading }}</h2>
-  {%- endif -%}
+  {%- comment -%}
+    Rendered from the locale file, then replaced by the merchant's configured heading once
+    the app config arrives. There is deliberately no theme setting for this: the widget's
+    applyText() overwrites .rm-widget__heading from the app config, so a heading typed here
+    was not merely ignored — it was visibly replaced a moment after the page settled.
+  {%- endcomment -%}
+  <h2 class="rm-widget__heading">{{ 'reviewmaster.heading' | t }}</h2>
 
   {%- comment -%}
     Summary block, rendered from metafields. No JS, no fetch, no layout shift.
@@ -120,21 +112,23 @@
       </div>
     {%- endif -%}
 
-    {%- if block.settings.show_write_button -%}
-      <button type="button" class="rm-btn rm-btn--primary" data-rm-open-form>
-        {{ 'reviewmaster.write_review' | t }}
-      </button>
-    {%- endif -%}
+    {%- comment -%}
+      Always emitted; the widget hides it when Settings says so. Conditionally rendering it
+      here meant the theme could remove the element entirely, and then the app setting had
+      nothing to show — a one-way switch that only ever subtracted.
+    {%- endcomment -%}
+    <button type="button" class="rm-btn rm-btn--primary" data-rm-open-form>
+      {{ 'reviewmaster.write_review' | t }}
+    </button>
   </div>
 
-  {%- comment -%} Histogram and filters are hydrated client-side from the API. {%- endcomment -%}
-  {%- if block.settings.show_histogram -%}
-    <div class="rm-histogram" data-rm-histogram hidden></div>
-  {%- endif -%}
-
-  {%- if block.settings.show_filters -%}
-    <div class="rm-filters" data-rm-filters hidden></div>
-  {%- endif -%}
+  {%- comment -%}
+    Histogram and filters are hydrated client-side from the API, and start hidden. Both
+    containers are always present so Settings -> General can turn them on and off; whether
+    they are ever populated is the app's call, not the theme's.
+  {%- endcomment -%}
+  <div class="rm-histogram" data-rm-histogram hidden></div>
+  <div class="rm-filters" data-rm-filters hidden></div>
 
   {%- comment -%}
     min-height reserves the space. Without it the page jumps by several hundred pixels the
@@ -203,22 +197,25 @@
         <textarea name="body" required rows="5" maxlength="5000"></textarea>
       </label>
 
-      {%- if block.settings.allow_media -%}
-        {%- comment -%}
-          The browser's native file input renders an unstyleable "Choose files / No file
-          chosen" button whose text cannot be changed. The standard fix: visually hide the
-          input and drive it from a styled <label>, which is still fully keyboard- and
-          screen-reader-accessible because the label is bound to the input.
-        {%- endcomment -%}
-        <div class="rm-form__field">
-          <span>{{ 'reviewmaster.add_photos' | t }}</span>
-          <label class="rm-file">
-            <input type="file" name="media" accept="image/*,video/*" multiple class="rm-file__input" data-rm-file>
-            <span class="rm-file__btn">{{ 'reviewmaster.choose_files' | t }}</span>
-            <span class="rm-file__name" data-rm-file-name>{{ 'reviewmaster.no_file' | t }}</span>
-          </label>
-        </div>
-      {%- endif -%}
+      {%- comment -%}
+        The browser's native file input renders an unstyleable "Choose files / No file
+        chosen" button whose text cannot be changed. The standard fix: visually hide the
+        input and drive it from a styled <label>, which is still fully keyboard- and
+        screen-reader-accessible because the label is bound to the input.
+
+        Always rendered. The widget removes it when Settings has both photo and video
+        uploads off, and narrows the `accept` list when only one is allowed — and the
+        submission endpoint enforces the same rule regardless, since a hidden field is a UI
+        decision rather than a control.
+      {%- endcomment -%}
+      <div class="rm-form__field">
+        <span>{{ 'reviewmaster.add_photos' | t }}</span>
+        <label class="rm-file">
+          <input type="file" name="media" accept="image/*,video/*" multiple class="rm-file__input" data-rm-file>
+          <span class="rm-file__btn">{{ 'reviewmaster.choose_files' | t }}</span>
+          <span class="rm-file__name" data-rm-file-name>{{ 'reviewmaster.no_file' | t }}</span>
+        </label>
+      </div>
 
       <div class="rm-form__actions">
         <button type="submit" class="rm-btn rm-btn--primary">{{ 'reviewmaster.submit' | t }}</button>
@@ -236,6 +233,25 @@
   own scripts. Adding a tag as well double-loads it.
 {%- endcomment -%}
 
+{% comment %}
+  Schema note — what belongs here, and what does not.
+
+  This block owns WHERE the widget sits and how it looks in this one spot: placement,
+  colours, corner radius, reserved height. Those benefit from a live preview and can
+  legitimately differ between a product page and a home page.
+
+  It does NOT own what the widget shows or how it behaves. Page size, sort order, heading
+  text, and the show/hide toggles all live in the app under Settings and Widgets. They used
+  to be duplicated here, and every one of them was broken in the same way: the theme
+  setting had a default, the default was emitted whether or not the merchant had touched
+  it, and the app setting could therefore never take effect. Two places to set one value,
+  one of which silently won, is worse than either alone.
+
+  Colours are the deliberate exception. They stay here as a per-placement override because
+  a merchant adjusting a colour is looking straight at the result — and they only override
+  when moved off the default, so Settings still applies otherwise.
+{% endcomment %}
+
 {% schema %}
 {
   "name": "Product reviews",
@@ -243,14 +259,6 @@
   "stylesheet": "reviewmaster.css",
   "javascript": "reviewmaster.js",
   "settings": [
-    { "type": "text", "id": "heading", "label": "Heading", "default": "Customer reviews" },
-    {
-      "type": "text",
-      "id": "app_url",
-      "label": "App URL",
-      "default": "https://reviewmaster-app.azurewebsites.net",
-      "info": "Leave as-is unless you run ReviewMaster on a custom domain."
-    },
     {
       "type": "select",
       "id": "placement",
@@ -265,6 +273,11 @@
         { "value": "custom", "label": "Custom position" }
       ]
     },
+    {
+      "type": "header",
+      "content": "Appearance",
+      "info": "Overrides the colours set in the app, for this placement only. Leave at the defaults to use your app-wide settings."
+    },
     { "type": "color", "id": "accent_color", "label": "Accent colour", "default": "#059669" },
     { "type": "color", "id": "star_color", "label": "Star colour", "default": "#F5A623" },
     {
@@ -275,33 +288,25 @@
     },
     {
       "type": "range",
-      "id": "per_page",
-      "label": "Reviews per page",
-      "min": 3, "max": 25, "step": 1, "default": 5,
-      "info": "Leave at 5 to use the page size from the app's Settings screen. Change it here to override this one placement."
-    },
-    {
-      "type": "select",
-      "id": "default_sort",
-      "label": "Default sort",
-      "default": "recent",
-      "options": [
-        { "value": "recent", "label": "Most recent" },
-        { "value": "highest", "label": "Highest rating" },
-        { "value": "lowest", "label": "Lowest rating" },
-        { "value": "helpful", "label": "Most helpful" }
-      ]
-    },
-    { "type": "checkbox", "id": "show_histogram", "label": "Show rating breakdown", "default": true },
-    { "type": "checkbox", "id": "show_filters", "label": "Show filters", "default": true },
-    { "type": "checkbox", "id": "show_write_button", "label": "Show 'Write a review' button", "default": true },
-    { "type": "checkbox", "id": "allow_media", "label": "Allow photo and video uploads", "default": true },
-    {
-      "type": "range",
       "id": "reserved_height",
       "label": "Reserved height",
       "min": 100, "max": 800, "step": 50, "unit": "px", "default": 300,
       "info": "Space held before reviews load, to prevent the page jumping. Set close to the typical rendered height."
+    },
+    {
+      "type": "header",
+      "content": "Advanced"
+    },
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "App URL",
+      "default": "https://reviewmaster-app.azurewebsites.net",
+      "info": "Leave as-is unless you run ReviewMaster on a custom domain."
+    },
+    {
+      "type": "paragraph",
+      "content": "Reviews per page, sort order, heading text and what each review shows are set in the ReviewMaster app under Settings and Widgets, so they stay consistent across every placement."
     }
   ]
 }

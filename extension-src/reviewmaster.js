@@ -229,13 +229,12 @@
     this.appUrl = (root.dataset.rmAppUrl || '').replace(/\/$/, '');
     // Theme setting first; the app-level default covers blocks saved before the setting
     // existed, which is why an old block kept showing 10 per page.
-    // 0 / '' mean "the theme block did not override this", so the merchant's app-level
-    // setting applies. The block used to emit both unconditionally from its schema
-    // defaults, which meant the widget always sent limit= and sort= — and the server's
-    // `requestedLimit || config.behaviour.perPage` fallback could never be reached. The
-    // Settings controls for page size and default sort were dead for exactly that reason.
-    this.perPage = parseInt(root.dataset.rmPerPage, 10) || 0;
-    this.sort = root.dataset.rmSort || '';
+    // Both start unset and are filled in from the server's response. Page size and sort
+    // order are the app's to decide — they used to be theme-block settings as well, which
+    // meant the widget always sent limit= and sort= and the app's own values could never
+    // apply. There is now one place each of these is configured.
+    this.perPage = 0;
+    this.sort = '';
     // Which of the merchant's widgets applies here. The server resolves this against the
     // Widgets page; if they never built one, it falls through to the default list layout.
     this.placement = root.dataset.rmPlacement || '';
