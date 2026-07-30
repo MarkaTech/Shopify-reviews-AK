@@ -12,8 +12,17 @@
  * The widget source is heavily commented on purpose — the FTC disclosure rules, the CLS
  * reasoning, the escaping rules and the carousel's autoplay behaviour are all things the
  * next person to touch this needs to know, and deleting the explanation to save bytes
- * trades a permanent cost for a temporary one. So the comments live in
- * `extensions/reviewmaster/src/` and the asset Shopify serves is generated from it.
+ * trades a permanent cost for a temporary one. So the comments live in `extension-src/`
+ * and the asset Shopify serves is generated from it.
+ *
+ * Why `extension-src/` and not `extensions/reviewmaster/src/`
+ * ----------------------------------------------------------
+ * A theme app extension may only contain `assets`, `blocks`, `snippets` and `locales`.
+ * The source lived in a `src/` folder inside the extension for exactly one deploy, and the
+ * CLI dutifully bundled it — which makes `shopify app deploy` fail validation, so no new
+ * version is created and the storefront silently carries on serving the previous release.
+ * That failure mode is quiet and easy to misread as "the deploy worked but nothing
+ * changed", so: the source stays outside the extension directory.
  *
  * Comment stripping only
  * ----------------------
@@ -35,7 +44,7 @@ import { gzipSync } from 'node:zlib';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-const SRC = join(root, 'extensions/reviewmaster/src/reviewmaster.js');
+const SRC = join(root, 'extension-src/reviewmaster.js');
 const OUT = join(root, 'extensions/reviewmaster/assets/reviewmaster.js');
 const THRESHOLD = 10_000;
 
@@ -145,27 +154,87 @@ if (!existsSync(SRC)) {
 }
 
 const source = readFileSync(SRC, 'utf8');
-const built = stripComments(source);
+let built = stripComments(source);
+
+/**
+ * Minify, if a minifier happens to be available.
+ *
+ * `@swc/core` ships as a transitive dependency of Next, so it is usually there — but it is
+ * a native binary and it is nobody's declared dependency, so this must never be required
+ * for a successful build. If it will not load, the comment-stripped output ships instead;
+ * that is what was shipping before, and it works.
+ *
+ * The output is parse-checked with `new Function` before it is accepted. `new Function`
+ * compiles without executing, so a mangling bug that produced invalid syntax gets caught
+ * here rather than on a shopper's product page — where the failure mode is a review widget
+ * that renders nothing and reports nothing.
+ */
+async function tryMinify(code) {
+  let swc;
+  try {
+    swc = await import('@swc/core');
+  } catch {
+    return { code, applied: false, reason: '@swc/core not available' };
+  }
+
+  try {
+    const result = await swc.minify(code, {
+      compress: { defaults: true, drop_console: false },
+      mangle: true,
+      // The widget is deliberately ES5 — it runs on whatever a merchant's shoppers use,
+      // and a theme app extension has no transpile step behind it.
+      ecma: 5,
+      format: { comments: false },
+    });
+
+    if (!result?.code) return { code, applied: false, reason: 'minifier returned nothing' };
+
+    try {
+      new Function(result.code);
+    } catch (err) {
+      return { code, applied: false, reason: `output failed to parse: ${err.message}` };
+    }
+
+    // Refuse a "minified" result that is not actually smaller. Cheap insurance against a
+    // future options change that silently makes things worse.
+    if (result.code.length >= code.length) {
+      return { code, applied: false, reason: 'no size reduction' };
+    }
+
+    return { code: result.code, applied: true };
+  } catch (err) {
+    return { code, applied: false, reason: err.message };
+  }
+}
+
+const strippedBytes = built.length;
+const min = await tryMinify(built);
+built = min.code;
 
 const banner =
-  '/* ReviewMaster storefront widget. Generated from extensions/reviewmaster/src/reviewmaster.js\n' +
+  '/* ReviewMaster storefront widget. Generated from extension-src/reviewmaster.js\n' +
   '   by scripts/build-extension.mjs — edit the source, not this file. */\n';
 
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, banner + built);
 
+const total = (banner + built).length;
 const gz = gzipSync(Buffer.from(banner + built)).length;
-const pct = Math.round((gz / THRESHOLD) * 100);
 
 console.log(
-  `[build-extension] reviewmaster.js  ${built.length} bytes raw, ${gz} gzipped (${pct}% of Shopify's ${THRESHOLD}-byte suggestion)`
+  `[build-extension] reviewmaster.js  ${total} bytes raw, ${gz} gzipped` +
+    (min.applied
+      ? `  (minified from ${strippedBytes})`
+      : `  (not minified — ${min.reason})`)
 );
 
-if (gz > THRESHOLD) {
-  // A warning, not a failure: the check is `severity: suggestion` on Shopify's side and a
-  // hard exit here would block a deploy over a soft limit. But it must be loud, because
-  // the whole point of this script is to notice.
+if (total > THRESHOLD) {
+  // Shopify's AssetSizeAppBlockJavaScript check measures the file on disk, not the
+  // compressed size, despite what the docs imply. It is severity `suggestion` and does not
+  // block a release today — the CLI prints it as an error and publishes anyway — but it is
+  // a real number on the pages Shopify scores hardest, so it should never pass silently.
   console.warn(
-    `[build-extension] WARNING: over the ${THRESHOLD}-byte suggested limit by ${gz - THRESHOLD} bytes.`
+    `[build-extension] over Shopify's ${THRESHOLD}-byte suggestion by ${total - THRESHOLD} bytes. ` +
+      `Not release-blocking today; revisit if the App Store pre-submission check hardens.`
   );
 }

@@ -261,7 +261,19 @@
 
     // Cache per query. Shoppers flip between filters and pages repeatedly; re-fetching an
     // identical query is latency the shopper feels for no new information.
-    if (CACHE[url]) { this.render(CACHE[url]); return; }
+    //
+    // applyConfig runs on the cache path too. It used to live only inside the fetch
+    // callback, which meant a widget that got its data from the cache rendered with the
+    // default list layout and none of the merchant's colours — because the layout is
+    // per-instance state and nothing had set it. That is not a theoretical case: a theme
+    // that re-renders a section (variant change, theme editor edit) builds a new Widget
+    // over the same URL, and it would come back styled differently from the one it
+    // replaced.
+    if (CACHE[url]) {
+      this.applyConfig(CACHE[url]);
+      this.render(CACHE[url]);
+      return;
+    }
 
     fetch(url, { credentials: 'omit' })
       .then(function (r) {
@@ -270,13 +282,7 @@
       })
       .then(function (data) {
         CACHE[url] = data;
-        if (data.config) {
-          CONFIG = data.config;
-          applyColors(self.root, data.config.colors);
-          applyCustomCss(data.config.customCss);
-          self.applyLayout();
-          self.applyText();
-        }
+        self.applyConfig(data);
         self.render(data);
       })
       .catch(function () {
@@ -288,6 +294,23 @@
         // has to be guarded, or the error handler throws its own error.
         if (self.listEl) self.listEl.innerHTML = '';
       });
+  };
+
+  /**
+   * Apply the merchant's configuration to this widget instance.
+   *
+   * Split out of the fetch callback so the cached path gets it too. Everything here is
+   * idempotent — classList.add deduplicates, buildOverlay returns early if the panel
+   * already exists, and applyColors only fills properties that are not already set — so
+   * calling it twice on the same instance is harmless.
+   */
+  Widget.prototype.applyConfig = function (data) {
+    if (!data || !data.config) return;
+    CONFIG = data.config;
+    applyColors(this.root, data.config.colors);
+    applyCustomCss(data.config.customCss);
+    this.applyLayout();
+    this.applyText();
   };
 
   Widget.prototype.render = function (data) {
