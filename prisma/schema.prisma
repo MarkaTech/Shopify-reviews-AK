@@ -478,3 +478,31 @@ model ReviewTranslation {
   @@unique([reviewId, language])
   @@index([reviewId])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Addresses we must never email again.
+//
+// Amazon SES holds a sender to a bounce rate under 5% and a complaint rate under
+// 0.1%; cross either and the account is placed under review and then suspended.
+// A single address that hard-bounces and keeps being retried is enough to drift
+// the ratio on a low-volume sender, so the rule is simple: once an address
+// bounces hard or its owner marks us as spam, it is dead to us permanently.
+//
+// Deliberately global rather than per-store. A shopper who marks one merchant's
+// review request as spam has told us something about our sending domain, which
+// every merchant on this platform shares. Scoping suppression per store would
+// let the same address be re-mailed by the next merchant and put the shared
+// reputation back at risk.
+// ─────────────────────────────────────────────────────────────────────────────
+model EmailSuppression {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  // bounce | complaint | unsubscribe | manual
+  reason    String
+  // SES bounce subtype, complaint feedback type, or a short note. Diagnostic only.
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([reason])
+  @@index([createdAt])
+}

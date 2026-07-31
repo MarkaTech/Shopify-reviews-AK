@@ -168,12 +168,22 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     const { sendEmail, renderReviewRequestEmail } = await import('@/lib/email');
     const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true, email: true } });
 
+    // One-click unsubscribe. The token is an HMAC of the address, so the link cannot be
+    // edited to opt somebody else out — without that, the header would be a way to block
+    // any address an attacker can guess.
+    const { unsubscribeToken } = await import('@/app/api/unsubscribe/route');
+    const unsubscribeUrl =
+      `${SHOPIFY_APP_URL}/api/unsubscribe` +
+      `?email=${encodeURIComponent(created.email)}` +
+      `&t=${encodeURIComponent(unsubscribeToken(created.email))}`;
+
     const message = renderReviewRequestEmail({
       storeName: store?.name || 'the store',
       customerName: (data as { customer?: { first_name?: string } }).customer?.first_name || null,
       orderNumber: (data as { order_number?: string | number }).order_number?.toString() || null,
       itemTitles: created.lineItems.map(li => li.title),
       reviewUrl: link,
+      unsubscribeUrl,
     });
 
     // Replies go to the merchant, not to us — they own the customer relationship.

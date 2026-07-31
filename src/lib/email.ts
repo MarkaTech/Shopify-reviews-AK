@@ -17,10 +17,11 @@
  */
 
 import crypto from 'crypto';
+import { isSuppressed } from './suppression';
 
 export type SendResult =
   | { sent: true; provider: 'ses' | 'resend' | 'sendgrid'; id?: string }
-  | { sent: false; reason: 'not_configured' | 'failed'; detail?: string };
+  | { sent: false; reason: 'not_configured' | 'failed' | 'suppressed'; detail?: string };
 
 export interface EmailMessage {
   to: string;
@@ -28,6 +29,19 @@ export interface EmailMessage {
   html: string;
   text: string;
   replyTo?: string;
+  /**
+   * One-click unsubscribe target, for shopper-facing mail.
+   *
+   * Gmail and Yahoo require List-Unsubscribe with one-click support from bulk senders, and
+   * without it a review invitation is far more likely to be marked as spam than
+   * unsubscribed from — which is the difference between a harmless opt-out and a complaint
+   * against a domain every merchant on this platform shares.
+   *
+   * Merchant account notifications deliberately do not set this: they are account mail with
+   * their own switches in Settings, and an unsubscribe link there would silently disable
+   * the alerts a merchant relies on.
+   */
+  unsubscribeUrl?: string;
 }
 
 function fromAddress(): string {
@@ -142,6 +156,17 @@ async function sendViaSes(msg: EmailMessage): Promise<SendResult> {
           Text: { Data: msg.text, Charset: 'UTF-8' },
           Html: { Data: msg.html, Charset: 'UTF-8' },
         },
+        // List-Unsubscribe-Post is what makes the header "one-click": without it, mail
+        // clients render an unsubscribe link the recipient has to follow and confirm,
+        // and most people press the spam button instead.
+        ...(msg.unsubscribeUrl
+          ? {
+              Headers: [
+                { Name: 'List-Unsubscribe', Value: `<${msg.unsubscribeUrl}>` },
+                { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' },
+              ],
+            }
+          : {}),
       },
     },
   });
@@ -236,6 +261,14 @@ export async function sendEmail(msg: EmailMessage): Promise<SendResult> {
   const provider = emailProvider();
   if (!provider) return { sent: false, reason: 'not_configured' };
 
+  // The suppression check lives here rather than at each call site, so a feature added
+  // later cannot forget it. SES suspends a sender above a 5% bounce or 0.1% complaint
+  // rate, and re-sending to an address that already hard-bounced is the quickest way
+  // there — for every merchant at once, since the sending domain is shared.
+  if (await isSuppressed(msg.to)) {
+    return { sent: false, reason: 'suppressed' };
+  }
+
   try {
     if (provider === 'ses') return await sendViaSes(msg);
     if (provider === 'resend') return await sendViaResend(msg);
@@ -257,6 +290,8 @@ function escapeHtml(s: string): string {
 }
 
 export interface ReviewRequestEmailInput {
+  /** Where the one-click unsubscribe link points. Required for shopper-facing mail. */
+  unsubscribeUrl?: string;
   storeName: string;
   customerName: string | null;
   orderNumber: string | null;
@@ -323,6 +358,9 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
     '',
     `You received this because you bought from ${input.storeName}.`,
     "This link is personal to your order - please don't forward it.",
+    ...(input.unsubscribeUrl
+      ? ['', `Prefer not to receive these? Unsubscribe: ${input.unsubscribeUrl}`]
+      : []),
   ].join('\n');
 
   return {
@@ -330,5 +368,6 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
     subject: `How was your order from ${input.storeName}?`,
     html,
     text,
+    unsubscribeUrl: input.unsubscribeUrl,
   };
 }
