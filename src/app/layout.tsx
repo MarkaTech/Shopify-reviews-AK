@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -66,9 +65,6 @@ export async function generateMetadata(): Promise<Metadata> {
     icons: {
       icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
     },
-    other: {
-      "shopify-api-key": clientId,
-    },
   };
 }
 
@@ -80,24 +76,33 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       {/*
-        Shopify App Bridge.
+        App Bridge, written straight into the head rather than through next/script.
 
-        Loaded from Shopify's CDN rather than npm on purpose — the script is versionless and
-        self-updating, which is how Shopify ships breaking changes to the embedded admin
-        without every app needing a release.
+        Shopify's requirement is literal: the meta tag, then the script, both in the <head>
+        of every document. `<Script strategy="beforeInteractive">` does not do that in the
+        App Router. It emits a `<link rel="preload">` in the head and pushes the real URL
+        into a `self.__next_s` queue in the body, which Next's own runtime drains after
+        hydration starts. So App Bridge arrived late, `window.shopify` was undefined for the
+        first render, and every initial data fetch went out with no session token and fell
+        back to the cookie — which is exactly what the auth telemetry recorded.
 
-        `beforeInteractive` matters: App Bridge must be present before any component tries
-        to mint a session token, and it installs a fetch interceptor that adds the
-        Authorization header to same-origin requests. Loading it late means the first few
-        requests on a cold page go out unauthenticated.
+        A plain non-async <script> is not hoisted by React, so it stays where it is written
+        and runs synchronously, before any application code. The meta tag precedes it
+        because App Bridge reads the client ID at execution time; the tag arriving after
+        would leave it configured with nothing.
 
-        Harmless outside the Shopify admin: with no parent frame to talk to, the `shopify`
-        global simply never becomes usable, and apiFetch falls back to the session cookie.
+        The Metadata API cannot express this — it controls the tags but not their position
+        relative to a script — so the meta tag lives here rather than in generateMetadata.
+
+        Harmless outside the Shopify admin: with no parent frame to talk to, `window.shopify`
+        never becomes usable and apiFetch falls back to the session cookie.
       */}
-      <Script
-        src="https://cdn.shopify.com/shopifycloud/app-bridge.js"
-        strategy="beforeInteractive"
-      />
+      <head>
+        <meta name="shopify-api-key" content={shopifyClientId()} />
+        {/* Synchronous on purpose — see above. Deferring it is what broke session tokens. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
