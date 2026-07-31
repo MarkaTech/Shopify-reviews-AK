@@ -73,22 +73,59 @@ async function handleCustomerRedact(data: Record<string, unknown>, shop: string)
   const store = await db.store.findUnique({ where: { shopifyDomain: shop } });
   if (!store || !email) return;
 
+  const storeId = store.id;
+
   // Anonymise rather than delete: the rating and text are the merchant's business record,
   // but everything identifying the person must go.
-  const { count } = await db.review.updateMany({
-    where: { storeId: store.id, reviewerEmail: email },
-    data: {
-      reviewerName: 'Anonymous',
-      reviewerEmail: null,
-      reviewerAvatar: null,
-      reviewerLocation: null,
-      seoTitle: null,
-      seoDescription: null,
-      customFields: null,
-    },
+  //
+  // Reviews are not the only place this person appears. Handling only the Review table —
+  // which is what this used to do — leaves the same email address sitting in Q&A, in
+  // pending review invitations, in incentive grants and in the buyer email recorded by the
+  // orders/paid analytics handler. An erasure request that erases one of five copies is
+  // not an erasure request, and it is one of the things an app reviewer tests directly.
+  const [reviews, questions, requests, grants] = await Promise.all([
+    db.review.updateMany({
+      where: { storeId, reviewerEmail: email },
+      data: {
+        reviewerName: 'Anonymous',
+        reviewerEmail: null,
+        reviewerAvatar: null,
+        reviewerLocation: null,
+        seoTitle: null,
+        seoDescription: null,
+        customFields: null,
+      },
+    }),
+
+    db.question.updateMany({
+      where: { storeId, askerEmail: email },
+      data: { askerName: 'Anonymous', askerEmail: null },
+    }),
+
+    // Deleted outright rather than anonymised. A review invitation is a pending instruction
+    // to email this person; with the address gone it has no purpose, and keeping the order
+    // snapshot would preserve exactly what was asked to be erased.
+    db.reviewRequest.deleteMany({ where: { storeId, customerEmail: email } }),
+
+    // The discount code itself lives in Shopify and keeps working until it expires — that
+    // is the merchant's commercial arrangement. Only our copy of who it went to is cleared.
+    db.incentiveGrant.updateMany({
+      where: { incentive: { storeId }, customerEmail: email },
+      data: { customerEmail: '' },
+    }),
+  ]);
+
+  // Analytics events embed the buyer's email inside a JSON blob, so there is no column to
+  // null. Matching rows are dropped: they are aggregate usage signals and losing a handful
+  // costs nothing next to keeping an address that was asked to be forgotten.
+  const events = await db.analyticsEvent.deleteMany({
+    where: { storeId, eventData: { contains: email } },
   });
 
-  console.log(`[GDPR] customers/redact for ${shop}: anonymised ${count} review(s)`);
+  console.log(
+    `[GDPR] customers/redact for ${shop}: ${reviews.count} review(s), ${questions.count} question(s), ` +
+      `${requests.count} invitation(s), ${grants.count} incentive grant(s), ${events.count} analytics event(s)`
+  );
 }
 
 /** Sent 48 hours after uninstall. Erase everything belonging to the shop. */
@@ -100,7 +137,25 @@ async function handleShopRedact(_data: Record<string, unknown>, shop: string) {
   }
 
   const storeId = store.id;
-  // Children first: Review and Product hold foreign keys to Store.
+
+  // ReviewRequest and ReviewTranslation first, and via their own relations.
+  //
+  // Neither has a foreign key to Store, so neither cascaded and neither was in this list —
+  // meaning a shop redaction left ReviewRequest rows behind holding customer email, name,
+  // order number and a line-item snapshot, indefinitely. They have to be resolved through
+  // Review before the reviews themselves are deleted, or the link to find them is gone.
+  // ReviewTranslation keys on reviewId with no relation declared, so it cannot be filtered
+  // through Review — the ids have to be collected first, while the reviews still exist.
+  const reviewIds = await db.review.findMany({ where: { storeId }, select: { id: true } });
+  if (reviewIds.length) {
+    await db.reviewTranslation.deleteMany({
+      where: { reviewId: { in: reviewIds.map((r) => r.id) } },
+    });
+  }
+  await db.reviewRequest.deleteMany({ where: { storeId } });
+
+  // Children first: Review and Product hold foreign keys to Store. Deleting the store row
+  // cascades Question/Answer, Incentive/IncentiveGrant and ProductRating.
   await db.review.deleteMany({ where: { storeId } });
   await db.product.deleteMany({ where: { storeId } });
   await db.importJob.deleteMany({ where: { storeId } });

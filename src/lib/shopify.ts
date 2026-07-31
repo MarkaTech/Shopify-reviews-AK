@@ -305,6 +305,42 @@ export async function migrateToExpiringToken(shop: string, legacyToken: string):
 }
 
 /**
+ * Exchange an App Bridge session token for an offline access token.
+ *
+ * This is what makes Shopify's managed installation work. Under managed install there is
+ * no authorization-code redirect for us to handle: Shopify installs the app, grants the
+ * scopes declared in shopify.app.toml, and drops the merchant straight into our embedded
+ * page. The first thing that page does is present a session token — and this turns that
+ * token into the offline credential we need for Admin API calls.
+ *
+ * Why that is better than the redirect flow we had
+ * ------------------------------------------------
+ *   - No OAuth round trip on install, so the merchant lands in the app immediately.
+ *   - Scope changes are handled by Shopify. The legacy flow needed the merchant to
+ *     reinstall, and getting that wrong is what produced the "Unauthorized Access" screen
+ *     when write_files was added.
+ *   - No `state` nonce, no redirect allowlist, no HMAC on a callback — three things that
+ *     could each be got wrong, deleted rather than defended.
+ *
+ * `expiring=1` for the same reason as everywhere else: non-expiring tokens are rejected
+ * outright for public apps created after 1 April 2026.
+ */
+export async function exchangeSessionTokenForAccessToken(
+  shop: string,
+  sessionToken: string
+): Promise<ShopifyTokenSet> {
+  return postToken(shop, {
+    client_id: SHOPIFY_API_KEY,
+    client_secret: SHOPIFY_API_SECRET,
+    grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+    subject_token: sessionToken,
+    subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+    requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
+    expiring: '1',
+  });
+}
+
+/**
  * True when a failed refresh means the refresh token is genuinely dead, rather than a
  * transient network / 5xx / 429 blip.
  *
@@ -790,6 +826,14 @@ export async function registerWebhooks(
     'products/update',
     'products/delete',
     'orders/paid',
+    // The whole verified-buyer story depends on this one, and it was missing.
+    //
+    // /api/webhooks/orders-fulfilled creates the review invitation that carries a token,
+    // and only a review submitted through that token is ever marked `verified_buyer`.
+    // Without the subscription the handler never fired, so no invitation was ever created
+    // and no review could earn the Verified Purchase badge — the app's main differentiator,
+    // silently inert.
+    'orders/fulfilled',
     'shop/update',
     // Was 'app/charges/accepted', which does not exist as a GraphQL topic and mapped to a
     // 404 route. APP_SUBSCRIPTIONS_UPDATE is the real signal for a subscription being

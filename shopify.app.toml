@@ -18,7 +18,18 @@ api_version = "2026-04"
 # ScriptTag scopes removed — the theme app extension in extensions/reviewmaster
 # replaces storefront script injection entirely.
 scopes = "read_customers,read_orders,read_products,write_products,read_themes,write_themes,write_files"
-use_legacy_install_flow = true
+
+# Managed installation.
+#
+# `use_legacy_install_flow = true` used to be here. Removing it hands installation and
+# scope changes to Shopify: the merchant is dropped straight into the embedded app with a
+# session token, which src/lib/auth.ts exchanges for an offline access token.
+#
+# Two concrete problems this removes. Adding a scope under the legacy flow required every
+# merchant to reinstall by hand — getting that wrong is what produced the "Unauthorized
+# Access" screen when write_files was added. And the callback carried a state nonce, a
+# redirect allowlist and an HMAC check, each of which had to be right; none of them exist
+# on this path.
 optional_scopes = [ ]
 
 [auth]

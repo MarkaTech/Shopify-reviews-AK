@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  exchangeAccessToken,
-  fetchShopifyShop,
-  registerWebhooks,
-  SHOPIFY_APP_URL,
-  verifyShopifyHmac,
-} from '@/lib/shopify';
-import { db } from '@/lib/db';
+import { exchangeAccessToken, SHOPIFY_APP_URL, verifyShopifyHmac } from '@/lib/shopify';
 import { setShopifySession } from '@/lib/session';
 import { createSessionCookie } from '@/lib/auth';
 import { verifyAndConsumeNonce } from '@/lib/nonce';
-import { encryptToken } from '@/lib/crypto';
-
-const SHOP_DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
+import { provisionStore, SHOP_DOMAIN_RE } from '@/lib/install';
 
 export async function GET(request: NextRequest) {
   try {
@@ -61,34 +52,10 @@ export async function GET(request: NextRequest) {
     // the Admin API for public apps created on or after 1 Apr 2026 — the 403 that was
     // blocking every billing charge.
     const tokens = await exchangeAccessToken(shop, code);
-    const accessToken = tokens.accessToken;
-    const shopInfo = await fetchShopifyShop(shop, accessToken);
 
-    // Both secrets encrypted at rest — see src/lib/crypto.ts. The refresh token is the
-    // more sensitive of the pair: it mints new access tokens for 90 days.
-    const storeFields = {
-      name: shopInfo.name,
-      domain: shopInfo.domain,
-      shopifyUrl: `https://${shop}`,
-      shopifyDomain: shop,
-      accessToken: encryptToken(accessToken),
-      refreshToken: tokens.refreshToken ? encryptToken(tokens.refreshToken) : null,
-      tokenExpiresAt: tokens.expiresAt,
-      refreshTokenExpiresAt: tokens.refreshExpiresAt,
-      email: shopInfo.email || null,
-      isActive: true,
-      installedAt: new Date(),
-    };
-
-    const store = await db.store.upsert({
-      where: { shopifyDomain: shop },
-      update: storeFields,
-      create: storeFields,
-    });
-
-    registerWebhooks(shop, accessToken).catch((err) => {
-      console.error('Failed to register webhooks:', err);
-    });
+    // Shared with the managed-install path in lib/install.ts. Two copies of this drift,
+    // and the drift only shows up as "works on a fresh install, broken on reinstall".
+    const store = await provisionStore(shop, tokens);
 
     // Session carries shop + storeId only; the token stays server-side.
     const sessionValue = setShopifySession(shop, store.id);

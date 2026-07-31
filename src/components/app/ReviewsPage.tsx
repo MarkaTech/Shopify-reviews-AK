@@ -31,6 +31,13 @@ interface Review {
   reviewerEmail: string | null;
   reviewerLocation: string | null;
   verifiedPurchase: boolean;
+  /**
+   * The strict provenance status. `verifiedPurchase` is the legacy boolean and can be true
+   * without a matched order, so anything merchant- or shopper-facing that says "Verified"
+   * must key off this instead — claiming a verified purchase we cannot evidence is the
+   * misrepresentation FTC 16 CFR 465 targets.
+   */
+  verificationStatus: string;
   rating: number;
   title: string | null;
   body: string;
@@ -138,6 +145,57 @@ export default function ReviewsPage() {
   useEffect(() => {
     fetchReviews();
   }, [fetchReviews]);
+
+  /**
+   * Export the reviews currently loaded, as CSV.
+   *
+   * Built in the browser from state already fetched rather than through a new endpoint:
+   * the merchant is looking at exactly this list, so a server round trip would be a second
+   * source of truth that could disagree with what is on screen.
+   *
+   * RFC 4180 quoting — every field wrapped, embedded quotes doubled. Review bodies contain
+   * commas, newlines and quotation marks as a matter of course, and a naive join produces a
+   * file that silently corrupts on import.
+   *
+   * The BOM is there so Excel opens UTF-8 correctly; without it, accented names and any
+   * non-Latin script arrive as mojibake, which is most of the value of an export gone.
+   */
+  const exportCsv = () => {
+    if (!reviews.length) {
+      toast.error('There are no reviews to export');
+      return;
+    }
+
+    const columns: Array<[string, (r: Review) => unknown]> = [
+      ['Date', r => new Date(r.reviewDate ?? r.createdAt).toISOString().slice(0, 10)],
+      ['Product', r => r.product?.title ?? ''],
+      ['Reviewer', r => r.reviewerName],
+      ['Email', r => r.reviewerEmail ?? ''],
+      ['Rating', r => r.rating],
+      ['Title', r => r.title ?? ''],
+      ['Body', r => r.body],
+      ['Published', r => (r.isPublished ? 'yes' : 'no')],
+      ['Verified', r => (r.verificationStatus === 'verified_buyer' ? 'yes' : 'no')],
+      ['Source', r => r.source ?? ''],
+      ['Reply', r => r.reply ?? ''],
+    ];
+
+    const cell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      columns.map(([header]) => cell(header)).join(','),
+      ...reviews.map(r => columns.map(([, get]) => cell(get(r))).join(',')),
+    ].join('\r\n');
+
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reviews-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast.success(`Exported ${reviews.length} review${reviews.length === 1 ? '' : 's'}`);
+  };
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -267,7 +325,7 @@ export default function ReviewsPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={() => { /* Export */ }}>
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={exportCsv}>
             <Download className="w-3.5 h-3.5" /> Export
           </Button>
           <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={() => setSelectedIds(new Set())}>

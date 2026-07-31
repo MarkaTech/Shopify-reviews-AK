@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: 'The terms under which Shopify merchants may use the ReviewMaster review app.',
 };
 
-const LAST_UPDATED = '26 July 2026';
+const LAST_UPDATED = '31 July 2026';
 const CONTACT_EMAIL = 'tech@houseofmarka.com';
 
 export default function TermsOfService() {
@@ -31,10 +31,25 @@ export default function TermsOfService() {
 
         <section>
           <h2 className="text-xl font-semibold">2. What the App does</h2>
+          <p>The App lets Shopify merchants:</p>
+          <ul className="list-disc pl-6">
+            <li>Collect reviews through a storefront form, and through a single-use link emailed to a buyer after their order is fulfilled</li>
+            <li>Import reviews you already own from a CSV file, including exports from other review apps</li>
+            <li>Moderate reviews before they appear. Every review submitted through the storefront form or an invitation link arrives unpublished; auto-publish is a setting you can turn on, and it is off by default.</li>
+            <li>Display reviews on your storefront through a theme app extension you place in the theme editor</li>
+            <li>Accept photo and video reviews, which are stored in your own Shopify Files rather than on our servers</li>
+            <li>Run product questions and answers</li>
+            <li>Publish a Google Merchant Center product ratings feed, and — where Shopify has approved your store for its review syndication programme — write reviews into Shopify&apos;s standard review metaobject for the Shop app</li>
+            <li>Offer a discount code in exchange for a review, under the rules in section 6</li>
+          </ul>
           <p>
-            The App allows Shopify merchants to collect, import, moderate and display product reviews
-            on their storefront. Features available to you depend on your subscription plan.
+            The App does <strong>not</strong> scrape or import reviews from Amazon, eBay, Etsy,
+            Alibaba or any other marketplace. That functionality has been removed: presenting
+            reviews written about another seller&apos;s listing as reviews of your product is a
+            misrepresentation under the FTC Rule on Consumer Reviews and Testimonials
+            (16 CFR Part 465) and the EU Omnibus Directive.
           </p>
+          <p>Which features you get depends on your plan, as set out in section 4.</p>
         </section>
 
         <section>
@@ -47,43 +62,122 @@ export default function TermsOfService() {
 
         <section>
           <h2 className="text-xl font-semibold">4. Plans, billing and trials</h2>
+          <p>The App has four plans:</p>
           <ul className="list-disc pl-6">
-            <li>Paid plans are billed monthly through Shopify and appear on your Shopify invoice.</li>
-            <li>Paid plans include a 7-day free trial unless stated otherwise. You are not charged during the trial.</li>
-            <li>Prices are shown in USD and exclude any applicable taxes.</li>
-            <li>Plan limits, including review counts and available widgets, are enforced by the App.</li>
-            <li>You may change or cancel your plan at any time from your Shopify admin.</li>
+            <li>
+              <strong>Free — $0/month.</strong> Up to 100 reviews, 2 widgets (list and badge only),
+              CSV import and photo reviews.
+            </li>
+            <li>
+              <strong>Starter — $9.99/month.</strong> Up to 1,000 reviews, 5 widgets, every widget
+              type, video reviews, questions and answers, and review incentives.
+            </li>
+            <li>
+              <strong>Growth — $19.99/month.</strong> Unlimited reviews and widgets, plus the Google
+              Shopping ratings feed, Shop app syndication and advanced analytics.
+            </li>
+            <li>
+              <strong>Pro — $49.99/month.</strong> Everything in Growth, plus API access and
+              white-label widgets.
+            </li>
+          </ul>
+          <ul className="list-disc pl-6">
+            <li>Paid plans are billed by Shopify every 30 days and appear on your Shopify invoice.</li>
+            <li>Every paid plan includes a 7-day free trial. You are not charged during the trial.</li>
+            <li>Prices are in USD and exclude any applicable taxes.</li>
+            <li>Plan limits — review counts, widget counts, widget types and per-feature access — are enforced on our servers, not in your browser. Exceeding one returns an upgrade prompt rather than silently failing.</li>
+            <li>You may change or cancel your plan at any time. Your entitlement is resolved from what Shopify reports as your active subscription, so an upgrade, downgrade or cancellation takes effect through the same path.</li>
           </ul>
           <p>
-            Cancelling stops future charges. Because billing runs through Shopify, refunds are handled
-            under Shopify&apos;s billing policies. We do not process payments directly and cannot
-            issue card refunds ourselves.
+            All payments run through Shopify&apos;s billing API. <strong>We never see, handle or
+            store card details.</strong> Cancelling stops future charges. Because billing runs
+            through Shopify, refunds are handled under Shopify&apos;s billing policies; we do not
+            process payments directly and cannot issue card refunds ourselves.
           </p>
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">5. Acceptable use</h2>
+          <h2 className="text-xl font-semibold">5. Reviews and verification</h2>
+          <p>
+            A review only carries a &quot;verified purchase&quot; badge when the App can point at a
+            real Shopify order for it — that is, when it was submitted through the invitation link
+            emailed to the buyer after fulfilment. Reviews submitted through the public storefront
+            form, imported from CSV, or entered by hand are recorded as unverified and are never
+            badged, whatever a source file claims. Claiming otherwise would be a misrepresentation
+            under 16 CFR Part 465.
+          </p>
+          <p>
+            The Google feed and Shop app syndication carry <em>all</em> your published reviews.
+            There is no rating filter and no setting to add one: submitting only flattering reviews
+            breaches Google&apos;s product ratings policy, Shopify&apos;s syndication programme, the
+            FTC rule, the EU Omnibus Directive and the UK DMCC Act. Deleting or unpublishing a
+            review flows through to the displayed average.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-semibold">6. Review incentives</h2>
+          <p>
+            You may offer a discount code to customers who leave a review. The App enforces the
+            following, and you agree to them:
+          </p>
+          <ul className="list-disc pl-6">
+            <li>
+              <strong>A reward can never depend on what the review says.</strong> FTC 16 CFR 465.4
+              prohibits conditioning compensation on the sentiment of a review, expressly or by
+              implication. There is no minimum-rating setting in the App, and no code path that
+              reads a rating before issuing a code — a one-star review earns exactly what a
+              five-star review earns.
+            </li>
+            <li>
+              Requiring a photo or video for a larger reward is permitted, because media is a
+              content type and not an opinion.
+            </li>
+            <li>
+              <strong>Incentivised reviews are disclosed.</strong> The offer is shown to the shopper
+              before they write, and a disclosure notice is attached to every review that earned a
+              reward. The incentivised flag travels with the review to the storefront and to the
+              Google feed and cannot be suppressed.
+            </li>
+            <li>
+              Incentivised reviews are excluded from Shop app syndication entirely, because
+              Shopify&apos;s Shop guidelines prohibit compensated reviews with no disclosure
+              carve-out.
+            </li>
+            <li>
+              Codes are single-use, limited to one per customer, and expire on the schedule you set.
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-semibold">7. Acceptable use</h2>
           <p>You agree not to:</p>
           <ul className="list-disc pl-6">
             <li>Publish reviews you know to be false, fabricated or purchased</li>
+            <li>Suppress or selectively delete reviews in order to misrepresent what your customers actually said</li>
             <li>Use the App to publish unlawful, defamatory, obscene or infringing content</li>
-            <li>Import review content you do not have the right to reproduce</li>
+            <li>Import review content you do not have the right to reproduce, or review content written about a different seller&apos;s product</li>
             <li>Attempt to access another merchant&apos;s data</li>
-            <li>Probe, scan, overload or interfere with the App or its infrastructure</li>
+            <li>Probe, scan, overload or interfere with the App or its infrastructure, including the public storefront endpoints</li>
             <li>Resell or redistribute the App without written permission</li>
           </ul>
           <p>
-            Publishing fake or incentivised reviews without disclosure may breach consumer protection
+            Publishing fake or undisclosed incentivised reviews may breach consumer protection
             law in your jurisdiction. Responsibility for the reviews you publish rests with you.
           </p>
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">6. Your content</h2>
+          <h2 className="text-xl font-semibold">8. Your content</h2>
           <p>
             Reviews, product data and other material handled through the App remain yours. You grant
             us only the limited licence needed to host, process and display that content in order to
             provide the App.
+          </p>
+          <p>
+            Review photos and video are uploaded into your own Shopify Files and remain in your
+            Shopify account, including after you uninstall the App.
           </p>
           <p>
             You are responsible for ensuring you have the right to publish review content, including
@@ -92,7 +186,7 @@ export default function TermsOfService() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">7. Availability and support</h2>
+          <h2 className="text-xl font-semibold">9. Availability and support</h2>
           <p>
             We aim to keep the App available at all times but do not guarantee uninterrupted service.
             Maintenance, third-party outages and factors outside our control may cause downtime.
@@ -106,7 +200,7 @@ export default function TermsOfService() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">8. Data and privacy</h2>
+          <h2 className="text-xl font-semibold">10. Data and privacy</h2>
           <p>
             Our handling of personal information is described in the{' '}
             <Link className="text-emerald-700 hover:underline dark:text-emerald-400" href="/privacy">
@@ -117,21 +211,26 @@ export default function TermsOfService() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">9. Suspension and termination</h2>
+          <h2 className="text-xl font-semibold">11. Suspension and termination</h2>
           <p>
             You may stop using the App at any time by uninstalling it. We may suspend or terminate
             access if these terms are breached, if required by law, or if your use threatens the
             security or stability of the service.
           </p>
           <p>
-            On uninstall, your access token is revoked immediately and your data is deleted in line
-            with the retention periods in the Privacy Policy. Export anything you wish to keep before
-            uninstalling.
+            On uninstall, your Shopify access token and refresh token are deleted from our database
+            immediately and your store is deactivated. Shopify then sends a shop redaction request
+            48 hours later, at which point the rest of your data is erased as described in the
+            Privacy Policy. If you want a copy of your review data, ask us at{' '}
+            <a className="text-emerald-700 hover:underline dark:text-emerald-400" href={`mailto:${CONTACT_EMAIL}`}>
+              {CONTACT_EMAIL}
+            </a>{' '}
+            before you uninstall.
           </p>
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">10. Disclaimers</h2>
+          <h2 className="text-xl font-semibold">12. Disclaimers</h2>
           <p>
             The App is provided on an &quot;as is&quot; and &quot;as available&quot; basis, without
             warranties of any kind to the fullest extent permitted by law. We do not warrant that the
@@ -140,7 +239,7 @@ export default function TermsOfService() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">11. Limitation of liability</h2>
+          <h2 className="text-xl font-semibold">13. Limitation of liability</h2>
           <p>
             To the fullest extent permitted by law, we are not liable for indirect, incidental or
             consequential losses, including lost profits, lost revenue or lost data. Our total
@@ -150,7 +249,7 @@ export default function TermsOfService() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">12. Changes to these terms</h2>
+          <h2 className="text-xl font-semibold">14. Changes to these terms</h2>
           <p>
             We may update these terms. Material changes will be communicated to installed merchants.
             Continuing to use the App after a change takes effect constitutes acceptance.
@@ -158,7 +257,7 @@ export default function TermsOfService() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold">13. Contact</h2>
+          <h2 className="text-xl font-semibold">15. Contact</h2>
           <p>
             Questions about these terms can be sent to{' '}
             <a className="text-emerald-700 hover:underline dark:text-emerald-400" href={`mailto:${CONTACT_EMAIL}`}>

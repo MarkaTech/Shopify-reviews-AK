@@ -22,6 +22,7 @@ import { NextResponse } from 'next/server';
 import { getShopifySession, SESSION_COOKIE_NAME } from './session';
 import { db } from './db';
 import { sessionTokenFromRequest, verifySessionToken, SessionTokenError } from './session-token';
+import { bootstrapFromSessionToken } from './install';
 import {
   getFreshAccessToken,
   ReauthRequiredError,
@@ -72,14 +73,35 @@ export async function withAuth(request: Request): Promise<AuthContext> {
       throw new UnauthorizedError(`Unauthorized: ${detail}`);
     }
 
-    const store = await db.store.findUnique({
+    let store = await db.store.findUnique({
       where: { shopifyDomain: verified.shop },
       select: { ...TOKEN_SELECT, isActive: true },
     });
 
+    // Managed installation bootstrap.
+    //
+    // Under Shopify's managed install there is no OAuth callback for us to handle — the
+    // app is already installed and the merchant arrives holding a session token, with no
+    // store row on our side. Exchanging that token for an offline access token here is
+    // what creates the installation.
+    //
+    // The same path recovers a store whose record went stale: uninstalled and reinstalled,
+    // or a refresh token that outlived its 90 days. Both used to require the merchant to
+    // reinstall by hand.
+    if (!store || !store.isActive || !store.accessToken) {
+      try {
+        const provisioned = await bootstrapFromSessionToken(verified.shop, bearer);
+        store = await db.store.findUnique({
+          where: { id: provisioned.id },
+          select: { ...TOKEN_SELECT, isActive: true },
+        });
+      } catch (error) {
+        console.error('[auth] token exchange failed for', verified.shop, error);
+        throw new UnauthorizedError('Unauthorized: could not establish a session with Shopify.');
+      }
+    }
+
     if (!store || !store.isActive) {
-      // The token is genuine but we have no installation for this shop — the app was
-      // uninstalled, or this is a shop that has never installed it.
       throw new UnauthorizedError('Unauthorized: store not found or app uninstalled.');
     }
 

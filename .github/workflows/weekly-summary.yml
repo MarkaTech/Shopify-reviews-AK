@@ -1,0 +1,50 @@
+name: Weekly review summary
+
+# Fires the merchant-facing weekly digest.
+#
+# Azure Web Apps has no built-in scheduler, so this is the cheapest reliable trigger we
+# have: GitHub Actions cron, one HTTP POST, no infrastructure to keep alive.
+#
+# Monday 08:00 UTC. Weekly rather than daily because the digest exists for merchants who
+# do NOT want an email per review, and the endpoint skips any store with no activity — a
+# message saying "0 reviews this week" is how you teach someone to filter your domain.
+#
+# GitHub's cron is best-effort and can run late under load. That is fine for a digest and
+# would not be for anything time-critical.
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  # So it can be tested without waiting a week.
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST to the digest endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "CRON_SECRET is not set in repository secrets — refusing to call the endpoint."
+            exit 1
+          fi
+
+          APP_URL="${APP_URL:-https://reviewmaster-app.azurewebsites.net}"
+
+          # The secret goes in a header, never the URL. A URL carrying it would end up in
+          # GitHub's logs, in Azure's request logs, and in any proxy in between — and this
+          # endpoint can email every merchant on the platform.
+          #
+          # -sS keeps curl quiet but still prints errors; --fail-with-body gives a non-zero
+          # exit on 4xx/5xx while still showing the response, so a failed run is visible in
+          # the Actions tab rather than silently green.
+          curl -sS --fail-with-body \
+            --max-time 300 \
+            -X POST "${APP_URL}/api/cron/weekly-summary" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            -H "content-type: application/json"

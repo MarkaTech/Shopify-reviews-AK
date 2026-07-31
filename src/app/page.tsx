@@ -8,6 +8,8 @@ import BulkUploadPage from '@/components/app/BulkUploadPage';
 import WidgetsPage from '@/components/app/WidgetsPage';
 import SettingsPage from '@/components/app/SettingsPage';
 import ProductsPage from '@/components/app/ProductsPage';
+import QuestionsPage from '@/components/app/QuestionsPage';
+import IncentivesPage from '@/components/app/IncentivesPage';
 import { Toaster } from 'sonner';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -20,8 +22,10 @@ const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string
   dashboard: { title: 'Dashboard', desc: 'Overview of your reviews and analytics' },
   reviews: { title: 'Reviews', desc: 'Manage all customer reviews', parent: 'Review Management' },
   'bulk-upload': { title: 'Import Reviews', desc: 'Upload reviews you own via CSV, or collect them from real orders', parent: 'Review Management' },
+  questions: { title: 'Questions', desc: 'Answer shopper questions and publish them to your product pages', parent: 'Review Management' },
   products: { title: 'Products', desc: 'Synced products from Shopify', parent: 'Configuration' },
   widgets: { title: 'Widgets', desc: 'Customize review display on storefront', parent: 'Configuration' },
+  incentives: { title: 'Incentives', desc: 'Reward reviewers with a discount code — never tied to what they say', parent: 'Configuration' },
   settings: { title: 'Settings', desc: 'App preferences and subscription', parent: 'Configuration' },
 };
 
@@ -211,8 +215,10 @@ export default function Home() {
       case 'dashboard': return <DashboardPage />;
       case 'reviews': return <ReviewsPage />;
       case 'bulk-upload': return <BulkUploadPage />;
+      case 'questions': return <QuestionsPage />;
       case 'products': return <ProductsPage />;
       case 'widgets': return <WidgetsPage />;
+      case 'incentives': return <IncentivesPage />;
       case 'settings': return <SettingsPage />;
       default: return <DashboardPage />;
     }
@@ -241,8 +247,9 @@ export default function Home() {
                         className="text-xs text-muted-foreground hover:text-foreground"
                         onClick={(e) => {
                           e.preventDefault();
-                          if (currentPage === 'reviews' || currentPage === 'bulk-upload') setCurrentPage('reviews');
-                          else if (currentPage === 'products' || currentPage === 'widgets' || currentPage === 'settings') setCurrentPage('settings');
+                          // Driven by the section name rather than a list of page ids, so a
+                          // new screen cannot be added with a dead parent crumb.
+                          setCurrentPage(pageInfo.parent === 'Review Management' ? 'reviews' : 'settings');
                         }}
                       >
                         {pageInfo.parent}

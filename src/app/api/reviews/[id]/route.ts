@@ -1,9 +1,10 @@
 import { db } from '@/lib/db';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { updateProductRating } from '@/lib/ratings';
 import { syncReviewToShop, unsyndicateReview, isSyndicationEnabled } from '@/lib/syndication';
+import { grantIncentive } from '@/lib/incentives';
 
 export async function GET(
   request: NextRequest,
@@ -127,6 +128,36 @@ export async function PUT(
       for (const pid of affected) {
         await updateProductRating(storeId, pid, ctx);
       }
+    }
+
+    // ── Incentive reward ──
+    //
+    // Publishing is the trigger, and the only trigger. Nothing in this path reads the
+    // rating before granting, and grantIncentive cannot receive one — FTC 16 CFR 465.4
+    // prohibits conditioning a reward on what a review says, at up to ~$53,000 per
+    // instance, so the constraint is structural rather than a rule someone has to remember.
+    //
+    // The whole config UI existed with nothing calling this, so no code was ever minted.
+    // One grant per review is enforced inside grantIncentive; republishing does not mint a
+    // second code.
+    if (publishChanged && updated.isPublished && updated.reviewerEmail) {
+      const hasMedia = Boolean(updated.images || updated.videoUrl);
+      const reviewId = updated.id;
+      const email = updated.reviewerEmail;
+      after(async () => {
+        try {
+          await grantIncentive(storeId, shop, accessToken, {
+            reviewId,
+            customerEmail: email,
+            hasMedia,
+            onUnauthorized,
+          });
+        } catch (err) {
+          // A missing discount code is a disappointed shopper; a failed publish is a
+          // merchant who cannot moderate. Never let the first break the second.
+          console.error('[reviews] incentive grant failed:', err);
+        }
+      });
     }
 
     // Push the change to the Shop app. Best-effort — never blocks the merchant.
