@@ -261,15 +261,20 @@ export async function sendEmail(msg: EmailMessage): Promise<SendResult> {
   const provider = emailProvider();
   if (!provider) return { sent: false, reason: 'not_configured' };
 
-  // The suppression check lives here rather than at each call site, so a feature added
-  // later cannot forget it. SES suspends a sender above a 5% bounce or 0.1% complaint
-  // rate, and re-sending to an address that already hard-bounced is the quickest way
-  // there — for every merchant at once, since the sending domain is shared.
-  if (await isSuppressed(msg.to)) {
-    return { sent: false, reason: 'suppressed' };
-  }
-
   try {
+    // The suppression check lives here rather than at each call site, so a feature added
+    // later cannot forget it. SES suspends a sender above a 5% bounce or 0.1% complaint
+    // rate, and re-sending to an address that already hard-bounced is the quickest way
+    // there — for every merchant at once, since the sending domain is shared.
+    //
+    // Inside the try, and failing CLOSED. If the lookup itself errors — an unmigrated
+    // database, a connection blip — we do not send. Failing open would mean quietly
+    // mailing addresses that already bounced at exactly the moment we cannot tell, which
+    // is how a suspension happens; not sending is recoverable and loud.
+    if (await isSuppressed(msg.to)) {
+      return { sent: false, reason: 'suppressed' };
+    }
+
     if (provider === 'ses') return await sendViaSes(msg);
     if (provider === 'resend') return await sendViaResend(msg);
     return await sendViaSendGrid(msg);
