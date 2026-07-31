@@ -169,6 +169,24 @@ test('rejects a token minted for a different app', () => {
   rejects(makeToken({ aud: 'some-other-app-client-id' }), /audience/i);
 });
 
+/**
+ * The client ID is read under two names for historical reasons — see lib/client-id.ts. A
+ * deployment that sets only the NEXT_PUBLIC_ form must still verify tokens, because that is
+ * every deployment made before the App Bridge work landed.
+ */
+test('accepts the client ID under the NEXT_PUBLIC_ name when the plain one is unset', () => {
+  const saved = process.env.SHOPIFY_API_KEY;
+  delete process.env.SHOPIFY_API_KEY;
+  process.env.NEXT_PUBLIC_SHOPIFY_API_KEY = API_KEY;
+  try {
+    const session = verifySessionToken(makeToken());
+    assert.strictEqual(session.shop, 'acme-store.myshopify.com');
+  } finally {
+    delete process.env.NEXT_PUBLIC_SHOPIFY_API_KEY;
+    process.env.SHOPIFY_API_KEY = saved;
+  }
+});
+
 test('rejects when iss and dest describe different shops', () => {
   rejects(
     makeToken({ iss: 'https://attacker.myshopify.com/admin', dest: 'https://victim.myshopify.com' }),

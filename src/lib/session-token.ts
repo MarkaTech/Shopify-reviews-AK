@@ -32,8 +32,8 @@
  */
 
 import crypto from 'crypto';
+import { shopifyClientId } from './client-id';
 
-const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || '';
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || '';
 
 /**
@@ -167,7 +167,7 @@ export function verifySessionToken(token: string): VerifiedSession {
   // presented to us — would be rejected by the signature check anyway. The check matters
   // for the reverse: it stops a token we issued for one client ID being replayed after a
   // client ID change.
-  if (!payload.aud || payload.aud !== SHOPIFY_API_KEY) {
+  if (!payload.aud || payload.aud !== shopifyClientId()) {
     throw new SessionTokenError('Token audience does not match this app');
   }
 

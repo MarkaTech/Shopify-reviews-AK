@@ -70,3 +70,6 @@ _backup_pre_fix/
 
 # transfer archives
 *.tgz
+
+# Throwaway tsc output from the offline test runs
+.rmtest/

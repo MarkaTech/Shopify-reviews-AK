@@ -2,45 +2,77 @@
 
 Everything needed to get out of the SES sandbox, in the order it has to happen.
 
-**Current state:** sandbox. 200 messages per 24 hours, 1 per second, and **only to addresses
-you have individually verified**. Published, that means review invitations and merchant
-notifications silently fail for every merchant but you.
+**Current state**, confirmed in the console on 31 July 2026:
+
+| | |
+|---|---|
+| Account | House of Marka (865000064134) |
+| Sandbox | Yes — 200 messages / 24h, 1 per second, verified recipients only |
+| Domain identity | `aavyro.com` — **Verified** |
+| DKIM | **Successful**, signatures enabled, RSA-2048 |
+| Account health | Healthy |
+| Bounce / Complaint SNS topic | **Not set** — this is the gap |
+| SNS topics in the account | **None** |
+| `EMAIL_FROM` | **Empty** |
+
+Published while still in the sandbox, review invitations and merchant notifications fail
+silently for every merchant but you.
 
 **Region:** `us-east-1` (from `.env.example` → `AWS_SES_REGION`). Production access is granted
 **per region** — if you later add `eu-west-1` for EU merchants, that is a separate request.
 
 ---
 
-## Step 1 — Verify a sending domain (not just an address)
+## Step 1 — Sending identity (already done)
 
-Do this before anything else. AWS weighs a request far more favourably when the sender is a
-verified domain with DKIM, and a bare address identity looks like a hobby project.
+`aavyro.com` is verified in `us-east-1` with Easy DKIM signing at RSA-2048. Nothing to do
+here — this is usually the slow part and it is already behind you.
 
-**SES console → Identities → Create identity → Domain.**
+**Sending address:** `reviews@aavyro.com`
 
-Use a subdomain dedicated to this app rather than your root domain — for example
-`mail.houseofmarka.com`. The reason is blast radius: if review invitations ever attract
-complaints, the reputation damage is contained to a subdomain instead of following every
-invoice and support reply you send from the root.
-
-Enable **Easy DKIM** and publish the three CNAME records AWS gives you. Also publish:
+Set in Azure app settings:
 
 ```
-SPF    TXT   "v=spf1 include:amazonses.com ~all"
-DMARC  TXT   _dmarc.mail.houseofmarka.com   "v=DMARC1; p=none; rua=mailto:dmarc@houseofmarka.com"
+EMAIL_FROM = ReviewMaster <reviews@aavyro.com>
 ```
 
-`p=none` to begin with — it reports without rejecting, so you can see what is happening
-before you tighten to `quarantine`. Wait for the identity to show **Verified** before
-continuing.
+Nothing sends until this is set — `emailProvider()` returns SES because the AWS keys are
+present, but the From address is what SES actually validates against the identity.
 
-Then set in Azure app settings:
+### Check SPF and DMARC before you apply
+
+DKIM alone is enough for SES to accept the mail, but Gmail and Yahoo weigh SPF and DMARC
+heavily for bulk senders, and reviewers of the production-access request look at them.
+
+**Careful with SPF if `aavyro.com` already sends mail** (Google Workspace, a CRM, invoicing).
+A domain may have only ONE SPF TXT record — publishing a second breaks both. Check first:
 
 ```
-EMAIL_FROM = ReviewMaster <reviews@mail.houseofmarka.com>
+dig +short TXT aavyro.com | grep spf1
 ```
 
----
+- Nothing returned → publish a new record:
+  `v=spf1 include:amazonses.com ~all`
+- Something returned → **edit the existing record**, adding `include:amazonses.com` before
+  the closing `~all` or `-all`. Do not add a second record.
+
+DMARC, if `_dmarc.aavyro.com` has no record yet:
+
+```
+_dmarc.aavyro.com   TXT   "v=DMARC1; p=none; rua=mailto:dmarc@aavyro.com"
+```
+
+`p=none` reports without rejecting, so you can watch for a fortnight before tightening to
+`quarantine`. If a DMARC record already exists, leave it alone — SES mail will pass on DKIM
+alignment regardless.
+
+### Worth knowing about reputation
+
+You are sending review invitations from the same domain that presumably carries other
+`aavyro.com` mail. That is fine at this volume, and it is the fastest path to launch. If
+invitation volume grows into the thousands per day, move to a dedicated subdomain
+(`mail.aavyro.com`) so a bad week for review invitations cannot follow your business mail.
+Not now — just know where the line is.
 
 ## Step 2 — Wire up bounce and complaint handling
 
@@ -62,9 +94,14 @@ connecting:
      which is what carries the signature
 3. The endpoint confirms the subscription automatically. Refresh; status should move from
    *Pending confirmation* to *Confirmed* within a few seconds.
-4. **SES console → Identities →** your domain **→ Notifications → Feedback notifications**
+4. **SES console → Identities → `aavyro.com` → Notifications → Feedback notifications**
    → Edit. Set **Bounce** and **Complaint** to the SNS topic. Leave Delivery off — it is
    high volume and tells you nothing you need.
+
+   Note the existing **Email feedback forwarding: Enabled** setting on that page is not a
+   substitute. It emails a human about bounces; it never reaches the app, so it cannot
+   populate the suppression list. Leave it on as a backstop, but the SNS topic is what does
+   the work.
 
 Verify it works before applying: SES provides mailbox simulator addresses that cost nothing
 and never touch a real inbox.
