@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Star, Upload, FileSpreadsheet,
   Settings, ShoppingBag, Palette, BarChart3, MessageSquare,
   ChevronDown, ChevronRight, LogOut, Bell, Search, User,
-  HelpCircle, ExternalLink
+  HelpCircle, ExternalLink, Gift
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,15 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
-export type PageId = 'dashboard' | 'reviews' | 'bulk-upload' | 'widgets' | 'settings' | 'products';
+export type PageId =
+  | 'dashboard'
+  | 'reviews'
+  | 'bulk-upload'
+  | 'questions'
+  | 'widgets'
+  | 'settings'
+  | 'products'
+  | 'incentives';
 
 interface SidebarProps {
   currentPage: PageId;
@@ -57,19 +65,21 @@ const mainNav = [
 const reviewSubNav = [
   { id: 'reviews' as PageId, label: 'All Reviews', icon: MessageSquare },
   { id: 'bulk-upload' as PageId, label: 'Import Reviews', icon: FileSpreadsheet },
+  { id: 'questions' as PageId, label: 'Questions', icon: HelpCircle },
 ];
 
 const settingsNav = [
   { id: 'products' as PageId, label: 'Products', icon: ShoppingBag },
   { id: 'widgets' as PageId, label: 'Widgets', icon: Palette },
+  { id: 'incentives' as PageId, label: 'Incentives', icon: Gift },
   { id: 'settings' as PageId, label: 'Settings', icon: Settings },
 ];
 
 export default function Sidebar({ currentPage, onPageChange, storeName, storeDomain, plan }: SidebarProps) {
   const planKey = plan && plan in PLAN_META ? plan : 'free';
   const planMeta = PLAN_META[planKey];
-  const reviewsOpen = ['reviews', 'bulk-upload'].includes(currentPage);
-  const settingsOpen = ['products', 'widgets', 'settings'].includes(currentPage);
+  const reviewsOpen = ['reviews', 'bulk-upload', 'questions'].includes(currentPage);
+  const settingsOpen = ['products', 'widgets', 'incentives', 'settings'].includes(currentPage);
 
   return (
     <div className="w-[260px] h-screen bg-white border-r border-gray-200 flex flex-col fixed left-0 top-0 z-40">

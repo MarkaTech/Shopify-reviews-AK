@@ -16,14 +16,29 @@ const geistMono = Geist_Mono({
 });
 
 /**
+ * Render every page at request time, not at build time.
+ *
+ * This is not a performance preference — it is what makes the App Bridge meta tag below
+ * work at all. `generateMetadata` is not automatically dynamic: with no dynamic APIs in
+ * the tree, Next prerenders this layout during `next build` and bakes the result into the
+ * image. `SHOPIFY_API_KEY` is an Azure app setting, not a Docker build argument, so at
+ * build time it is undefined — and the meta tag was emitted empty and frozen that way.
+ *
+ * The symptom was quiet and easy to misread: the App Bridge script loaded fine, so the
+ * page looked correct, but with no client ID App Bridge never initialised, `window.shopify`
+ * stayed undefined, and no session token was ever minted. Every request silently fell back
+ * to the cookie — exactly the state Shopify's pre-submission check rejects.
+ *
+ * Nothing here should be statically cached in any case: this is an embedded admin app,
+ * every page is per-merchant, and there is no anonymous traffic to serve from a CDN.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * The client ID, which App Bridge needs in a meta tag.
  *
  * Safe to render into the page: it is the app's public identifier, the same value that
  * appears in every OAuth URL. The secret it pairs with never leaves the server.
- *
- * generateMetadata rather than a static `metadata` object because the value comes from the
- * environment at request time — a static export would bake in whatever was set at build
- * time, which in a Docker build is nothing.
  */
 export async function generateMetadata(): Promise<Metadata> {
   return {
