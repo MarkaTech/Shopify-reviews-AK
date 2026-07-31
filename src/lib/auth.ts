@@ -23,6 +23,7 @@ import { getShopifySession, SESSION_COOKIE_NAME } from './session';
 import { db } from './db';
 import { sessionTokenFromRequest, verifySessionToken, SessionTokenError } from './session-token';
 import { bootstrapFromSessionToken } from './install';
+import { noteAuthMechanism } from './auth-telemetry';
 import {
   getFreshAccessToken,
   ReauthRequiredError,
@@ -105,6 +106,8 @@ export async function withAuth(request: Request): Promise<AuthContext> {
       throw new UnauthorizedError('Unauthorized: store not found or app uninstalled.');
     }
 
+    await noteAuthMechanism(store.id, 'session_token');
+
     return {
       shop: verified.shop,
       accessToken: await freshTokenOrReauth(store),
@@ -131,6 +134,8 @@ export async function withAuth(request: Request): Promise<AuthContext> {
   if (store.shopifyDomain !== session.shop) {
     throw new UnauthorizedError('Unauthorized: session does not match store.');
   }
+
+  await noteAuthMechanism(store.id, 'cookie');
 
   return {
     shop: session.shop,
