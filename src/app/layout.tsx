@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "next-themes";
+import { shopifyClientId } from "@/lib/client-id";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,8 +22,8 @@ const geistMono = Geist_Mono({
  * This is not a performance preference — it is what makes the App Bridge meta tag below
  * work at all. `generateMetadata` is not automatically dynamic: with no dynamic APIs in
  * the tree, Next prerenders this layout during `next build` and bakes the result into the
- * image. `SHOPIFY_API_KEY` is an Azure app setting, not a Docker build argument, so at
- * build time it is undefined — and the meta tag was emitted empty and frozen that way.
+ * image. The client ID is an Azure app setting, not a Docker build argument, so at build
+ * time it is undefined — and the meta tag would be emitted empty and frozen that way.
  *
  * The symptom was quiet and easy to misread: the App Bridge script loaded fine, so the
  * page looked correct, but with no client ID App Bridge never initialised, `window.shopify`
@@ -39,8 +40,25 @@ export const dynamic = 'force-dynamic';
  *
  * Safe to render into the page: it is the app's public identifier, the same value that
  * appears in every OAuth URL. The secret it pairs with never leaves the server.
+ *
+ * Read through `shopifyClientId()` rather than `process.env` directly. The first attempt at
+ * this tag read an unprefixed `SHOPIFY_API_KEY` that is not what the deployment actually
+ * sets, so it resolved to an empty string — and Next omits a meta tag with empty content
+ * entirely. The page looked fine and App Bridge silently never initialised.
+ *
+ * The warning below exists because that failure mode leaves no other trace. An embedded app
+ * without this tag cannot mint session tokens, which is the one thing App Store review
+ * checks for.
  */
 export async function generateMetadata(): Promise<Metadata> {
+  const clientId = shopifyClientId();
+  if (!clientId && process.env.NODE_ENV === 'production') {
+    console.warn(
+      '[layout] No Shopify client ID in the environment — the App Bridge meta tag will be ' +
+        'omitted and session tokens will not work. Set SHOPIFY_API_KEY.'
+    );
+  }
+
   return {
     title: "ReviewMaster — The Ultimate Shopify Review App",
     description:
@@ -49,7 +67,7 @@ export async function generateMetadata(): Promise<Metadata> {
       icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
     },
     other: {
-      "shopify-api-key": process.env.SHOPIFY_API_KEY || "",
+      "shopify-api-key": clientId,
     },
   };
 }

@@ -4,8 +4,9 @@
  */
 
 import crypto from 'crypto';
+import { shopifyClientId } from './client-id';
 
-const SHOPIFY_API_KEY = process.env.NEXT_PUBLIC_SHOPIFY_API_KEY || 'test_key';
+const SHOPIFY_API_KEY = shopifyClientId() || 'test_key';
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || 'test_secret';
 const SHOPIFY_APP_URL = process.env.SHOPIFY_APP_URL || 'http://localhost:3000';
 
