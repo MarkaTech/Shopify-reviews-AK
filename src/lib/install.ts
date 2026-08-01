@@ -16,6 +16,8 @@
 
 import { db } from './db';
 import { encryptToken } from './crypto';
+import { markWebhooksRegistered } from './webhook-health';
+import { syncProductsInBackground } from './product-sync';
 import {
   exchangeSessionTokenForAccessToken,
   fetchShopifyShop,
@@ -28,10 +30,15 @@ export const SHOP_DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
 /**
  * Create or refresh a store record from a freshly issued token set.
  *
- * Webhook registration is fired and not awaited: it is several Admin API calls, and a
- * merchant should not wait on them to see their dashboard. A failure is logged and
- * recovered on the next install or manual re-register — losing a webhook is recoverable,
- * making the merchant stare at a spinner is not.
+ * Two things happen in the background afterwards, neither awaited, because a merchant
+ * should see their dashboard rather than a spinner:
+ *
+ *   - **Webhook registration**, retried on the first request of every process until it
+ *     succeeds once. Firing it and forgetting used to mean a single rate-limited call
+ *     during install left a merchant with no `orders/fulfilled` subscription forever.
+ *   - **Catalogue sync**, so the app is not empty on first open. Without it, reviews
+ *     submitted before someone found the manual sync button were created with no product
+ *     attached and displayed nowhere — silently.
  */
 export async function provisionStore(shop: string, tokens: ShopifyTokenSet) {
   const accessToken = tokens.accessToken;
@@ -59,9 +66,15 @@ export async function provisionStore(shop: string, tokens: ShopifyTokenSet) {
     create: storeFields,
   });
 
-  registerWebhooks(shop, accessToken).catch((err) => {
-    console.error('[install] webhook registration failed for', shop, err);
-  });
+  registerWebhooks(shop, accessToken).then(
+    () => markWebhooksRegistered(store.id),
+    (err) => {
+      // No marker on failure — ensureWebhooks retries on the next request.
+      console.error('[install] webhook registration failed for', shop, '— will retry', err);
+    }
+  );
+
+  syncProductsInBackground(store.id, shop, accessToken);
 
   return store;
 }

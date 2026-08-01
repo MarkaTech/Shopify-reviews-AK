@@ -140,13 +140,18 @@ export default function ProductsPage() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const data = await apiFetch<{ synced: number; total: number; source: string }>(
+      const data = await apiFetch<{ synced: number; total: number; truncated?: boolean }>(
         '/api/products/sync', { method: 'POST' }
       );
       if (data.synced === 0) {
         toast.info(`No new products found. ${data.total} already synced.`);
       } else {
         toast.success(`Synced ${data.synced} new product${data.synced === 1 ? '' : 's'} from Shopify`);
+      }
+      // Say so rather than leaving a large catalogue silently half-imported. The rest
+      // arrives as Shopify sends product webhooks.
+      if (data.truncated) {
+        toast.info('This sync covered the first 5,000 products. The rest will arrive as they are updated in Shopify.');
       }
       setRefreshKey(k => k + 1);
     } catch (err) {
