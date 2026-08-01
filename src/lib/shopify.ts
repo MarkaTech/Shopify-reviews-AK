@@ -687,8 +687,24 @@ export async function createRecurringCharge(
   // partners area") describes the wrong problem entirely, which makes it hard to diagnose.
   // Test charges behave identically through the whole approval flow but move no money.
   //
-  // Set SHOPIFY_BILLING_TEST=false in production once real merchants install.
-  const isTestCharge = (process.env.SHOPIFY_BILLING_TEST ?? 'true').toLowerCase() !== 'false';
+  // Opt IN to test charges, never out. This default used to be the other way round, which
+  // put the quiet failure on the expensive side: a missing or misspelled app setting in
+  // production meant every merchant subscribed on a test charge, no money moved, and
+  // nothing anywhere said so — the flow completes, the plan activates, the merchant is
+  // happy. You would find out from a payout report that never arrived.
+  //
+  // Inverted, the failure is loud and immediate: a live charge against a development store
+  // is rejected by Shopify the first time anyone tries it, during development, by the
+  // person who can fix it.
+  const isTestCharge = (process.env.SHOPIFY_BILLING_TEST ?? 'false').toLowerCase() === 'true';
+
+  if (isTestCharge) {
+    // Deliberately noisy. If this appears in production logs, no merchant is being billed.
+    console.warn(
+      `[billing] TEST charge for ${shop} on ${plan} — no money will move. ` +
+        'Unset SHOPIFY_BILLING_TEST to bill for real.'
+    );
+  }
 
   const data = await callShopifyGraphQL<{
     appSubscriptionCreate: {
