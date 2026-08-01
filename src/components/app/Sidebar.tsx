@@ -42,7 +42,7 @@ interface SidebarProps {
 const PLAN_META: Record<string, { label: string; short: string; price: string }> = {
   free: { label: 'Free Plan', short: 'FREE', price: '$0/mo' },
   starter: { label: 'Starter Plan', short: 'START', price: '$9.99/mo' },
-  pro: { label: 'Pro Plan', short: 'PRO', price: '$29.99/mo' },
+  pro: { label: 'Pro Plan', short: 'PRO', price: '$49.99/mo' },
   growth: { label: 'Growth Plan', short: 'GRW', price: '$19.99/mo' },
 };
 
@@ -215,13 +215,17 @@ export default function Sidebar({ currentPage, onPageChange, storeName, storeDom
                 <DropdownMenuItem
                   key={p}
                   className={p === planKey ? 'bg-emerald-50 text-emerald-700' : ''}
+                  // The actual plan change - approval, proration, the Shopify-hosted
+                  // confirmation screen - lives on the Plan settings tab. This row is a
+                  // shortcut to it, not a second, half-wired billing path.
+                  onClick={() => onPageChange('settings')}
                 >
                   {PLAN_META[p].label.replace(' Plan', '')} — {PLAN_META[p].price}
                   {p === planKey ? ' ✓' : ''}
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onPageChange('settings')}>
                 <ExternalLink className="w-3.5 h-3.5 mr-2" />
                 Manage Subscription
               </DropdownMenuItem>
