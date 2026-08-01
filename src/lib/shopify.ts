@@ -625,8 +625,8 @@ export async function fetchShopifyProducts(
 // because plans.ts imports the database and this module deliberately does not.
 const PLAN_PRICES: Record<string, number> = {
   free: 0,
-  starter: 9.99,
-  growth: 19.99,
+  starter: 19.99,
+  growth: 29.99,
   pro: 49.99,
 };
 

@@ -22,22 +22,22 @@ import { apiFetch, errorMessage } from '@/lib/api-client';
 const plans = [
   {
     id: 'free', name: 'Free', price: 0, interval: 'month',
-    features: ['100 reviews', 'Photo reviews', 'Star rating + review widget', 'CSV import & migration', 'Google rich snippets'],
+    features: ['50 reviews', 'Photo reviews', 'Star rating + review widget', 'CSV import & migration', 'Google rich snippets'],
     color: 'border-gray-200',
   },
   {
-    id: 'starter', name: 'Starter', price: 9.99, interval: 'month',
-    features: ['1,000 reviews', 'All widget types', 'Video reviews', 'Questions & answers', 'Review incentives', 'Email review requests'],
+    id: 'starter', name: 'Starter', price: 19.99, interval: 'month',
+    features: ['500 reviews', 'All widget types', 'Video reviews', 'Questions & answers', 'Review incentives', 'Email review requests'],
     color: 'border-gray-200',
   },
   {
-    id: 'growth', name: 'Growth', price: 19.99, interval: 'month',
-    features: ['Unlimited reviews & widgets', 'Google Shopping star ratings', 'Shop app syndication', 'Advanced analytics', 'Everything in Starter'],
+    id: 'growth', name: 'Growth', price: 29.99, interval: 'month',
+    features: ['1,000 reviews', 'Unlimited widgets', 'Google Shopping star ratings', 'Shop app syndication', 'Advanced analytics', 'Everything in Starter'],
     color: 'border-emerald-500 ring-2 ring-emerald-200', popular: true,
   },
   {
     id: 'pro', name: 'Pro', price: 49.99, interval: 'month',
-    features: ['Everything in Growth', 'API access', 'White-label widgets', 'Remove ReviewMaster branding', 'Priority support'],
+    features: ['Unlimited reviews', 'Everything in Growth', 'API access', 'White-label widgets', 'Remove ReviewMaster branding', 'Priority support'],
     color: 'border-gray-200',
   },
 ];
