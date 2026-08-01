@@ -47,34 +47,34 @@ export interface PlanLimits {
  *
  * So the shape here is deliberate:
  *
- *  - **A genuinely useful free tier.** 100 reviews rather than 50, and photo reviews
+ *  - **A free tier that still demonstrates the product.** 50 reviews, and photo reviews
  *    included. Free plans in this category exist to get the widget onto a storefront; one
- *    that cannot show a photo review does not demonstrate the product. Acquisition beats
- *    squeezing merchants who were never going to pay.
+ *    that cannot show a photo review does not demonstrate the product. The cap is a nudge
+ *    to upgrade once the widget is earning its place, not a wall on day one.
  *
- *  - **Gate on distribution, not on volume.** The features worth paying for are the ones
- *    that put reviews in front of people who have not visited the store yet: the Google
- *    Shopping feed, Shop app syndication, unlimited widgets. Review count caps annoy
- *    everyone and convert badly, because a merchant hitting one feels punished for
- *    succeeding. A merchant who sees Shopping traffic arrive feels the value.
+ *  - **Volume and distribution both gate.** Review-count caps rise with each tier — 50,
+ *    500, 1,000, then unlimited at Pro — but the features worth paying for are still the
+ *    ones that put reviews in front of people who have not visited the store yet: the
+ *    Google Shopping feed, Shop app syndication, unlimited widgets. A merchant who sees
+ *    Shopping traffic arrive feels the value beyond the raw cap.
  *
- *  - **Growth sits at $19.99, between Judge.me's $15 and Loox's $49.99.** Priced above
+ *  - **Growth sits at $29.99, between Judge.me's $15 and Loox's $49.99.** Priced above
  *    Judge.me on purpose: at $15 you are competing on price with an app that has a decade
- *    of reviews. $19.99 with Google Shopping and Shop app distribution is a different
- *    product, not a cheaper one.
+ *    of reviews. $29.99 with Google Shopping and Shop app distribution is a different
+ *    product, not a cheaper one. Starter at $19.99 is the entry paid tier.
  *
  *  - **No order-volume metering.** Loox's model punishes exactly the merchants you most
  *    want as references, and it makes cost unpredictable — the most common complaint about
  *    them. Flat pricing per tier is a feature, and worth saying out loud in the listing.
  *
- * Shopify takes 0% of the first $1M in app revenue, then 15%. At the $19.99 tier with AI
+ * Shopify takes 0% of the first $1M in app revenue, then 15%. Across these tiers, with AI
  * enabled later, gross margin stays around 90%.
  */
 export const PLANS: Record<PlanId, PlanLimits> = {
   free: {
     label: 'Free',
     price: 0,
-    maxReviews: 100,
+    maxReviews: 50,
     maxWidgets: 2,
     allowedWidgetTypes: ['list', 'badge'],
     csvImport: true,        // Migration must be free, or nobody ever switches to you.
@@ -91,8 +91,8 @@ export const PLANS: Record<PlanId, PlanLimits> = {
   },
   starter: {
     label: 'Starter',
-    price: 9.99,
-    maxReviews: 1000,
+    price: 19.99,
+    maxReviews: 500,
     maxWidgets: 5,
     allowedWidgetTypes: null,
     csvImport: true,
@@ -109,8 +109,8 @@ export const PLANS: Record<PlanId, PlanLimits> = {
   },
   growth: {
     label: 'Growth',
-    price: 19.99,
-    maxReviews: null,
+    price: 29.99,
+    maxReviews: 1000,
     maxWidgets: null,
     allowedWidgetTypes: null,
     csvImport: true,
@@ -223,7 +223,7 @@ function cheapestPlanForReviews(count: number): PlanId | null {
  * How many more reviews this store may add. null means unlimited.
  *
  * Used by the platform importer, which is available on every plan but bounded by the
- * plan's total review cap — so a Free store can import, just not past 50 reviews.
+ * plan's total review cap — so a Free store can import, just not past its review cap.
  */
 export async function getRemainingReviewCapacity(storeId: string): Promise<number | null> {
   const plan = await getStorePlan(storeId);

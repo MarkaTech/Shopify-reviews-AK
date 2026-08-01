@@ -65,20 +65,20 @@ export default function TermsOfService() {
           <p>The App has four plans:</p>
           <ul className="list-disc pl-6">
             <li>
-              <strong>Free — $0/month.</strong> Up to 100 reviews, 2 widgets (list and badge only),
+              <strong>Free — $0/month.</strong> Up to 50 reviews, 2 widgets (list and badge only),
               CSV import and photo reviews.
             </li>
             <li>
-              <strong>Starter — $9.99/month.</strong> Up to 1,000 reviews, 5 widgets, every widget
+              <strong>Starter — $19.99/month.</strong> Up to 500 reviews, 5 widgets, every widget
               type, video reviews, questions and answers, and review incentives.
             </li>
             <li>
-              <strong>Growth — $19.99/month.</strong> Unlimited reviews and widgets, plus the Google
-              Shopping ratings feed, Shop app syndication and advanced analytics.
+              <strong>Growth — $29.99/month.</strong> Up to 1,000 reviews, unlimited widgets, plus the
+              Google Shopping ratings feed, Shop app syndication and advanced analytics.
             </li>
             <li>
-              <strong>Pro — $49.99/month.</strong> Everything in Growth, plus API access and
-              white-label widgets.
+              <strong>Pro — $49.99/month.</strong> Unlimited reviews, everything in Growth, plus API
+              access and white-label widgets.
             </li>
           </ul>
           <ul className="list-disc pl-6">

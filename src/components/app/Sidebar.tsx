@@ -41,9 +41,9 @@ interface SidebarProps {
 
 const PLAN_META: Record<string, { label: string; short: string; price: string }> = {
   free: { label: 'Free Plan', short: 'FREE', price: '$0/mo' },
-  starter: { label: 'Starter Plan', short: 'START', price: '$9.99/mo' },
+  starter: { label: 'Starter Plan', short: 'START', price: '$19.99/mo' },
   pro: { label: 'Pro Plan', short: 'PRO', price: '$49.99/mo' },
-  growth: { label: 'Growth Plan', short: 'GRW', price: '$19.99/mo' },
+  growth: { label: 'Growth Plan', short: 'GRW', price: '$29.99/mo' },
 };
 
 function initialsOf(name: string): string {
