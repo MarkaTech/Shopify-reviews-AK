@@ -208,6 +208,27 @@ export default function TermsOfService() {
             </Link>
             , which forms part of these terms.
           </p>
+          <p>
+            Your customers&apos; personal data is a separate matter from your own account
+            data, and it is governed by the{' '}
+            <Link className="text-emerald-700 hover:underline dark:text-emerald-400" href="/dpa">
+              Data Processing Agreement
+            </Link>
+            , which also forms part of these terms and takes effect when you install the App.
+            No signature is needed. Under it you are the data controller and we are your
+            processor: we act on your instructions, we do not use your customers&apos; data
+            for our own purposes, and we do not sell or share it.
+          </p>
+          <p>
+            It covers the categories of data involved, our security measures, retention
+            periods, breach notification, and the Standard Contractual Clauses relied on for
+            transfers out of the EEA and the UK. The third parties that process data on our
+            behalf are listed at{' '}
+            <Link className="text-emerald-700 hover:underline dark:text-emerald-400" href="/subprocessors">
+              /subprocessors
+            </Link>
+            , and we give 30 days&apos; notice before adding to that list.
+          </p>
         </section>
 
         <section>
