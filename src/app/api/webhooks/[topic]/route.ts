@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookHmac } from '@/lib/shopify';
+import { clearWebhookRegistration } from '@/lib/webhook-health';
 import { db } from '@/lib/db';
 import { handleComplianceTopic } from '@/lib/compliance';
 
@@ -73,6 +74,12 @@ const webhookHandlers: Record<string, WebhookHandler> = {
         refreshTokenExpiresAt: null,
       },
     });
+
+    // Shopify drops the webhook subscriptions along with the installation, so our record
+    // that registration succeeded is now false. Clearing it means a reinstall registers
+    // again instead of trusting a marker left by the previous install.
+    await clearWebhookRegistration(storeId);
+
     console.log(`Store ${storeId} uninstalled the app`);
   },
 

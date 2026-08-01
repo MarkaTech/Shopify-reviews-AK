@@ -24,6 +24,7 @@ import { db } from './db';
 import { sessionTokenFromRequest, verifySessionToken, SessionTokenError } from './session-token';
 import { bootstrapFromSessionToken } from './install';
 import { noteAuthMechanism } from './auth-telemetry';
+import { ensureWebhooks } from './webhook-health';
 import {
   getFreshAccessToken,
   ReauthRequiredError,
@@ -108,9 +109,14 @@ export async function withAuth(request: Request): Promise<AuthContext> {
 
     await noteAuthMechanism(store.id, 'session_token');
 
+    const sessionAccessToken = await freshTokenOrReauth(store);
+    // Self-healing: if webhook registration never succeeded for this store, try again now.
+    // Fire and forget — a repair must never be able to fail a request.
+    ensureWebhooks(store.id, verified.shop, sessionAccessToken);
+
     return {
       shop: verified.shop,
-      accessToken: await freshTokenOrReauth(store),
+      accessToken: sessionAccessToken,
       storeId: store.id,
       via: 'session_token',
       onUnauthorized: tokenRefresherFor(store.id),
@@ -137,9 +143,12 @@ export async function withAuth(request: Request): Promise<AuthContext> {
 
   await noteAuthMechanism(store.id, 'cookie');
 
+  const cookieAccessToken = await freshTokenOrReauth(store);
+  ensureWebhooks(store.id, session.shop, cookieAccessToken);
+
   return {
     shop: session.shop,
-    accessToken: await freshTokenOrReauth(store),
+    accessToken: cookieAccessToken,
     storeId: store.id,
     via: 'cookie',
     onUnauthorized: tokenRefresherFor(store.id),

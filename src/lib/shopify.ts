@@ -29,13 +29,21 @@ const DEFAULT_SCOPES = [
   'write_products',
   'read_orders',
   'read_customers',
-  'read_themes',
-  'write_themes',
   // Photo and video reviews are stored in Shopify Files rather than our own bucket, so
   // the media lives on the merchant's CDN, costs us nothing to store, and stays with them
   // if they uninstall. That requires write_files.
   'write_files',
+  // Review incentives create a real Shopify discount code via discountCodeBasicCreate.
+  // Without this the whole incentives feature returns access-denied — and because it is
+  // gated to Starter and above, the first merchant to hit it would be one who had just
+  // paid for it.
+  'write_discounts',
 ];
+
+// read_themes / write_themes were removed. Nothing in the app calls a theme API: the
+// storefront widget is a theme app extension that the merchant places themselves in the
+// theme editor, and no script tag is installed. Requesting a permission the app never
+// exercises is a larger install prompt for the merchant and a question at review.
 
 const SCOPES = (process.env.SHOPIFY_SCOPES || DEFAULT_SCOPES.join(','))
   .split(',')
@@ -792,7 +800,21 @@ export async function resolveActivePlan(
   onUnauthorized?: () => Promise<string | null>
 ): Promise<string> {
   const subs = await fetchActiveSubscriptions(shop, accessToken, onUnauthorized);
-  const active = subs.find((s) => s.status === 'ACTIVE');
+
+  // `test` matters as much as `status`. A test subscription completes the entire approval
+  // flow and reports ACTIVE while moving no money, so treating it as a real one hands out
+  // a paid plan for free — and it would do so silently, because everything downstream
+  // looks exactly like a genuine upgrade. The query has always selected this field; not
+  // reading it was the bug.
+  const active = subs.find((s) => s.status === 'ACTIVE' && !s.test);
+
+  if (!active && subs.some((s) => s.status === 'ACTIVE' && s.test)) {
+    console.warn(
+      `[billing] ${shop} has an ACTIVE test subscription; treating as free. ` +
+        'Test charges never entitle a plan.'
+    );
+  }
+
   return active ? planFromSubscriptionName(active.name) : 'free';
 }
 

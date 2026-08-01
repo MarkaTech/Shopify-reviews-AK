@@ -47,7 +47,7 @@ export default function PrivacyPolicy() {
             <li><code>read_orders</code> — receive order webhooks, so a review invitation can be sent after an order is fulfilled and a review can be matched to a real order</li>
             <li><code>read_customers</code> — order webhook payloads carry the buyer&apos;s name and email address, which is what the review invitation is sent to</li>
             <li><code>write_files</code> — upload review photos and video into <strong>your own</strong> Shopify Files (see section 5)</li>
-            <li><code>read_themes</code>, <code>write_themes</code> — requested by the App&apos;s configuration. The storefront widget is a theme app extension that you add yourself in the theme editor, so the App does not currently read or modify your theme code, and it does not install script tags.</li>
+            <li><code>write_discounts</code> — create the discount code behind a review incentive, if you choose to run one. Nothing is created unless you switch an incentive on.</li>
           </ul>
         </section>
 
