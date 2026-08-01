@@ -340,10 +340,13 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
           </table>
           <p style="margin:0 0 6px;font-size:12px;color:#6b7280;">Or paste this into your browser:</p>
           <p style="margin:0 0 20px;font-size:12px;color:#6b7280;word-break:break-all;">${input.reviewUrl}</p>
-          <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">
+          <p style="margin:0 0 10px;font-size:12px;color:#9ca3af;line-height:1.5;">
             You received this because you bought from ${store}. This link is personal to your order —
             please don't forward it.
           </p>
+          ${input.unsubscribeUrl ? `<p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">
+            Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a>.
+          </p>` : ''}
         </td></tr>
       </table>
     </td></tr>
