@@ -73,3 +73,6 @@ _backup_pre_fix/
 
 # Throwaway tsc output from the offline test runs
 .rmtest/
+
+# Local throwaway build output from the offline tests
+.rmtest/
