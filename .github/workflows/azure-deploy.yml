@@ -22,6 +22,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect DATABASE_URL secret
+        run: |
+          if [ -n "${{ secrets.DATABASE_URL }}" ]; then
+            echo "HAS_DB_URL=true" >> "$GITHUB_ENV"
+          else
+            echo "HAS_DB_URL=false" >> "$GITHUB_ENV"
+          fi
+
       # ---- Normalise the image name ----
       # ${{ github.repository }} preserves the owner/repo casing, but Docker image
       # references must be entirely lowercase. Deploying "ghcr.io/MarkaTech/Shopify-Review-App"
@@ -56,6 +64,30 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # ---- Apply the Prisma schema to production BEFORE the new code ships ----
+      # Two problems this solves at once:
+      #   1. Ordering. New code reading a column that does not exist yet crashes; the old
+      #      code ignoring a new column does not. Schema first, deploy second, always.
+      #   2. Reachability. Schema pushes used to run from a laptop whose IP changed every
+      #      few days, so every deploy involving a migration began with a firewall visit.
+      #      GitHub-hosted runners are Azure VMs, so they pass the server's existing
+      #      "allow Azure services" rule, and no laptop is involved at all.
+      # Skipped quietly when the secret is absent, so forks and secretless checkouts
+      # still deploy code-only changes.
+      - name: Push Prisma schema to production
+        if: ${{ env.HAS_DB_URL == 'true' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          npm install --no-save prisma@6.19.3 >/dev/null 2>&1
+          npx prisma db push --skip-generate --accept-data-loss
+      - name: Check for DATABASE_URL secret
+        if: ${{ always() }}
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "::warning::DATABASE_URL secret is not set - schema was NOT pushed. Set it in repo Settings -> Secrets."
+          fi
 
       # ---- Login to Azure ----
       - name: Log in to Azure
