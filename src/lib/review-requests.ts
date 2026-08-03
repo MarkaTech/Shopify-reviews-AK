@@ -61,7 +61,13 @@ export async function createRequestForOrder(
   delayDays = 0
 ): Promise<{ token: string; email: string; lineItems: RequestLineItem[] } | null> {
   const email = emailFrom(order);
-  if (!email) return null;
+  if (!email) {
+    // Say so. A silently skipped order cost a real debugging session: the merchant
+    // fulfils a test order with no customer attached, nothing happens, and nothing
+    // anywhere explains why.
+    console.log(`[review-request] order ${order.id}: no customer email on the order — nothing to send`);
+    return null;
+  }
 
   const shopifyOrderId = String(order.id);
 
@@ -69,7 +75,10 @@ export async function createRequestForOrder(
   const existing = await db.reviewRequest.findUnique({
     where: { storeId_shopifyOrderId: { storeId, shopifyOrderId } },
   });
-  if (existing) return null;
+  if (existing) {
+    console.log(`[review-request] order ${order.id}: already has a request — not creating twice`);
+    return null;
+  }
 
   const shopifyProductIds = (order.line_items || [])
     .map(li => (li.product_id == null ? null : String(li.product_id)))
@@ -95,7 +104,10 @@ export async function createRequestForOrder(
     };
   });
 
-  if (lineItems.length === 0) return null;
+  if (lineItems.length === 0) {
+    console.log(`[review-request] order ${order.id}: no line items — nothing to review`);
+    return null;
+  }
 
   const token = generateRequestToken();
   await db.reviewRequest.create({
