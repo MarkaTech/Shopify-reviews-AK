@@ -9,7 +9,7 @@ import {
   AliExpressImportError,
   MAX_IMPORT,
 } from '@/lib/aliexpress';
-import { recomputeProductRating } from '@/lib/ratings';
+import { updateProductRating } from '@/lib/ratings';
 
 /**
  * Import a listing's AliExpress reviews onto one of the merchant's products.
@@ -37,7 +37,7 @@ interface ImportRequest {
 export async function POST(request: NextRequest) {
   let jobId: string | null = null;
   try {
-    const { storeId } = await withAuth(request);
+    const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
     await assertFeature(storeId, 'platformImport');
 
     const body = (await request.json()) as ImportRequest;
@@ -122,7 +122,13 @@ export async function POST(request: NextRequest) {
       imported++;
     }
 
-    if (imported > 0) await recomputeProductRating(storeId, body.productId);
+    // The full sync, not just the local aggregate. The storefront widget's header is
+    // rendered server-side by Liquid from Shopify's product metafields, so an import
+    // that skips the metafield push leaves the page saying "No reviews yet" above a
+    // histogram full of reviews — which is exactly what the first live import produced.
+    // Run it even when everything was a duplicate: it is idempotent, and it makes
+    // re-running an import the repair path for a product whose metafields are stale.
+    await updateProductRating(storeId, body.productId, { shop, accessToken, onUnauthorized });
 
     await db.importJob.update({
       where: { id: job.id },
