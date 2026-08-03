@@ -209,7 +209,10 @@ export default function SettingsPage() {
     return Number.isFinite(n) ? n : fallback;
   };
 
-  const hasChanges = Object.keys(dirty).length > 0 || Object.keys(dirtyNotif).length > 0;
+  const hasChanges =
+    Object.keys(dirty).length > 0 ||
+    Object.keys(dirtyNotif).length > 0 ||
+    Object.keys(dirtyReq).length > 0;
 
   const save = async () => {
     if (!hasChanges) {
@@ -330,7 +333,7 @@ export default function SettingsPage() {
       </Button>
       {hasChanges && (
         <span className="text-[11px] text-amber-600">
-          {Object.keys(dirty).length + Object.keys(dirtyNotif).length} unsaved change(s)
+          {Object.keys(dirty).length + Object.keys(dirtyNotif).length + Object.keys(dirtyReq).length} unsaved change(s)
         </span>
       )}
     </div>
