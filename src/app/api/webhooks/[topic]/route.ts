@@ -161,55 +161,22 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     });
   },
 
-  // The buyer has received their order — create the review request that will be emailed
-  // to them. This is the entry point of the whole first-party collection flow.
+  // The order has been fulfilled — create the review request. NOTE: nothing is emailed
+  // here any more. The request is scheduled (store-configurable delay, default 14 days)
+  // and the cron sweep sends it, because "immediately on fulfilment" means before the
+  // parcel arrives, and an inline send that failed was lost forever. See
+  // src/lib/request-sender.ts for the whole argument.
   'orders-fulfilled': async (data, storeId) => {
-    const { createRequestForOrder, reviewRequestUrl } = await import('@/lib/review-requests');
-    const { SHOPIFY_APP_URL } = await import('@/lib/shopify');
+    const { createRequestForOrder } = await import('@/lib/review-requests');
+    const { getRequestSettings } = await import('@/lib/request-settings');
 
-    const created = await createRequestForOrder(storeId, data as never);
+    const settings = await getRequestSettings(storeId);
+    const created = await createRequestForOrder(storeId, data as never, settings.delayDays);
     if (!created) return; // no email, no tracked products, or already requested
 
-    const link = reviewRequestUrl(created.token, SHOPIFY_APP_URL);
-
-    const { sendEmail, renderReviewRequestEmail } = await import('@/lib/email');
-    const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true, email: true } });
-
-    // One-click unsubscribe. The token is an HMAC of the address, so the link cannot be
-    // edited to opt somebody else out — without that, the header would be a way to block
-    // any address an attacker can guess.
-    const { unsubscribeToken } = await import('@/app/api/unsubscribe/route');
-    const unsubscribeUrl =
-      `${SHOPIFY_APP_URL}/api/unsubscribe` +
-      `?email=${encodeURIComponent(created.email)}` +
-      `&t=${encodeURIComponent(unsubscribeToken(created.email))}`;
-
-    const message = renderReviewRequestEmail({
-      storeName: store?.name || 'the store',
-      customerName: (data as { customer?: { first_name?: string } }).customer?.first_name || null,
-      orderNumber: (data as { order_number?: string | number }).order_number?.toString() || null,
-      itemTitles: created.lineItems.map(li => li.title),
-      reviewUrl: link,
-      unsubscribeUrl,
-    });
-
-    // Replies go to the merchant, not to us — they own the customer relationship.
-    const result = await sendEmail({ ...message, to: created.email, replyTo: store?.email || undefined });
-
-    if (result.sent) {
-      await db.reviewRequest.update({
-        where: { token: created.token },
-        data: { sentAt: new Date() },
-      });
-      console.log(`[review-request] sent to ${created.email} via ${result.provider}`);
-    } else if (result.reason === 'not_configured') {
-      // No provider set up yet. The request and its link still exist and still work.
-      console.log(`[review-request] no email provider configured; link for ${created.email}: ${link}`);
-    } else {
-      // Never rethrow: a failed email must not fail the webhook, or Shopify retries it
-      // and the merchant's dashboard shows a failing subscription.
-      console.error(`[review-request] send failed for ${created.email}: ${result.detail}`);
-    }
+    console.log(
+      `[review-request] scheduled for ${created.email} in ${settings.delayDays} day(s)`
+    );
   },
 
   'orders-paid': async (data, storeId) => {

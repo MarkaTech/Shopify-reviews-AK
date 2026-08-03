@@ -302,6 +302,8 @@ export interface ReviewRequestEmailInput {
   orderNumber: string | null;
   itemTitles: string[];
   reviewUrl: string;
+  /** Softer copy for the second and third touch. Same single CTA, no pressure tactics. */
+  isReminder?: boolean;
 }
 
 /**
@@ -311,6 +313,9 @@ export interface ReviewRequestEmailInput {
  */
 export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailMessage & { to: string } {
   const greeting = input.customerName ? `Hi ${input.customerName},` : 'Hi,';
+  const intro = input.isReminder
+    ? `Just a gentle nudge — if you have a spare minute, we'd still love to hear what you thought of your order`
+    : `Thanks for your order`;
   const orderRef = input.orderNumber ? ` #${escapeHtml(input.orderNumber)}` : '';
   const store = escapeHtml(input.storeName);
 
@@ -327,8 +332,8 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
         <tr><td>
           <p style="margin:0 0 16px;font-size:15px;color:#111827;">${escapeHtml(greeting)}</p>
           <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
-            Thanks for your order${orderRef} from <strong>${store}</strong>. Now that it has arrived,
-            would you share what you thought? It takes about a minute and genuinely helps other shoppers.
+            ${escapeHtml(intro)}${orderRef} from <strong>${store}</strong>.
+            ${input.isReminder ? 'It takes about a minute and genuinely helps other shoppers.' : 'Now that it has arrived, would you share what you thought? It takes about a minute and genuinely helps other shoppers.'}
           </p>
           ${itemsHtml ? `<ul style="margin:0 0 20px;padding-left:20px;font-size:14px;">${itemsHtml}</ul>` : ''}
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px;">
@@ -356,8 +361,8 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
   const text = [
     greeting,
     '',
-    `Thanks for your order${input.orderNumber ? ` #${input.orderNumber}` : ''} from ${input.storeName}.`,
-    'Now that it has arrived, would you share what you thought? It takes about a minute.',
+    `${intro}${input.orderNumber ? ` #${input.orderNumber}` : ''} from ${input.storeName}.`,
+    input.isReminder ? 'It takes about a minute.' : 'Now that it has arrived, would you share what you thought? It takes about a minute.',
     '',
     ...(input.itemTitles.length ? input.itemTitles.slice(0, 8).map(t => `  - ${t}`) : []),
     '',
@@ -373,7 +378,9 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
 
   return {
     to: '',
-    subject: `How was your order from ${input.storeName}?`,
+    subject: input.isReminder
+      ? `A quick reminder from ${input.storeName}`
+      : `How was your order from ${input.storeName}?`,
     html,
     text,
     unsubscribeUrl: input.unsubscribeUrl,
