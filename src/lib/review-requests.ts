@@ -57,7 +57,8 @@ function emailFrom(order: OrderPayload): string | null {
  */
 export async function createRequestForOrder(
   storeId: string,
-  order: OrderPayload
+  order: OrderPayload,
+  delayDays = 0
 ): Promise<{ token: string; email: string; lineItems: RequestLineItem[] } | null> {
   const email = emailFrom(order);
   if (!email) return null;
@@ -106,7 +107,10 @@ export async function createRequestForOrder(
       customerEmail: email,
       customerName: customerNameFrom(order),
       lineItems: JSON.stringify(lineItems),
-      expiresAt: new Date(Date.now() + REQUEST_TTL_DAYS * 24 * 60 * 60 * 1000),
+      // The link's lifetime starts when the FIRST email goes out, not when the order is
+      // fulfilled — otherwise a long send delay quietly eats the customer's window.
+      expiresAt: new Date(Date.now() + (delayDays + REQUEST_TTL_DAYS) * 86_400_000),
+      nextSendAt: new Date(Date.now() + delayDays * 86_400_000),
     },
   });
 

@@ -1,0 +1,24 @@
+name: Etsy review sync
+
+# Daily at 04:10 UTC. The endpoint itself only syncs stores whose last sync is older
+# than ~7 days, so this is a weekly cadence per store with daily self-healing.
+on:
+  schedule:
+    - cron: '10 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync due Etsy stores
+        run: |
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://reviewmaster-app.azurewebsites.net/api/cron/etsy-sync)
+          cat /tmp/out.json
+          echo
+          if [ "$code" != "200" ]; then
+            echo "Etsy sync failed with HTTP $code"
+            exit 1
+          fi

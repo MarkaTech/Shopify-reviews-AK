@@ -46,6 +46,8 @@ interface Incentive {
   isActive: boolean;
   rewardType: string;
   rewardValue: number;
+  rewardValuePhoto: number | null;
+  rewardValueVideo: number | null;
   requiresMedia: boolean;
   disclosureText: string;
   expiryDays: number;
@@ -66,6 +68,8 @@ interface FormState {
   rewardType: RewardType;
   /** Kept as strings so the inputs can be empty while a merchant is typing. */
   rewardValue: string;
+  rewardValuePhoto: string;
+  rewardValueVideo: string;
   requiresMedia: boolean;
   disclosureText: string;
   expiryDays: string;
@@ -78,6 +82,8 @@ const BLANK_FORM: FormState = {
   name: '',
   rewardType: 'percentage',
   rewardValue: '10',
+  rewardValuePhoto: '',
+  rewardValueVideo: '',
   requiresMedia: false,
   disclosureText: DEFAULT_DISCLOSURE,
   expiryDays: '30',
@@ -154,6 +160,8 @@ export default function IncentivesPage() {
       name: i.name,
       rewardType: (REWARD_TYPES.find(r => r.value === i.rewardType)?.value ?? 'percentage'),
       rewardValue: String(i.rewardValue),
+      rewardValuePhoto: i.rewardValuePhoto == null ? '' : String(i.rewardValuePhoto),
+      rewardValueVideo: i.rewardValueVideo == null ? '' : String(i.rewardValueVideo),
       requiresMedia: i.requiresMedia,
       disclosureText: i.disclosureText,
       expiryDays: String(i.expiryDays),
@@ -173,6 +181,8 @@ export default function IncentivesPage() {
         name: form.name.trim(),
         rewardType: form.rewardType,
         rewardValue: Number(form.rewardValue),
+        rewardValuePhoto: form.rewardValuePhoto.trim() === '' ? null : Number(form.rewardValuePhoto),
+        rewardValueVideo: form.rewardValueVideo.trim() === '' ? null : Number(form.rewardValueVideo),
         requiresMedia: form.requiresMedia,
         disclosureText: form.disclosureText.trim() || DEFAULT_DISCLOSURE,
         expiryDays: Number(form.expiryDays),
@@ -325,6 +335,43 @@ export default function IncentivesPage() {
                 </div>
               )}
             </div>
+
+            {showValue && (
+              <div>
+                <span className="text-xs font-medium">Reward more for photos and video</span>
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+                  Optional higher rewards when a review includes media — e.g. 10% for text,
+                  12% with a photo, 15% with a video. Rewards depend on what a review
+                  contains, never on its rating.
+                </p>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div>
+                    <Label className="text-xs">With a photo</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={form.rewardType === 'percentage' ? 100 : undefined}
+                      placeholder="same as base"
+                      className="h-8 text-xs mt-1"
+                      value={form.rewardValuePhoto}
+                      onChange={e => set('rewardValuePhoto', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">With a video</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={form.rewardType === 'percentage' ? 100 : undefined}
+                      placeholder="same as photo"
+                      className="h-8 text-xs mt-1"
+                      value={form.rewardValueVideo}
+                      onChange={e => set('rewardValueVideo', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <Separator />
 

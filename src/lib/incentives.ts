@@ -77,7 +77,8 @@ export async function grantIncentive(
   opts: {
     reviewId: string;
     customerEmail: string;
-    hasMedia: boolean;
+    hasPhoto: boolean;
+    hasVideo: boolean;
     onUnauthorized?: () => Promise<string | null>;
   }
 ): Promise<GrantResult | null> {
@@ -87,8 +88,18 @@ export async function grantIncentive(
   });
   if (!incentive) return null;
 
+  const hasMedia = opts.hasPhoto || opts.hasVideo;
+
   // A media-only incentive is lawful — media is a content type, not an opinion.
-  if (incentive.requiresMedia && !opts.hasMedia) return null;
+  if (incentive.requiresMedia && !hasMedia) return null;
+
+  // Tiered rewards: the reward depends on what the review CONTAINS (text/photo/video),
+  // never on what it says. A video falls back to the photo tier, and both fall back to
+  // the base value, so a merchant who sets only one uplift gets sensible behaviour.
+  const rewardValue =
+    (opts.hasVideo ? incentive.rewardValueVideo ?? incentive.rewardValuePhoto : null) ??
+    (hasMedia ? incentive.rewardValuePhoto : null) ??
+    incentive.rewardValue;
 
   // One grant per review. Without this, republishing a review mints another code.
   const existing = await db.incentiveGrant.findFirst({
@@ -112,8 +123,8 @@ export async function grantIncentive(
 
   const value =
     incentive.rewardType === 'percentage'
-      ? { percentage: incentive.rewardValue / 100 }
-      : { discountAmount: { amount: incentive.rewardValue, appliesOnEachItem: false } };
+      ? { percentage: rewardValue / 100 }
+      : { discountAmount: { amount: rewardValue, appliesOnEachItem: false } };
 
   try {
     const data = await callShopifyGraphQL<{

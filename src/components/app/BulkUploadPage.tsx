@@ -37,11 +37,18 @@ export default function BulkUploadPage() {
   const [aliConfirm, setAliConfirm] = useState(false);
   const [aliImporting, setAliImporting] = useState(false);
   const [aliResult, setAliResult] = useState<{ imported: number; skipped: number; listingTotal: number; truncated: boolean } | null>(null);
+  const [etsy, setEtsy] = useState<{ connected: boolean; shopId: string | null; lastSyncAt: string | null } | null>(null);
+  const [etsyKey, setEtsyKey] = useState('');
+  const [etsyShop, setEtsyShop] = useState('');
+  const [etsyBusy, setEtsyBusy] = useState(false);
 
   useEffect(() => {
     apiFetch<{ products: Product[] }>('/api/products?limit=250')
       .then(d => setProducts(d.products || []))
       .catch(() => setProducts([]));
+    apiFetch<{ connected: boolean; shopId: string | null; lastSyncAt: string | null }>('/api/etsy/connect')
+      .then(setEtsy)
+      .catch(() => setEtsy(null));
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -153,6 +160,41 @@ export default function BulkUploadPage() {
       }
     } finally {
       setAliImporting(false);
+    }
+  };
+
+  const etsyConnect = async () => {
+    setEtsyBusy(true);
+    try {
+      const data = await apiFetch<{ authUrl: string }>('/api/etsy/connect', {
+        method: 'POST',
+        body: JSON.stringify({ keystring: etsyKey, shop: etsyShop }),
+      });
+      // Etsy's consent screen refuses to be framed; break out of the embedded admin.
+      if (window.top) window.top.location.href = data.authUrl;
+      else window.location.href = data.authUrl;
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not start the Etsy connection'));
+      setEtsyBusy(false);
+    }
+  };
+
+  const etsySync = async () => {
+    setEtsyBusy(true);
+    try {
+      const r = await apiFetch<{ imported: number; skippedExisting: number; skippedUnmatched: number; unmatchedListings: number }>(
+        '/api/etsy/sync', { method: 'POST' }
+      );
+      if (r.imported > 0) toast.success(`Imported ${r.imported} Etsy review${r.imported === 1 ? '' : 's'}`);
+      else toast.info('Nothing new — your Etsy reviews are already in sync.');
+      if (r.skippedUnmatched > 0) {
+        toast.info(`${r.skippedUnmatched} review(s) skipped: their Etsy listings have no product here with the same title.`);
+      }
+      apiFetch<{ connected: boolean; shopId: string | null; lastSyncAt: string | null }>('/api/etsy/connect').then(setEtsy).catch(() => {});
+    } catch (err) {
+      toast.error(errorMessage(err, 'Etsy sync failed'));
+    } finally {
+      setEtsyBusy(false);
     }
   };
 
@@ -433,6 +475,56 @@ export default function BulkUploadPage() {
               {aliResult.skipped > 0 ? `, skipped ${aliResult.skipped} already imported` : ''}
               {aliResult.truncated ? ` — the listing reports ${aliResult.listingTotal} in total; run the import again later or upgrade your plan for more room.` : ''}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Etsy sync */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Download className="w-4 h-4" /> Sync from Etsy
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Sell the same products on Etsy? Connect your shop and its reviews sync here —
+            weekly, automatically. Matched by product title; counted as verified reviewers,
+            because Etsy vouches for the purchase.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {etsy?.connected ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Connected to Etsy shop <strong>{etsy.shopId}</strong>
+                {etsy.lastSyncAt ? ` — last synced ${new Date(etsy.lastSyncAt).toLocaleDateString()}` : ' — never synced yet'}.
+              </p>
+              <Button onClick={etsySync} disabled={etsyBusy} className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
+                <Download className="w-3.5 h-3.5" /> {etsyBusy ? 'Syncing…' : 'Sync now'}
+              </Button>
+            </div>
+          ) : (
+            <>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Needs a free Etsy API keystring: create one at etsy.com/developers → Your apps,
+                and add <code>/api/etsy/callback</code> on this app&apos;s domain as the callback URL.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Etsy keystring</Label>
+                  <input type="text" value={etsyKey} onChange={e => setEtsyKey(e.target.value)}
+                    className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Shop ID or shop name</Label>
+                  <input type="text" value={etsyShop} onChange={e => setEtsyShop(e.target.value)}
+                    className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm" />
+                </div>
+              </div>
+              <Button onClick={etsyConnect} disabled={etsyBusy || !etsyKey.trim() || !etsyShop.trim()}
+                className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
+                {etsyBusy ? 'Connecting…' : 'Connect Etsy'}
+              </Button>
+            </>
           )}
         </CardContent>
       </Card>

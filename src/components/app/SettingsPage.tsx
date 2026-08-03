@@ -124,6 +124,8 @@ function ColorRow({
 export default function SettingsPage() {
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
+  const [reqSettings, setReqSettings] = useState<{ delayDays: number; reminders: number; reminderGapDays: number } | null>(null);
+  const [dirtyReq, setDirtyReq] = useState<Record<string, string>>({});
   const [mailProvider, setMailProvider] = useState<string | null>(null);
   const [fallbackEmail, setFallbackEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -163,6 +165,10 @@ export default function SettingsPage() {
       .finally(() => setLoading(false));
 
     apiFetch<Usage>('/api/usage').then(setUsage).catch(() => setUsage(null));
+
+    apiFetch<{ settings: { delayDays: number; reminders: number; reminderGapDays: number } }>('/api/request-settings')
+      .then(r => { setReqSettings(r.settings); setDirtyReq({}); })
+      .catch(() => setReqSettings(null));
   }, []);
 
   useEffect(load, [load]);
@@ -189,6 +195,11 @@ export default function SettingsPage() {
   const setNotifField = (field: keyof NotificationSettings, value: string | number | boolean) => {
     setNotif(n => (n ? { ...n, [field]: value } : n));
     setDirtyNotif(d => ({ ...d, [`notify.${field}`]: String(value) }));
+  };
+
+  const setReqField = (field: 'delayDays' | 'reminders' | 'reminderGapDays', value: number) => {
+    setReqSettings(r => (r ? { ...r, [field]: value } : r));
+    setDirtyReq(d => ({ ...d, [`requests.${field}`]: String(value) }));
   };
 
   const bool = (v: unknown) => v === true || v === 'true';
@@ -222,6 +233,14 @@ export default function SettingsPage() {
           });
         }
         setDirty({});
+      }
+
+      if (Object.keys(dirtyReq).length) {
+        await apiFetch('/api/request-settings', {
+          method: 'PUT',
+          body: JSON.stringify({ updates: dirtyReq }),
+        });
+        setDirtyReq({});
       }
 
       if (Object.keys(dirtyNotif).length) {
@@ -641,6 +660,39 @@ export default function SettingsPage() {
                       ? <>Leave blank to use your store address, <strong>{fallbackEmail}</strong>.</>
                       : 'We have no address on file for your store, so this one is required.'}
                   </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Review request timing</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  The review invitation is sent this many days after an order is fulfilled —
+                  give the parcel time to arrive. Reminders only go to customers who
+                  haven&apos;t reviewed yet, and an unsubscribe stops everything.
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Days after fulfilment</Label>
+                    <Input type="number" min={0} max={60} className="h-8 text-xs mt-1"
+                      value={reqSettings?.delayDays ?? 14}
+                      onChange={e => setReqField('delayDays', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Reminders (0–2)</Label>
+                    <Input type="number" min={0} max={2} className="h-8 text-xs mt-1"
+                      value={reqSettings?.reminders ?? 1}
+                      onChange={e => setReqField('reminders', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Days between sends</Label>
+                    <Input type="number" min={1} max={14} className="h-8 text-xs mt-1"
+                      value={reqSettings?.reminderGapDays ?? 7}
+                      onChange={e => setReqField('reminderGapDays', Number(e.target.value))} />
+                  </div>
                 </div>
               </CardContent>
             </Card>

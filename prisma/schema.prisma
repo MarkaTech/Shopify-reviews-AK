@@ -302,10 +302,20 @@ model ReviewRequest {
   expiresAt       DateTime
   createdAt       DateTime  @default(now())
 
+  // ── Scheduled sending ──
+  // When the next email (initial or reminder) is due. Null = nothing more to send.
+  // Requests used to be emailed inline from the webhook, which meant "immediately after
+  // fulfilment" - before the parcel arrived - and a failed send was lost forever. The
+  // cron sweep keys on this column, so a failure is simply retried on the next run.
+  nextSendAt      DateTime?
+  // 0 = nothing sent yet; 1 = initial email sent; 2+ = reminders sent.
+  sendCount       Int       @default(0)
+
   @@unique([storeId, shopifyOrderId])
   @@index([storeId])
   @@index([expiresAt])
   @@index([submittedAt])
+  @@index([nextSendAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -430,6 +440,12 @@ model Incentive {
   // Optional uplift for a photo or video review. Media is a content type, not a
   // sentiment, so rewarding it more is lawful.
   requiresMedia Boolean  @default(false)
+
+  // Tiered rewards by media type - the mechanic behind the market's photo-review rates
+  // (text 10% / photo 12% / video 15%). Null means "same as rewardValue". Tiers reward
+  // what a review CONTAINS, never what it SAYS: there is still no rating field anywhere.
+  rewardValuePhoto Float?
+  rewardValueVideo Float?
 
   // Shown to the shopper before they write, and on every resulting review.
   disclosureText String  @default("This reviewer received a discount in exchange for an honest review.")

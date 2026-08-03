@@ -141,7 +141,8 @@ export async function PUT(
     // One grant per review is enforced inside grantIncentive; republishing does not mint a
     // second code.
     if (publishChanged && updated.isPublished && updated.reviewerEmail) {
-      const hasMedia = Boolean(updated.images || updated.videoUrl);
+      const hasPhoto = Boolean(updated.images);
+      const hasVideo = Boolean(updated.videoUrl);
       const reviewId = updated.id;
       const email = updated.reviewerEmail;
       after(async () => {
@@ -149,7 +150,8 @@ export async function PUT(
           await grantIncentive(storeId, shop, accessToken, {
             reviewId,
             customerEmail: email,
-            hasMedia,
+            hasPhoto,
+            hasVideo,
             onUnauthorized,
           });
         } catch (err) {

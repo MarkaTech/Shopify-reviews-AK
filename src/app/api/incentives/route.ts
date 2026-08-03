@@ -64,6 +64,8 @@ interface IncentiveInput {
   name?: unknown;
   rewardType?: unknown;
   rewardValue?: unknown;
+  rewardValuePhoto?: unknown;
+  rewardValueVideo?: unknown;
   requiresMedia?: unknown;
   disclosureText?: unknown;
   expiryDays?: unknown;
@@ -76,6 +78,8 @@ interface NormalisedIncentive {
   name: string;
   rewardType: string;
   rewardValue: number;
+  rewardValuePhoto: number | null;
+  rewardValueVideo: number | null;
   requiresMedia: boolean;
   disclosureText: string;
   expiryDays: number;
@@ -100,6 +104,21 @@ function normalise(body: IncentiveInput): { data: NormalisedIncentive } | { erro
     return { error: 'A percentage discount cannot exceed 100%.' };
   }
 
+  // Optional media-tier uplifts. Free shipping has no amount to tier, so tiers are
+  // cleared for it. A tier below the base value is allowed but pointless; a tier is
+  // validated with exactly the same rules as the base amount.
+  const tier = (raw: unknown): number | null | 'bad' => {
+    if (raw === null || raw === undefined || raw === '') return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 'bad';
+    if (rewardType === 'percentage' && n > 100) return 'bad';
+    return n;
+  };
+  const rewardValuePhoto = rewardType === 'free_shipping' ? null : tier(body.rewardValuePhoto);
+  const rewardValueVideo = rewardType === 'free_shipping' ? null : tier(body.rewardValueVideo);
+  if (rewardValuePhoto === 'bad') return { error: 'The photo-review reward must be above zero' + (rewardType === 'percentage' ? ' and at most 100%.' : '.') };
+  if (rewardValueVideo === 'bad') return { error: 'The video-review reward must be above zero' + (rewardType === 'percentage' ? ' and at most 100%.' : '.') };
+
   const disclosureText =
     typeof body.disclosureText === 'string' && body.disclosureText.trim()
       ? body.disclosureText.trim().slice(0, 300)
@@ -118,6 +137,8 @@ function normalise(body: IncentiveInput): { data: NormalisedIncentive } | { erro
       name,
       rewardType,
       rewardValue,
+      rewardValuePhoto,
+      rewardValueVideo,
       requiresMedia: body.requiresMedia === true,
       disclosureText,
       expiryDays,

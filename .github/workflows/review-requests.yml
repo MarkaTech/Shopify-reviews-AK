@@ -1,0 +1,24 @@
+name: Review request sender
+
+# Hourly at :40 — off the hour, away from retention's 03:20, so the two jobs never
+# compete for the same Burstable database credits.
+on:
+  schedule:
+    - cron: '40 * * * *'
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sweep due review requests
+        run: |
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://reviewmaster-app.azurewebsites.net/api/cron/review-requests)
+          cat /tmp/out.json
+          echo
+          if [ "$code" != "200" ]; then
+            echo "Sweep failed with HTTP $code"
+            exit 1
+          fi
