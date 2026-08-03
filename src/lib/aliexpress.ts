@@ -221,9 +221,20 @@ async function fetchPage(host: string, productId: string, page: number): Promise
     return { evals: [], total: 0, diag: `${host}: non-JSON ${rawText.replace(/\s+/g, ' ').slice(0, 120)}` };
   }
 
-  // The envelope has moved over the years: displayMessage.*, data.*, and occasionally
-  // top-level. Accept all three, and read the total from either of its known homes.
-  const box: RawBox = payload.displayMessage ?? payload.data ?? payload ?? {};
+  // Pick the envelope by content, never by position. The first live test proved why:
+  // today's endpoint returns BOTH displayMessage and data, and displayMessage is a
+  // dictionary of UI translation labels ("Sort by default"), while the reviews live in
+  // data. A positional `displayMessage ?? data` chose the labels and never looked
+  // further — the reviews were in the response the whole time, one key over.
+  const candidates: Array<RawBox | undefined> = [payload.data, payload.displayMessage, payload];
+  const box: RawBox =
+    candidates.find(
+      (b) =>
+        !!b &&
+        (Array.isArray(b.evaViewList) ||
+          b.productEvaluationStatistic !== undefined ||
+          typeof b.totalNum === 'number')
+    ) ?? {};
   const evals = Array.isArray(box.evaViewList) ? box.evaViewList : [];
   const total = Number(box.totalNum ?? box.productEvaluationStatistic?.totalNum ?? 0) || 0;
 
@@ -248,6 +259,7 @@ export async function fetchAliExpressReviews(
 ): Promise<AliExpressFetchResult> {
   const out: AliExpressReview[] = [];
   let listingTotal = 0;
+  let firstEvalKeys = '';
   const diags: string[] = [];
   const maxPages = Math.ceil(Math.min(limit, MAX_IMPORT) / PAGE_SIZE);
 
@@ -259,6 +271,7 @@ export async function fetchAliExpressReviews(
     if (first.evals.length > 0 || first.total > 0) {
       host = candidate;
       listingTotal = first.total;
+      if (first.evals[0]) firstEvalKeys = Object.keys(first.evals[0]).slice(0, 12).join(',');
       for (const raw of first.evals) {
         const mapped = mapEval(raw);
         if (mapped) out.push(mapped);
@@ -290,9 +303,13 @@ export async function fetchAliExpressReviews(
   }
 
   if (out.length === 0) {
-    // The listing has ratings but every one was star-only with no text or photos.
+    // Reviews arrived but none survived mapping. Two very different causes share this
+    // outcome: a listing whose ratings are genuinely star-only, or field names that
+    // moved under us. Describe the first raw entry so the two are distinguishable from
+    // the error alone.
     throw new AliExpressImportError(
-      `That listing reports ${listingTotal} ratings, but none include text or photos, so there is nothing to import.`
+      `That listing reports ${listingTotal} ratings, but none could be imported — they may be star-only. ` +
+        `If the listing clearly shows written reviews, report this diagnostic: first entry keys=${firstEvalKeys || 'none'}`
     );
   }
 
