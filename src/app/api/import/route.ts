@@ -20,12 +20,19 @@ import { withAuth, unauthorizedResponse } from '@/lib/auth';
  *     and it breaches Amazon's Conditions of Use. Shipping it would have exposed
  *     merchants to legal risk and failed Shopify App Store review.
  *
- * The two legitimate sources this app supports instead — the same two Judge.me and Loox
- * offer — are a CSV of reviews the merchant already owns (see /api/bulk-upload), and
- * first-party review requests sent after a real order (see /api/review-request/[token]).
+ * One marketplace exception has since been made, deliberately and narrowly: AliExpress
+ * (see ./aliexpress). Its feedback is served from a public JSON endpoint rather than
+ * scraped from protected pages, and the use case is dropshipping — the merchant sells
+ * the same physical item, attests to exactly that on every import, and the reviews land
+ * unverified and source-labelled. Neither of those properties holds for Amazon, eBay or
+ * Etsy, so the reasoning above still applies to them in full.
  *
- * This GET stays because historical ImportJob rows are still worth showing, and CSV
- * uploads continue to record them.
+ * The other sources are unchanged: a CSV of reviews the merchant already owns
+ * (see /api/bulk-upload), and first-party review requests sent after a real order
+ * (see /api/review-request/[token]).
+ *
+ * This GET stays because ImportJob rows are worth showing, and both the CSV and
+ * AliExpress paths record them.
  */
 export async function GET(request: Request) {
   try {

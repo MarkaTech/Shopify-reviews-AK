@@ -190,7 +190,7 @@ export default function Home() {
                 <p className="text-xs text-center text-gray-400 mb-4">What you get with ReviewMaster:</p>
                 <div className="grid grid-cols-2 gap-3">
                   <FeatureItem icon={<Star className="w-4 h-4" />} label="Collect Reviews" desc="CSV, import, manual" />
-                  <FeatureItem icon={<Upload className="w-4 h-4" />} label="Import Platform" desc="Amazon, eBay, Etsy" />
+                  <FeatureItem icon={<Upload className="w-4 h-4" />} label="Import Reviews" desc="CSV & AliExpress" />
                   <FeatureItem icon={<Zap className="w-4 h-4" />} label="Beautiful Widgets" desc="9 customizable types" />
                   <FeatureItem icon={<Shield className="w-4 h-4" />} label="Multi-tenant" desc="Data isolated per store" />
                 </div>
