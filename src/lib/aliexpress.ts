@@ -110,11 +110,12 @@ interface RawEval {
   images?: string[];
 }
 
-const PAGE_SIZE = 20;
-
-/** Hard ceiling per import run. Bounds our writes, their bandwidth, and the merchant's
- *  review quota in one number. */
-export const MAX_IMPORT = 200;
+interface RawBox {
+  totalNum?: number;
+  evaViewList?: RawEval[];
+  /** Where recent revisions of the endpoint put the count. */
+  productEvaluationStatistic?: { totalNum?: number };
+}
 
 function mapEval(e: RawEval): AliExpressReview | null {
   // buyerEval is 0–100 in steps of 20. Anything unparseable becomes 0 and is dropped —
@@ -150,13 +151,96 @@ function mapEval(e: RawEval): AliExpressReview | null {
   };
 }
 
+const PAGE_SIZE = 20;
+
+/** Hard ceiling per import run. Bounds our writes, their bandwidth, and the merchant's
+ *  review quota in one number. */
+export const MAX_IMPORT = 200;
+
+/**
+ * The feedback service answers on more than one host, and availability differs by edge
+ * and by caller IP. Rather than marrying one URL, page 1 tries each in order and the
+ * first host that yields reviews serves the remaining pages. This is the difference
+ * between "works from my machine" and working from every merchant's server region.
+ */
+const FEEDBACK_HOSTS = [
+  'https://feedback.aliexpress.com',
+  'https://feedback.aliexpress.ru',
+];
+
+interface PageResult {
+  evals: RawEval[];
+  total: number;
+  diag: string;
+}
+
+async function fetchPage(host: string, productId: string, page: number): Promise<PageResult> {
+  const params = new URLSearchParams({
+    productId,
+    lang: 'en_US',
+    country: 'US',
+    page: String(page),
+    pageSize: String(PAGE_SIZE),
+    filter: 'all',
+    sort: 'complex_default',
+  });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+
+  let res: Response;
+  try {
+    res = await fetch(`${host}/pc/searchEvaluation.do?${params}`, {
+      signal: controller.signal,
+      headers: {
+        // A plain server-side fetch with no UA reads as a bot probe; a browser-shaped
+        // request reads as the feedback widget doing its job.
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        Accept: 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        Referer: `https://www.aliexpress.com/item/${productId}.html`,
+        Origin: 'https://www.aliexpress.com',
+      },
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    return { evals: [], total: 0, diag: `${host}: unreachable (${String(err).slice(0, 80)})` };
+  }
+  clearTimeout(timer);
+
+  if (!res.ok) {
+    return { evals: [], total: 0, diag: `${host}: HTTP ${res.status}` };
+  }
+
+  const rawText = await res.text();
+  let payload: { displayMessage?: RawBox; data?: RawBox } & RawBox;
+  try {
+    payload = JSON.parse(rawText);
+  } catch {
+    return { evals: [], total: 0, diag: `${host}: non-JSON ${rawText.replace(/\s+/g, ' ').slice(0, 120)}` };
+  }
+
+  // The envelope has moved over the years: displayMessage.*, data.*, and occasionally
+  // top-level. Accept all three, and read the total from either of its known homes.
+  const box: RawBox = payload.displayMessage ?? payload.data ?? payload ?? {};
+  const evals = Array.isArray(box.evaViewList) ? box.evaViewList : [];
+  const total = Number(box.totalNum ?? box.productEvaluationStatistic?.totalNum ?? 0) || 0;
+
+  return {
+    evals,
+    total,
+    diag: `${host}: keys=${Object.keys(payload ?? {}).slice(0, 8).join(',') || 'none'} body="${rawText.replace(/\s+/g, ' ').slice(0, 160)}"`,
+  };
+}
+
 /**
  * Fetch up to `limit` usable reviews for a product id.
  *
- * Failure modes are folded into two merchant-facing messages: "nothing there" and
- * "AliExpress declined". The second is honest about the one real operational risk of this
- * feature — their edge can throttle or challenge datacenter traffic, and when it does the
- * right answer is retry later, not a stack trace.
+ * Failure modes are folded into merchant-facing messages. The one case that carries a
+ * diagnostic is "the service answered and we recognised nothing" — that text is the only
+ * window anyone has into what AliExpress actually said, and it is what turns a vague bug
+ * report into a one-line fix.
  */
 export async function fetchAliExpressReviews(
   productId: string,
@@ -164,87 +248,53 @@ export async function fetchAliExpressReviews(
 ): Promise<AliExpressFetchResult> {
   const out: AliExpressReview[] = [];
   let listingTotal = 0;
+  const diags: string[] = [];
   const maxPages = Math.ceil(Math.min(limit, MAX_IMPORT) / PAGE_SIZE);
 
-  for (let page = 1; page <= maxPages; page++) {
-    const params = new URLSearchParams({
-      productId,
-      lang: 'en_US',
-      country: 'US',
-      page: String(page),
-      pageSize: String(PAGE_SIZE),
-      filter: 'all',
-      sort: 'complex_default',
-    });
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-
-    let res: Response;
-    try {
-      res = await fetch(`https://feedback.aliexpress.com/pc/searchEvaluation.do?${params}`, {
-        signal: controller.signal,
-        headers: {
-          // A plain server-side fetch with no UA reads as a bot probe; a browser-shaped
-          // request reads as the feedback widget doing its job.
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-          Accept: 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          Referer: `https://www.aliexpress.com/item/${productId}.html`,
-        },
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      throw new AliExpressImportError(
-        'Could not reach AliExpress. This is usually temporary — try again in a few minutes.',
-        `fetch failed: ${String(err)}`
-      );
+  // Page 1 doubles as host selection: the first edge that produces reviews wins.
+  let host: string | null = null;
+  for (const candidate of FEEDBACK_HOSTS) {
+    const first = await fetchPage(candidate, productId, 1);
+    diags.push(first.diag);
+    if (first.evals.length > 0 || first.total > 0) {
+      host = candidate;
+      listingTotal = first.total;
+      for (const raw of first.evals) {
+        const mapped = mapEval(raw);
+        if (mapped) out.push(mapped);
+        if (out.length >= limit) break;
+      }
+      break;
     }
-    clearTimeout(timer);
+  }
 
-    if (!res.ok) {
-      throw new AliExpressImportError(
-        `AliExpress declined the request (HTTP ${res.status}). Wait a few minutes and try again.`
-      );
-    }
+  if (host === null) {
+    throw new AliExpressImportError(
+      `No reviews found on that listing. If the listing definitely has reviews, report this diagnostic: ${diags.join(' | ')}`
+    );
+  }
 
-    let payload: {
-      displayMessage?: { totalNum?: number; evaViewList?: RawEval[] };
-      data?: { totalNum?: number; evaViewList?: RawEval[] };
-    };
-    try {
-      payload = await res.json();
-    } catch {
-      // HTML instead of JSON means a challenge page — their anti-bot, not a bug of ours.
-      throw new AliExpressImportError(
-        'AliExpress returned an unexpected response, which usually means it is rate-limiting right now. Try again in a few minutes.'
-      );
-    }
+  for (let page = 2; page <= maxPages && out.length < limit; page++) {
+    // A polite gap between pages. One importer hammering the feedback service is how the
+    // whole app's egress IP ends up on a blocklist every merchant then shares.
+    await new Promise((r) => setTimeout(r, 400));
 
-    // The envelope has moved between displayMessage and data across revisions; accept both.
-    const box = payload.displayMessage ?? payload.data ?? {};
-    const evals = Array.isArray(box.evaViewList) ? box.evaViewList : [];
-    listingTotal = Number(box.totalNum ?? listingTotal) || listingTotal;
-
-    for (const raw of evals) {
+    const next = await fetchPage(host, productId, page);
+    if (next.evals.length === 0) break;
+    for (const raw of next.evals) {
       const mapped = mapEval(raw);
       if (mapped) out.push(mapped);
       if (out.length >= limit) break;
     }
-
-    if (out.length >= limit || evals.length < PAGE_SIZE) break;
-
-    // A polite gap between pages. One importer hammering the feedback service is how the
-    // whole app's egress IP ends up on a blocklist every merchant then shares.
-    await new Promise((r) => setTimeout(r, 400));
+    if (next.evals.length < PAGE_SIZE) break;
   }
 
-  if (out.length === 0 && listingTotal === 0) {
+  if (out.length === 0) {
+    // The listing has ratings but every one was star-only with no text or photos.
     throw new AliExpressImportError(
-      'No reviews found on that listing. Check the URL opens a product page with reviews on it.'
+      `That listing reports ${listingTotal} ratings, but none include text or photos, so there is nothing to import.`
     );
   }
 
-  return { reviews: out, listingTotal };
+  return { reviews: out, listingTotal: Math.max(listingTotal, out.length) };
 }
