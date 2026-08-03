@@ -33,9 +33,13 @@ export default function BulkUploadPage() {
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'file' | 'manual'>('file');
+  const [aliUrl, setAliUrl] = useState('');
+  const [aliConfirm, setAliConfirm] = useState(false);
+  const [aliImporting, setAliImporting] = useState(false);
+  const [aliResult, setAliResult] = useState<{ imported: number; skipped: number; listingTotal: number; truncated: boolean } | null>(null);
 
   useEffect(() => {
-    apiFetch<{ products: Product[] }>('/api/products')
+    apiFetch<{ products: Product[] }>('/api/products?limit=250')
       .then(d => setProducts(d.products || []))
       .catch(() => setProducts([]));
   }, []);
@@ -122,6 +126,36 @@ export default function BulkUploadPage() {
     setManualRows(updated);
   };
 
+  const handleAliImport = async () => {
+    if (!selectedProduct || selectedProduct === '__none__') {
+      toast.error('Choose which of your products these reviews belong to first.');
+      return;
+    }
+    if (!aliConfirm) {
+      toast.error('Confirm the listing is the same product you sell.');
+      return;
+    }
+    setAliImporting(true);
+    setAliResult(null);
+    try {
+      const data = await apiFetch<{ imported: number; skipped: number; listingTotal: number; truncated: boolean }>(
+        '/api/import/aliexpress',
+        { method: 'POST', body: JSON.stringify({ url: aliUrl, productId: selectedProduct, confirmSameProduct: true }) }
+      );
+      setAliResult(data);
+      if (data.imported > 0) toast.success(`Imported ${data.imported} review${data.imported === 1 ? '' : 's'} from AliExpress`);
+      else toast.info('Nothing new to import — every review on that listing is already here.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 402) {
+        toast.error(errorMessage(err, 'AliExpress import needs a paid plan.'));
+      } else {
+        toast.error(errorMessage(err, 'Import failed'));
+      }
+    } finally {
+      setAliImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -151,9 +185,11 @@ export default function BulkUploadPage() {
           </li>
         </ul>
         <p className="mt-1.5 text-[11px] text-blue-700">
-          Copying reviews from another seller&apos;s marketplace listing isn&apos;t supported:
-          they describe a different seller&apos;s transaction, and presenting them as yours
-          is illegal in the US and EU.
+          Dropshipping from AliExpress? You can import a listing&apos;s reviews below —
+          only for the same product you actually sell, and they are always labelled with
+          their source, never as verified purchases. Copying reviews from other
+          marketplaces (Amazon, eBay, Etsy) is not supported: those describe a different
+          seller&apos;s transaction, and presenting them as yours is illegal in the US and EU.
         </p>
       </div>
 
@@ -347,6 +383,59 @@ export default function BulkUploadPage() {
         <Upload className="w-3.5 h-3.5" />
         {uploading ? 'Uploading...' : mode === 'file' ? 'Upload CSV' : 'Submit Reviews'}
       </Button>
+
+      {/* AliExpress Import */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Download className="w-4 h-4" /> Import from AliExpress
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Dropshipping this product? Paste its AliExpress listing URL and its reviews are
+            imported onto the product selected above — source-labelled, never marked verified.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <Label className="text-xs">AliExpress product URL</Label>
+            <input
+              type="url"
+              value={aliUrl}
+              onChange={e => { setAliUrl(e.target.value); setAliResult(null); }}
+              placeholder="https://www.aliexpress.com/item/1005001234567890.html"
+              className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
+            />
+          </div>
+          <label className="flex items-start gap-2 text-[11px] text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={aliConfirm}
+              onChange={e => setAliConfirm(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              I confirm this listing is the <strong>same product</strong> I sell — these
+              reviews describe the exact item my customers receive. Imported reviews are
+              shown with their AliExpress source and are never labelled as verified purchases.
+            </span>
+          </label>
+          <Button
+            onClick={handleAliImport}
+            disabled={aliImporting || !aliUrl.trim() || !aliConfirm}
+            className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {aliImporting ? 'Importing…' : 'Import Reviews'}
+          </Button>
+          {aliResult && (
+            <div className="text-xs bg-emerald-50 text-emerald-800 rounded-lg p-3">
+              Imported {aliResult.imported} review{aliResult.imported === 1 ? '' : 's'}
+              {aliResult.skipped > 0 ? `, skipped ${aliResult.skipped} already imported` : ''}
+              {aliResult.truncated ? ` — the listing reports ${aliResult.listingTotal} in total; run the import again later or upgrade your plan for more room.` : ''}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Results */}
       {result && (
