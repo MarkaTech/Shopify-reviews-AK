@@ -5,6 +5,7 @@ import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { updateProductRating } from '@/lib/ratings';
 import { syncReviewToShop, unsyndicateReview, isSyndicationEnabled } from '@/lib/syndication';
 import { grantIncentive } from '@/lib/incentives';
+import { renderIncentiveEmail, sendEmail } from '@/lib/email';
 
 export async function GET(
   request: NextRequest,
@@ -147,13 +148,39 @@ export async function PUT(
       const email = updated.reviewerEmail;
       after(async () => {
         try {
-          await grantIncentive(storeId, shop, accessToken, {
+          const grant = await grantIncentive(storeId, shop, accessToken, {
             reviewId,
             customerEmail: email,
             hasPhoto,
             hasVideo,
             onUnauthorized,
           });
+
+          // Minting the code is only half the feature: a code the reviewer is never told
+          // about is indistinguishable from no reward. Email it — once. `alreadyGranted`
+          // guards the republish case, so toggling a review off and on again does not
+          // send the same code twice.
+          if (grant && !grant.alreadyGranted) {
+            const store = await db.store.findUnique({
+              where: { id: storeId },
+              select: { name: true },
+            });
+            const msg = renderIncentiveEmail({
+              storeName: store?.name || shop,
+              customerName: updated.reviewerName === 'Verified Customer' ? null : updated.reviewerName,
+              code: grant.code,
+              rewardType: grant.rewardType,
+              rewardValue: grant.rewardValue,
+              expiresAt: grant.expiresAt,
+              disclosureText: grant.disclosureText,
+            });
+            const result = await sendEmail({ ...msg, to: email });
+            if (!result.sent) {
+              // The code still exists in Shopify and in the grants table — the merchant
+              // can hand it over manually from the review's detail view.
+              console.warn('[reviews] reward code minted but email not sent:', result.reason);
+            }
+          }
         } catch (err) {
           // A missing discount code is a disappointed shopper; a failed publish is a
           // merchant who cannot moderate. Never let the first break the second.
