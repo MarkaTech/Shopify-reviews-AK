@@ -405,3 +405,87 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
     unsubscribeUrl: input.unsubscribeUrl,
   };
 }
+
+export interface IncentiveEmailInput {
+  storeName: string;
+  customerName: string | null;
+  code: string;
+  /** 'percentage' or fixed amount, straight from the incentive row. */
+  rewardType: string;
+  rewardValue: number;
+  expiresAt: Date;
+  /** The merchant's disclosure line. Always included — the reward and the disclosure travel together. */
+  disclosureText: string;
+}
+
+/**
+ * The thank-you email carrying the reviewer's discount code.
+ *
+ * This is the other half of the incentive feature: the code is minted in Shopify the
+ * moment the merchant publishes, but a code nobody is told about is indistinguishable
+ * from no reward at all. Deliberately plain — one code, one expiry line, the merchant's
+ * disclosure text, no CTA buttons and no upsell, because this is transactional mail sent
+ * to someone who already did the thing we asked.
+ *
+ * No unsubscribe link: this is a one-off receipt for a completed action, not a campaign.
+ * The review-request emails (the recurring kind) carry the unsubscribe machinery.
+ */
+export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
+  const greeting = input.customerName ? `Hi ${input.customerName},` : 'Hi,';
+  const store = escapeHtml(input.storeName);
+  const reward =
+    input.rewardType === 'percentage'
+      ? `${input.rewardValue}% off`
+      : `${input.rewardValue.toFixed(2)} off`;
+  const expires = input.expiresAt.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const html = `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f6f7f9;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+        <tr><td>
+          <p style="margin:0 0 16px;font-size:15px;color:#111827;">${escapeHtml(greeting)}</p>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#374151;">
+            Thank you for reviewing your purchase from <strong>${store}</strong>.
+            As promised, here is your reward — <strong>${escapeHtml(reward)}</strong> your next order:
+          </p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+            <tr><td align="center" style="background:#f0fdf4;border:1px dashed #059669;border-radius:8px;padding:16px;">
+              <span style="font-size:20px;font-weight:700;letter-spacing:1px;color:#065f46;font-family:ui-monospace,Menlo,monospace;">${escapeHtml(input.code)}</span>
+            </td></tr>
+          </table>
+          <p style="margin:0 0 20px;font-size:13px;color:#6b7280;">
+            Enter this code at checkout. It can be used once and expires on ${escapeHtml(expires)}.
+          </p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">${escapeHtml(input.disclosureText)}</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+  const text = [
+    greeting,
+    '',
+    `Thank you for reviewing your purchase from ${input.storeName}.`,
+    `As promised, here is your reward - ${reward} your next order:`,
+    '',
+    `    ${input.code}`,
+    '',
+    `Enter this code at checkout. It can be used once and expires on ${expires}.`,
+    '',
+    input.disclosureText,
+  ].join('\n');
+
+  return {
+    to: '',
+    subject: `Your thank-you discount from ${input.storeName}`,
+    html,
+    text,
+  };
+}

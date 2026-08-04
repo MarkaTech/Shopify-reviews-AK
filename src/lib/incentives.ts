@@ -62,6 +62,11 @@ export interface GrantResult {
   code: string;
   expiresAt: Date;
   disclosureText: string;
+  /** What the code is worth, so the thank-you email can say "12% off" or "$5 off". */
+  rewardType: string;
+  rewardValue: number;
+  /** False when this call minted the code; true when an earlier grant is being re-read. */
+  alreadyGranted: boolean;
 }
 
 /**
@@ -110,6 +115,9 @@ export async function grantIncentive(
       code: existing.discountCode,
       expiresAt: existing.expiresAt,
       disclosureText: incentive.disclosureText,
+      rewardType: incentive.rewardType,
+      rewardValue,
+      alreadyGranted: true,
     };
   }
 
@@ -177,7 +185,14 @@ export async function grantIncentive(
       data: { isIncentivized: true, incentiveType: incentive.rewardType },
     });
 
-    return { code, expiresAt, disclosureText: incentive.disclosureText };
+    return {
+      code,
+      expiresAt,
+      disclosureText: incentive.disclosureText,
+      rewardType: incentive.rewardType,
+      rewardValue,
+      alreadyGranted: false,
+    };
   } catch (error) {
     console.error('[incentives] grant failed:', error);
     return null;
