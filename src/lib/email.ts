@@ -49,6 +49,15 @@ function fromAddress(): string {
 }
 
 export function emailProvider(): 'ses' | 'resend' | 'sendgrid' | null {
+  // Explicit choice first. Detection by which credentials happen to exist breaks down
+  // the moment two sets are present — which is exactly what happened when SES production
+  // access was denied and the app needed to send through Resend while keeping the AWS
+  // keys for the SNS suppression webhook and a later re-application.
+  const explicit = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+  if (explicit === 'ses' || explicit === 'resend' || explicit === 'sendgrid') return explicit;
+  if (explicit === 'none') return null;
+  if (explicit) console.warn(`[email] EMAIL_PROVIDER="${explicit}" is not recognised; falling back to detection`);
+
   if (process.env.AWS_ACCESS_KEY_ID?.trim() && process.env.AWS_SECRET_ACCESS_KEY?.trim()) return 'ses';
   if (process.env.RESEND_API_KEY?.trim()) return 'resend';
   if (process.env.SENDGRID_API_KEY?.trim()) return 'sendgrid';
@@ -217,6 +226,16 @@ async function sendViaResend(msg: EmailMessage): Promise<SendResult> {
       html: msg.html,
       text: msg.text,
       ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
+      // The same one-click unsubscribe the SES path carries. Gmail and Yahoo require it
+      // for bulk senders regardless of which relay the mail travels through.
+      ...(msg.unsubscribeUrl
+        ? {
+            headers: {
+              'List-Unsubscribe': `<${msg.unsubscribeUrl}>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            },
+          }
+        : {}),
     }),
   });
 
