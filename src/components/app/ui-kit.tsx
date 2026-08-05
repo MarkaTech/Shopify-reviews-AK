@@ -542,8 +542,11 @@ export function ActionButton({
     primary: 'brand-fill',
     dark: 'ink-fill hover:brightness-110',
     soft: 'bg-brand-50 text-brand-700 hover:bg-brand-100 dark:bg-brand-500/12 dark:text-brand-300 dark:hover:bg-brand-500/20',
+    // `bg-none` before the hover colour is load-bearing: `.surface` paints a gradient via
+    // background-image, which sits on top of background-color — so `hover:bg-ink-50`
+    // alone changed a colour nobody could see. Clearing the image lets it through.
     outline:
-      'surface text-ink-700 dark:text-ink-200 hover:border-ink-300 hover:bg-ink-50 dark:hover:bg-white/5',
+      'surface text-ink-700 dark:text-ink-200 hover:border-ink-300 hover:bg-none hover:bg-ink-50 dark:hover:bg-white/5',
     ghost: 'text-ink-600 dark:text-ink-300 hover:bg-ink-100 dark:hover:bg-white/8',
   }[variant];
 

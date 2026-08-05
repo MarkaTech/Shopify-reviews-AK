@@ -526,7 +526,7 @@ export default function ReviewsPage() {
                 className={cn(
                   'relative overflow-hidden transition-all',
                   busy && 'opacity-60',
-                  selectedIds.has(review.id) && 'ring-2 ring-brand-500/40'
+                  selectedIds.has(review.id) && 'is-selected'
                 )}
               >
                 {/* Status rail: unpublished reviews read as "needs you" at a glance,

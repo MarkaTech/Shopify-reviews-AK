@@ -113,7 +113,13 @@ export default function Home() {
   useEffect(() => {
     if (!authError) {
       checkSession();
+      return;
     }
+    // Arriving at /?error=... means Shopify (or our own callback) rejected the install,
+    // so there is no session to check. `isLoading` still has to be cleared: without this
+    // the effect returned early with it left true and the app sat on the loading screen
+    // forever, showing a spinner instead of the error it was redirected here to display.
+    setIsLoading(false);
   }, [authError, checkSession]);
 
   // Usage figures for the plan meter, refreshed whenever the merchant lands back on
