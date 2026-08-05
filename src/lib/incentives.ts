@@ -147,31 +147,48 @@ export async function grantIncentive(
       : { discountAmount: { amount: rewardValue, appliesOnEachItem: false } };
 
   try {
-    const data = await callShopifyGraphQL<{
-      discountCodeBasicCreate: {
-        codeDiscountNode: { id: string } | null;
-        userErrors: Array<{ message: string }>;
-      };
-    }>(
-      shop,
-      accessToken,
-      DISCOUNT_CREATE,
-      {
-        basicCodeDiscount: {
-          title: `Review reward — ${incentive.name}`,
-          code,
-          startsAt: new Date().toISOString(),
-          endsAt: expiresAt.toISOString(),
-          customerSelection: { all: true },
-          customerGets: { value, items: { all: true } },
-          // One use, by one customer. A review reward that leaks onto a coupon site and
-          // gets used ten thousand times is a merchant's worst day.
-          appliesOncePerCustomer: true,
-          usageLimit: 1,
+    const createDiscount = (token: string) =>
+      callShopifyGraphQL<{
+        discountCodeBasicCreate: {
+          codeDiscountNode: { id: string } | null;
+          userErrors: Array<{ message: string }>;
+        };
+      }>(
+        shop,
+        token,
+        DISCOUNT_CREATE,
+        {
+          basicCodeDiscount: {
+            title: `Review reward — ${incentive.name}`,
+            code,
+            startsAt: new Date().toISOString(),
+            endsAt: expiresAt.toISOString(),
+            customerSelection: { all: true },
+            customerGets: { value, items: { all: true } },
+            // One use, by one customer. A review reward that leaks onto a coupon site and
+            // gets used ten thousand times is a merchant's worst day.
+            appliesOncePerCustomer: true,
+            usageLimit: 1,
+          },
         },
-      },
-      opts.onUnauthorized
-    );
+        opts.onUnauthorized
+      );
+
+    let data;
+    try {
+      data = await createDiscount(accessToken);
+    } catch (err) {
+      // "Access denied … write_discounts" with a cached token can simply mean the
+      // merchant approved the scope AFTER this token was minted — tokens live an hour
+      // and carry the grants that existed when they were issued. One forced refresh
+      // picks up the new grant; if the scope truly is not approved, the retry fails the
+      // same way and the error propagates with the message that says exactly that.
+      const scopeDenied = err instanceof Error && /access denied/i.test(err.message);
+      const fresh = scopeDenied && opts.onUnauthorized ? await opts.onUnauthorized() : null;
+      if (!fresh) throw err;
+      console.info('[incentives] scope denied with cached token — retrying with a fresh one');
+      data = await createDiscount(fresh);
+    }
 
     const errs = data.discountCodeBasicCreate.userErrors;
     if (errs?.length) {
