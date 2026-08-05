@@ -22,22 +22,22 @@ const plans = [
   {
     id: 'free', name: 'Free', price: 0, interval: 'month',
     features: ['50 reviews', 'Photo reviews', 'Star rating + review widget', 'CSV import & migration', 'Google rich snippets'],
-    color: 'ring-1 ring-transparent',
+    color: '',
   },
   {
     id: 'starter', name: 'Starter', price: 19.99, interval: 'month',
     features: ['500 reviews', 'All widget types', 'Video reviews', 'Questions & answers', 'Review incentives', 'Email review requests'],
-    color: 'ring-1 ring-transparent',
+    color: '',
   },
   {
     id: 'growth', name: 'Growth', price: 29.99, interval: 'month',
     features: ['1,000 reviews', 'Unlimited widgets', 'Google Shopping star ratings', 'Shop app syndication', 'Advanced analytics', 'Everything in Starter'],
-    color: 'ring-2 ring-brand-500/45', popular: true,
+    color: 'is-selected', popular: true,
   },
   {
     id: 'pro', name: 'Pro', price: 49.99, interval: 'month',
     features: ['Unlimited reviews', 'Everything in Growth', 'API access', 'White-label widgets', 'Remove ReviewMaster branding', 'Priority support'],
-    color: 'ring-1 ring-transparent',
+    color: '',
   },
 ];
 
@@ -931,7 +931,7 @@ export default function SettingsPage() {
                   className={cn(
                     'relative flex flex-col p-5',
                     plan.color,
-                    plan.id === currentPlan && 'ring-2 ring-brand-600/60'
+                    plan.id === currentPlan && 'is-selected-strong'
                   )}
                 >
                   {plan.popular && (

@@ -268,32 +268,73 @@
   *::-webkit-scrollbar-thumb:hover { background: var(--ink-400); background-clip: content-box; }
 }
 
-@layer utilities {
-  /* ── Surfaces ───────────────────────────────────────────────────────────── */
-
+/* Surfaces live in the COMPONENTS layer, not utilities.
+ *
+ * Tailwind emits its own utilities after any `@layer utilities` block written here, at
+ * equal specificity — so a `.surface` defined as a utility would win over `border-*` and
+ * lose to nothing, and `ring-*` (which also writes box-shadow) would silently do nothing
+ * on a surface. Both were happening: selected review cards, the current plan card, the
+ * active incentive and the selected import-source card all rendered with no visible
+ * selection state at all.
+ *
+ * The components layer is ordered before utilities, which restores the intended
+ * relationship: `.surface` is the base look, and any utility a caller adds overrides it.
+ *
+ * Border is written as three longhands rather than the `border` shorthand for the same
+ * reason — the shorthand resets border-color, so a caller's `border-brand-500` would be
+ * clobbered even from a lower layer if it only sets the colour.
+ */
+@layer components {
   .surface {
-    background: var(--surface-gradient);
+    background-image: var(--surface-gradient);
     box-shadow: var(--bevel), var(--elev-1);
-    border: 1px solid var(--border);
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--border);
   }
 
   .surface-raised {
-    background: var(--surface-gradient);
+    background-image: var(--surface-gradient);
     box-shadow: var(--bevel), var(--elev-2);
-    border: 1px solid var(--border);
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--border);
   }
 
   .surface-float {
-    background: var(--surface-gradient);
+    background-image: var(--surface-gradient);
     box-shadow: var(--bevel), var(--elev-3);
-    border: 1px solid var(--border);
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--border);
   }
 
   .surface-hero {
-    background: var(--surface-gradient);
+    background-image: var(--surface-gradient);
     box-shadow: var(--bevel), var(--elev-4);
-    border: 1px solid var(--border);
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--border);
   }
+
+  /* Selection state. Uses outline rather than ring/box-shadow on purpose: outline is a
+     separate property, so it composes with a surface's elevation shadow instead of
+     replacing it. `ring-*` on a surface would erase the card's depth. */
+  .is-selected {
+    outline: 2px solid color-mix(in srgb, var(--brand-500) 55%, transparent);
+    outline-offset: -1px;
+  }
+  .is-selected-strong {
+    outline: 2px solid var(--brand-600);
+    outline-offset: -1px;
+  }
+  .is-selected-soft {
+    outline: 1px solid color-mix(in srgb, var(--brand-500) 35%, transparent);
+    outline-offset: -1px;
+  }
+}
+
+@layer utilities {
 
   /* Lift on hover. Paired with .surface* on anything clickable. */
   .lift {

@@ -218,7 +218,7 @@ export default function BulkUploadPage() {
               className={cn(
                 'ring-focus group relative rounded-2xl p-4 text-left transition-all duration-200',
                 active
-                  ? 'surface-float -translate-y-0.5 border-brand-500/40'
+                  ? 'surface-float is-selected -translate-y-0.5'
                   : 'surface-raised lift'
               )}
             >

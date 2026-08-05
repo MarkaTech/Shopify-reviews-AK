@@ -641,7 +641,7 @@ export default function IncentivesPage() {
                     style={{ animationDelay: `${idx * 55}ms` }}
                     className={cn(
                       'animate-rise group flex items-center gap-3 p-3.5',
-                      i.isActive && 'ring-1 ring-brand-500/25'
+                      i.isActive && 'is-selected-soft'
                     )}
                   >
                     <Tile icon={Gift} tone={i.isActive ? 'brand' : 'ink'} />

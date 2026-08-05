@@ -441,7 +441,7 @@ export default function WidgetsPage() {
                     className={cn(
                       'ring-focus relative rounded-2xl p-3 text-left transition-all duration-200',
                       active
-                        ? 'surface-float -translate-y-0.5 border-brand-500/40'
+                        ? 'surface-float is-selected -translate-y-0.5'
                         : 'surface-raised lift'
                     )}
                     onClick={() => (editingId ? setSelectedType(wt.id) : startNew(wt.id))}
