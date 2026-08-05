@@ -91,12 +91,21 @@ export async function grantIncentive(
     where: { storeId, isActive: true },
     orderBy: { createdAt: 'desc' },
   });
-  if (!incentive) return null;
+  if (!incentive) {
+    console.warn('[incentives] skipped: no active incentive for store', storeId);
+    return null;
+  }
+  console.info(
+    `[incentives] granting for review ${opts.reviewId} (photo=${opts.hasPhoto}, video=${opts.hasVideo}, incentive="${incentive.name}")`
+  );
 
   const hasMedia = opts.hasPhoto || opts.hasVideo;
 
   // A media-only incentive is lawful — media is a content type, not an opinion.
-  if (incentive.requiresMedia && !hasMedia) return null;
+  if (incentive.requiresMedia && !hasMedia) {
+    console.warn('[incentives] skipped: incentive requires media and review has none', opts.reviewId);
+    return null;
+  }
 
   // Tiered rewards: the reward depends on what the review CONTAINS (text/photo/video),
   // never on what it says. A video falls back to the photo tier, and both fall back to
@@ -123,7 +132,10 @@ export async function grantIncentive(
 
   if (incentive.usageLimit) {
     const used = await db.incentiveGrant.count({ where: { incentiveId: incentive.id } });
-    if (used >= incentive.usageLimit) return null;
+    if (used >= incentive.usageLimit) {
+      console.warn('[incentives] skipped: usage limit reached', incentive.id);
+      return null;
+    }
   }
 
   const code = generateCode();

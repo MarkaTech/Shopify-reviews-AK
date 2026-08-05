@@ -141,6 +141,12 @@ export async function PUT(
     // The whole config UI existed with nothing calling this, so no code was ever minted.
     // One grant per review is enforced inside grantIncentive; republishing does not mint a
     // second code.
+    if (publishChanged && updated.isPublished && !updated.reviewerEmail) {
+      // Diagnosable rather than silent: a merchant wondering "why did no code go out"
+      // deserves a log line, and reviews without an email (imports, anonymous) are the
+      // common non-obvious reason.
+      console.info('[reviews] published without reviewer email — no incentive possible:', updated.id);
+    }
     if (publishChanged && updated.isPublished && updated.reviewerEmail) {
       const hasPhoto = Boolean(updated.images);
       const hasVideo = Boolean(updated.videoUrl);
