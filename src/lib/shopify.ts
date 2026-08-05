@@ -704,7 +704,7 @@ export async function createRecurringCharge(
   // Inverted, the failure is loud and immediate: a live charge against a development store
   // is rejected by Shopify the first time anyone tries it, during development, by the
   // person who can fix it.
-  const isTestCharge = (process.env.SHOPIFY_BILLING_TEST ?? 'false').toLowerCase() === 'true';
+  const isTestCharge = billingTestMode();
 
   if (isTestCharge) {
     // Deliberately noisy. If this appears in production logs, no merchant is being billed.
@@ -794,6 +794,17 @@ export async function fetchActiveSubscriptions(
  * Returns 'free' when there is no active subscription — which is the correct fallback both
  * for new installs and for a subscription the merchant has cancelled.
  */
+/**
+ * Is this deployment billing with test charges?
+ *
+ * Read in two places that must never disagree: the charge we create, and the
+ * entitlement we grant from it. Splitting that decision across two independent
+ * expressions is what let the app open a test charge and then refuse to honour it.
+ */
+export function billingTestMode(): boolean {
+  return (process.env.SHOPIFY_BILLING_TEST ?? 'false').toLowerCase() === 'true';
+}
+
 export async function resolveActivePlan(
   shop: string,
   accessToken: string,
@@ -802,16 +813,33 @@ export async function resolveActivePlan(
   const subs = await fetchActiveSubscriptions(shop, accessToken, onUnauthorized);
 
   // `test` matters as much as `status`. A test subscription completes the entire approval
-  // flow and reports ACTIVE while moving no money, so treating it as a real one hands out
-  // a paid plan for free — and it would do so silently, because everything downstream
-  // looks exactly like a genuine upgrade. The query has always selected this field; not
-  // reading it was the bug.
-  const active = subs.find((s) => s.status === 'ACTIVE' && !s.test);
+  // flow and reports ACTIVE while moving no money, so honouring one in production hands
+  // out a paid plan for free — silently, because everything downstream looks exactly like
+  // a genuine upgrade.
+  //
+  // But it is honoured when this deployment is ITSELF in billing-test mode, because then
+  // a test subscription is the only kind the app can create: SHOPIFY_BILLING_TEST=true
+  // stamps `test: true` on every charge it opens. Rejecting them unconditionally meant
+  // the whole upgrade flow completed — approval screen, ACTIVE subscription, redirect —
+  // and then resolved to 'free', which is indistinguishable from the upgrade silently
+  // failing. The same flag governs both sides, so test charges can never entitle a plan
+  // on a deployment that bills for real.
+  const honourTestCharges = billingTestMode();
+  const active = subs.find(
+    (s) => s.status === 'ACTIVE' && (honourTestCharges ? true : !s.test)
+  );
 
   if (!active && subs.some((s) => s.status === 'ACTIVE' && s.test)) {
     console.warn(
-      `[billing] ${shop} has an ACTIVE test subscription; treating as free. ` +
-        'Test charges never entitle a plan.'
+      `[billing] ${shop} has an ACTIVE test subscription but this deployment bills for ` +
+        'real; treating as free. Set SHOPIFY_BILLING_TEST=true to test plan upgrades.'
+    );
+  }
+
+  if (active?.test) {
+    console.warn(
+      `[billing] ${shop} entitled to '${planFromSubscriptionName(active.name)}' from a ` +
+        'TEST subscription. No money is moving. Unset SHOPIFY_BILLING_TEST before launch.'
     );
   }
 
