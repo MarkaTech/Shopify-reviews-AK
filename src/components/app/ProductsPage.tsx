@@ -1,21 +1,21 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShoppingBag, Search, RefreshCw, Star, MessageSquare, ArrowDownToLine,
-  ExternalLink, ChevronDown, BarChart3, ImageIcon
+  ExternalLink, BarChart3, ImageIcon, Plus,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import {
+  Panel, StatCard, Stars, Pill, EmptyState, ActionButton, Skeleton, Meter,
+} from './ui-kit';
 
 interface Product {
   id: string;
@@ -32,17 +32,6 @@ interface Product {
   averageRating: number;
 }
 
-function StarRating({ rating, size = 'sm' }: { rating: number; size?: 'sm' | 'md' }) {
-  const sizeClass = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4';
-  return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map(s => (
-        <Star key={s} className={`${sizeClass} ${s <= Math.round(rating) ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}`} />
-      ))}
-    </div>
-  );
-}
-
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +39,7 @@ export default function ProductsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('createdAt');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortOrder] = useState('desc');
   const [hasReviewsFilter, setHasReviewsFilter] = useState('all');
 
   useEffect(() => {
@@ -83,7 +72,6 @@ export default function ProductsPage() {
   }, [search, sortBy, sortOrder, hasReviewsFilter, refreshKey]);
 
   // --- Add Review dialog ---------------------------------------------------------
-  // Both of these buttons were previously rendered with no onClick at all.
   const [reviewFor, setReviewFor] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ reviewerName: '', rating: 5, title: '', body: '' });
@@ -133,8 +121,11 @@ export default function ProductsPage() {
       toast.error('This product has no Shopify ID and cannot be opened.');
       return;
     }
-    const url = `https://admin.shopify.com/products/${product.shopifyId}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.open(
+      `https://admin.shopify.com/products/${product.shopifyId}`,
+      '_blank',
+      'noopener,noreferrer'
+    );
   };
 
   const handleSync = async () => {
@@ -165,220 +156,215 @@ export default function ProductsPage() {
   // Guard on totalReviews, not products.length. With 17 products and 0 reviews the old
   // check passed and then divided by zero, rendering "NaN" on the dashboard.
   const avgAllRatings = totalReviews > 0
-    ? (products.reduce((sum, p) => sum + (p.averageRating * p.reviewCount), 0) / totalReviews).toFixed(1)
-    : '0.0';
+    ? products.reduce((sum, p) => sum + (p.averageRating * p.reviewCount), 0) / totalReviews
+    : 0;
+  const withReviews = products.filter(p => p.reviewCount > 0).length;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-lg font-bold">Products</h2>
-          <p className="text-xs text-muted-foreground">{products.length} products synced from Shopify</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setRefreshKey(k => k + 1)}>
-            <RefreshCw className="w-3.5 h-3.5" /> Refresh
-          </Button>
-          <Button onClick={handleSync} disabled={syncing} className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
-            <ArrowDownToLine className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : 'Sync Products'}
-          </Button>
-        </div>
+      {/* ── Stats ── */}
+      <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Products" value={products.length} icon={ShoppingBag} tone="cyan" hint="Synced from Shopify" />
+        <StatCard label="Reviews" value={totalReviews} icon={MessageSquare} tone="brand" hint="Across all products" />
+        <StatCard label="Average rating" value={avgAllRatings} decimals={1} icon={Star} tone="amber" hint={totalReviews ? <Stars rating={avgAllRatings} size={13} /> : 'No reviews yet'} />
+        <StatCard
+          label="With reviews"
+          value={withReviews}
+          icon={BarChart3}
+          tone="indigo"
+          hint={products.length ? `${Math.round((withReviews / products.length) * 100)}% of your catalogue` : '—'}
+        />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-50 rounded-lg"><ShoppingBag className="w-5 h-5 text-emerald-600" /></div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">Total Products</p>
-                <p className="text-xl font-bold">{products.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-50 rounded-lg"><MessageSquare className="w-5 h-5 text-blue-600" /></div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">Total Reviews</p>
-                <p className="text-xl font-bold">{totalReviews}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-50 rounded-lg"><Star className="w-5 h-5 text-amber-600" /></div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">Avg Rating</p>
-                <p className="text-xl font-bold">{avgAllRatings}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-teal-50 rounded-lg"><BarChart3 className="w-5 h-5 text-teal-600" /></div>
-              <div>
-                <p className="text-[11px] text-muted-foreground">With Reviews</p>
-                <p className="text-xl font-bold">{products.filter(p => p.reviewCount > 0).length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* ── Toolbar ── */}
+      <Panel className="flex flex-wrap items-center gap-2 p-3">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-400" />
+          <Input
+            placeholder="Search products…"
+            className="h-9 rounded-xl pl-9 text-[13px]"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
 
-      {/* Filters */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="p-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-              <Input placeholder="Search products..." className="pl-8 h-8 text-xs" value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
-            <Select value={hasReviewsFilter} onValueChange={setHasReviewsFilter}>
-              <SelectTrigger className="w-[130px] h-8 text-xs"><SelectValue placeholder="Reviews" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Products</SelectItem>
-                <SelectItem value="true">Has Reviews</SelectItem>
-                <SelectItem value="false">No Reviews</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="createdAt">Newest</SelectItem>
-                <SelectItem value="title">Name A-Z</SelectItem>
-                <SelectItem value="reviews_count">Most Reviews</SelectItem>
-                <SelectItem value="avg_rating">Highest Rated</SelectItem>
-                <SelectItem value="price">Price</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+        <Select value={hasReviewsFilter} onValueChange={setHasReviewsFilter}>
+          <SelectTrigger className="h-9 w-[142px] rounded-xl text-[13px]"><SelectValue placeholder="Reviews" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All products</SelectItem>
+            <SelectItem value="true">Has reviews</SelectItem>
+            <SelectItem value="false">No reviews</SelectItem>
+          </SelectContent>
+        </Select>
 
-      {/* Products Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? (
-          [...Array(6)].map((_, i) => (
-            <div key={i} className="h-52 bg-gray-100 rounded-xl animate-pulse" />
-          ))
-        ) : products.length === 0 ? (
-          <Card className="border-0 shadow-sm col-span-full">
-            <CardContent className="py-16 text-center">
-              <ShoppingBag className="w-12 h-12 mx-auto text-muted-foreground/30" />
-              <p className="text-sm font-medium mt-3">No products found</p>
-              <p className="text-xs text-muted-foreground mt-1">Sync products from Shopify to get started</p>
-            </CardContent>
-          </Card>
-        ) : (
-          products.map(product => (
-            <Card key={product.id} className="border-0 shadow-sm hover:shadow-md transition-shadow group overflow-hidden">
-              <div className="relative h-36 bg-gray-50">
-                <img
-                  src={product.image || `https://picsum.photos/seed/${product.id}/400/400`}
-                  alt={product.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="h-9 w-[150px] rounded-xl text-[13px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="createdAt">Newest</SelectItem>
+            <SelectItem value="title">Name A–Z</SelectItem>
+            <SelectItem value="reviews_count">Most reviews</SelectItem>
+            <SelectItem value="avg_rating">Highest rated</SelectItem>
+            <SelectItem value="price">Price</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="ml-auto flex items-center gap-2">
+          <ActionButton variant="outline" size="sm" icon={RefreshCw} onClick={() => setRefreshKey(k => k + 1)}>
+            Refresh
+          </ActionButton>
+          <ActionButton size="sm" onClick={handleSync} disabled={syncing}>
+            <ArrowDownToLine className={cn('size-3.5', syncing && 'animate-bounce')} />
+            {syncing ? 'Syncing…' : 'Sync from Shopify'}
+          </ActionButton>
+        </div>
+      </Panel>
+
+      {/* ── Grid ── */}
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Panel key={i} className="overflow-hidden">
+              <Skeleton className="h-40 w-full rounded-none" />
+              <div className="space-y-2.5 p-4">
+                <Skeleton className="h-3.5 w-4/5" />
+                <Skeleton className="h-2.5 w-2/5" />
+                <Skeleton className="h-6 w-full" />
+              </div>
+            </Panel>
+          ))}
+        </div>
+      ) : products.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={ShoppingBag}
+            tone="cyan"
+            title={search ? 'No products match that search' : 'No products synced yet'}
+            description={
+              search
+                ? 'Try a shorter search, or clear it to see your whole catalogue.'
+                : 'ReviewMaster syncs your catalogue automatically at install. If nothing appeared, pull it in manually.'
+            }
+            action={
+              search ? (
+                <ActionButton variant="outline" onClick={() => setSearch('')}>Clear search</ActionButton>
+              ) : (
+                <ActionButton icon={ArrowDownToLine} onClick={handleSync} disabled={syncing}>
+                  {syncing ? 'Syncing…' : 'Sync from Shopify'}
+                </ActionButton>
+              )
+            }
+          />
+        </Panel>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {products.map(product => (
+            <Panel key={product.id} className="group flex flex-col overflow-hidden lift">
+              {/* ── Image ── */}
+              <div className="relative aspect-[4/3] overflow-hidden bg-ink-100 dark:bg-white/5">
+                <ProductImage src={product.image} alt={product.title} />
+
+                {/* Gradient scrim so the overlaid chips stay readable on any photo. */}
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/25 to-transparent" />
+
                 {product.reviewCount > 0 && (
-                  <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm rounded-lg px-2 py-1 flex items-center gap-1">
-                    <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-                    <span className="text-[11px] font-bold">{product.averageRating.toFixed(1)}</span>
-                    <span className="text-[10px] text-muted-foreground">({product.reviewCount})</span>
+                  <div className="absolute left-2.5 top-2.5 flex items-center gap-1 rounded-lg bg-white/92 px-2 py-1 backdrop-blur-sm dark:bg-ink-900/85">
+                    <Star className="size-3 text-amber-400" fill="currentColor" strokeWidth={0} />
+                    <span className="tnum text-[11px] font-bold text-ink-900 dark:text-white">
+                      {product.averageRating.toFixed(1)}
+                    </span>
+                    <span className="tnum text-[10px] text-ink-400">({product.reviewCount})</span>
                   </div>
                 )}
-                {product.price && (
-                  <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm rounded-lg px-2 py-1">
-                    <span className="text-[11px] font-bold">${product.price.toFixed(2)}</span>
+
+                {product.price != null && (
+                  <div className="absolute right-2.5 top-2.5 rounded-lg bg-white/92 px-2 py-1 backdrop-blur-sm dark:bg-ink-900/85">
+                    <span className="tnum text-[11px] font-bold text-ink-900 dark:text-white">
+                      ${product.price.toFixed(2)}
+                    </span>
                   </div>
                 )}
               </div>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-semibold truncate group-hover:text-emerald-600 transition-colors">{product.title}</h3>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {product.vendor && (
-                        <span className="text-[10px] text-muted-foreground">{product.vendor}</span>
-                      )}
-                      {product.productType && (
-                        <Badge variant="outline" className="text-[9px] h-4 px-1.5">{product.productType}</Badge>
-                      )}
-                    </div>
-                  </div>
+
+              {/* ── Body ── */}
+              <div className="flex flex-1 flex-col p-4">
+                <h3 className="line-clamp-2 text-[13.5px] font-semibold leading-snug text-ink-900 transition-colors group-hover:text-brand-700 dark:text-white dark:group-hover:text-brand-400">
+                  {product.title}
+                </h3>
+
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {product.vendor && (
+                    <span className="text-[11px] text-ink-400">{product.vendor}</span>
+                  )}
+                  {product.productType && <Pill tone="neutral">{product.productType}</Pill>}
                 </div>
 
-                {product.reviewCount > 0 ? (
-                  <div className="mt-3 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <StarRating rating={product.averageRating} />
-                      <span className="text-[10px] text-muted-foreground">{product.reviewCount} reviews</span>
-                    </div>
-                    <Progress value={(product.averageRating / 5) * 100} className="h-1.5" />
-                  </div>
-                ) : (
-                  <div className="mt-3">
-                    <p className="text-[11px] text-muted-foreground italic">No reviews yet</p>
-                  </div>
-                )}
+                <div className="mt-3 flex-1">
+                  {product.reviewCount > 0 ? (
+                    <>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <Stars rating={product.averageRating} size={12} />
+                        <span className="tnum text-[11px] text-ink-400">
+                          {product.reviewCount} review{product.reviewCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <Meter value={(product.averageRating / 5) * 100} tone="amber" height={5} />
+                    </>
+                  ) : (
+                    <p className="text-[11.5px] italic text-ink-400">No reviews yet</p>
+                  )}
+                </div>
 
-                <div className="flex items-center gap-2 mt-3">
-                  <Button
+                <div className="mt-3.5 flex items-center gap-2">
+                  <ActionButton
                     variant="outline"
                     size="sm"
-                    className="flex-1 h-7 text-[11px] gap-1"
+                    icon={Plus}
+                    className="flex-1"
                     onClick={() => openReviewDialog(product)}
                   >
-                    <MessageSquare className="w-3 h-3" /> Add Review
-                  </Button>
-                  <Button
-                    variant="outline"
+                    Add review
+                  </ActionButton>
+                  <ActionButton
+                    variant="ghost"
                     size="sm"
-                    className="h-7 w-7 p-0"
+                    className="px-2"
                     title="Open in Shopify admin"
+                    aria-label="Open in Shopify admin"
                     onClick={() => openInShopify(product)}
                   >
-                    <ExternalLink className="w-3 h-3" />
-                  </Button>
+                    <ExternalLink className="size-3.5" />
+                  </ActionButton>
                 </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+              </div>
+            </Panel>
+          ))}
+        </div>
+      )}
 
-      {/* Add Review dialog */}
+      {/* ── Add Review dialog ── */}
       <Dialog open={reviewFor !== null} onOpenChange={(open) => !open && setReviewFor(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base">Add a review</DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogTitle className="text-[16px]">Add a review</DialogTitle>
+            <DialogDescription className="text-[12.5px]">
               {reviewFor?.title}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="reviewerName" className="text-xs">Reviewer name *</Label>
+              <Label htmlFor="reviewerName" className="text-[12.5px] font-semibold">Reviewer name *</Label>
               <Input
                 id="reviewerName"
                 value={form.reviewerName}
                 onChange={(e) => setForm(f => ({ ...f, reviewerName: e.target.value }))}
                 placeholder="Jane Doe"
-                className="h-8 text-xs"
+                className="h-9 rounded-xl text-[13px]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs">Rating *</Label>
+              <Label className="text-[12.5px] font-semibold">Rating *</Label>
               <div className="flex items-center gap-1">
                 {[1, 2, 3, 4, 5].map(n => (
                   <button
@@ -386,56 +372,84 @@ export default function ProductsPage() {
                     type="button"
                     aria-label={`${n} star${n === 1 ? '' : 's'}`}
                     onClick={() => setForm(f => ({ ...f, rating: n }))}
-                    className="p-0.5"
+                    className="ring-focus rounded p-0.5 transition-transform hover:scale-110"
                   >
                     <Star
-                      className={`w-5 h-5 ${n <= form.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}`}
+                      className={cn('size-6 transition-colors', n <= form.rating ? 'text-amber-400' : 'text-ink-200 dark:text-white/15')}
+                      fill="currentColor"
+                      strokeWidth={0}
                     />
                   </button>
                 ))}
-                <span className="ml-2 text-xs text-muted-foreground">{form.rating} of 5</span>
+                <span className="ml-2 text-[12px] text-ink-500">{form.rating} of 5</span>
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="reviewTitle" className="text-xs">Title</Label>
+              <Label htmlFor="reviewTitle" className="text-[12.5px] font-semibold">Title</Label>
               <Input
                 id="reviewTitle"
                 value={form.title}
                 onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))}
                 placeholder="Great product"
-                className="h-8 text-xs"
+                className="h-9 rounded-xl text-[13px]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="reviewBody" className="text-xs">Review *</Label>
+              <Label htmlFor="reviewBody" className="text-[12.5px] font-semibold">Review *</Label>
               <Textarea
                 id="reviewBody"
                 value={form.body}
                 onChange={(e) => setForm(f => ({ ...f, body: e.target.value }))}
                 placeholder="What did the customer think?"
                 rows={4}
-                className="text-xs"
+                className="rounded-xl text-[13px]"
               />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" size="sm" className="text-xs" onClick={() => setReviewFor(null)}>
+            <ActionButton variant="ghost" size="sm" onClick={() => setReviewFor(null)}>
               Cancel
-            </Button>
-            <Button
-              size="sm"
-              className="bg-emerald-600 hover:bg-emerald-700 text-xs"
-              onClick={submitReview}
-              disabled={saving}
-            >
+            </ActionButton>
+            <ActionButton size="sm" onClick={submitReview} disabled={saving}>
               {saving ? 'Saving…' : 'Add review'}
-            </Button>
+            </ActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Product image with a first-party fallback.
+ *
+ * This used to fall back to `picsum.photos/seed/<id>` — a random stock photo pulled
+ * from a third-party server, rendered inside the merchant's admin, on every load.
+ * It leaked product IDs to an unrelated host and made products look like they had
+ * imagery they do not have.
+ */
+function ProductImage({ src, alt }: { src: string | null; alt: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-ink-100 to-ink-200 dark:from-white/5 dark:to-white/[0.02]">
+        <ImageIcon className="size-8 text-ink-300 dark:text-white/20" strokeWidth={1.5} />
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+    />
   );
 }

@@ -3,6 +3,34 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ReviewMaster design system
+   ───────────────────────────────────────────────────────────────────────────
+   The app is judged in the first three seconds, next to Judge.me and Loox, by a
+   merchant deciding whether this looks like software worth paying for. The visual
+   language here is built to answer that:
+
+   1. DEPTH IS LAYERED, NOT DROPPED. Every raised surface gets three things — an
+      ambient shadow, a tight contact shadow, and a 1px inner highlight along its
+      top edge. That last one is what actually reads as physical: it is the
+      specular line a real bevel catches. A single `box-shadow: 0 1px 3px` reads
+      as a border with extra steps.
+
+   2. SURFACES ARE NEVER FLAT FILLS. Cards run a near-invisible vertical gradient
+      (#fff → #fbfcfe). You cannot consciously see it; you can see its absence.
+
+   3. COLOUR CARRIES LIGHT. Brand-coloured controls cast brand-coloured shadows.
+      A green button over a neutral grey shadow looks pasted on; over a green-tinted
+      one it looks lit.
+
+   4. MOTION IS SHORT AND EASED OUT. 150-220ms, decelerating. Long or bouncy
+      animation reads as a toy — the opposite of the "expensive tool" impression
+      this is for. All of it collapses under prefers-reduced-motion.
+
+   Everything is expressed as tokens and utility classes so the eight page
+   components stay declarative and consistent — no page invents its own shadow.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -37,86 +65,462 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+
+  /* Brand ramp. Emerald with a touch more blue than Tailwind's, which keeps it
+     from reading "cheap SaaS green" next to Shopify's own greens. */
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  /* Ink: the neutral ramp, cooled very slightly toward blue. Pure greys look
+     dead under a white gradient; a few degrees of hue makes them read as paper. */
+  --color-ink-50: var(--ink-50);
+  --color-ink-100: var(--ink-100);
+  --color-ink-200: var(--ink-200);
+  --color-ink-300: var(--ink-300);
+  --color-ink-400: var(--ink-400);
+  --color-ink-500: var(--ink-500);
+  --color-ink-600: var(--ink-600);
+  --color-ink-700: var(--ink-700);
+  --color-ink-800: var(--ink-800);
+  --color-ink-900: var(--ink-900);
+  --color-ink-950: var(--ink-950);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+  --radius-3xl: calc(var(--radius) + 18px);
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.75rem;
+
+  --brand-50: #ecfdf6;
+  --brand-100: #d1fae7;
+  --brand-200: #a7f3d4;
+  --brand-300: #6ee7bb;
+  --brand-400: #34d3a0;
+  --brand-500: #10b785;
+  --brand-600: #059468;
+  --brand-700: #047756;
+  --brand-800: #065f46;
+  --brand-900: #064e3b;
+  --brand-950: #022c22;
+
+  --ink-50: #f8fafc;
+  --ink-100: #f1f5f9;
+  --ink-200: #e6ebf1;
+  --ink-300: #cfd8e3;
+  --ink-400: #94a3b8;
+  --ink-500: #64748b;
+  --ink-600: #4a5568;
+  --ink-700: #364152;
+  --ink-800: #1f2937;
+  --ink-900: #131a26;
+  --ink-950: #0b1220;
+
+  --background: #f6f8fb;
+  --foreground: var(--ink-900);
+  --card: #ffffff;
+  --card-foreground: var(--ink-900);
+  --popover: #ffffff;
+  --popover-foreground: var(--ink-900);
+  --primary: var(--brand-600);
+  --primary-foreground: #ffffff;
+  --secondary: var(--ink-100);
+  --secondary-foreground: var(--ink-800);
+  --muted: var(--ink-100);
+  --muted-foreground: var(--ink-500);
+  --accent: var(--ink-100);
+  --accent-foreground: var(--ink-800);
+  --destructive: #e11d48;
+  --border: var(--ink-200);
+  --input: var(--ink-200);
+  --ring: var(--brand-500);
+
+  --chart-1: var(--brand-500);
+  --chart-2: #6366f1;
+  --chart-3: #f59e0b;
+  --chart-4: #06b6d4;
+  --chart-5: #a855f7;
+
+  --sidebar: var(--ink-950);
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-primary: var(--brand-500);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(255, 255, 255, 0.06);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: var(--brand-500);
+
+  /* ── Elevation ──
+     Each level = ambient (wide, soft) + contact (tight, darker) + bevel (inner
+     top highlight). The bevel is what sells it; drop it and everything flattens. */
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --elev-1:
+    0 1px 2px -1px rgba(11, 18, 32, 0.08),
+    0 2px 6px -2px rgba(11, 18, 32, 0.06);
+  --elev-2:
+    0 1px 2px -1px rgba(11, 18, 32, 0.08),
+    0 4px 12px -3px rgba(11, 18, 32, 0.09),
+    0 12px 28px -12px rgba(11, 18, 32, 0.12);
+  --elev-3:
+    0 2px 4px -2px rgba(11, 18, 32, 0.1),
+    0 8px 20px -6px rgba(11, 18, 32, 0.12),
+    0 24px 48px -20px rgba(11, 18, 32, 0.18);
+  --elev-4:
+    0 4px 8px -4px rgba(11, 18, 32, 0.12),
+    0 16px 32px -10px rgba(11, 18, 32, 0.16),
+    0 40px 72px -28px rgba(11, 18, 32, 0.24);
+
+  /* Brand-tinted shadow, so brand controls look lit rather than pasted on. */
+  --glow-brand: 0 4px 14px -4px rgba(5, 148, 104, 0.45), 0 2px 4px -2px rgba(5, 148, 104, 0.3);
+  --glow-brand-lg: 0 10px 30px -8px rgba(5, 148, 104, 0.5), 0 4px 10px -4px rgba(5, 148, 104, 0.32);
+
+  --surface-gradient: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: var(--ink-950);
+  --foreground: #e8edf4;
+  --card: #131b28;
+  --card-foreground: #e8edf4;
+  --popover: #131b28;
+  --popover-foreground: #e8edf4;
+  --primary: var(--brand-500);
+  --primary-foreground: #04150f;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #e8edf4;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #93a3b8;
+  --accent: rgba(255, 255, 255, 0.08);
+  --accent-foreground: #ffffff;
+  --destructive: #fb7185;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: var(--brand-500);
+  --sidebar: #080d16;
+
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --surface-gradient: linear-gradient(180deg, #16202e 0%, #121a26 100%);
+  --elev-1: 0 1px 2px -1px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 2px 6px -2px rgba(0, 0, 0, 0.55), 0 12px 28px -12px rgba(0, 0, 0, 0.6);
+  --elev-3: 0 4px 12px -4px rgba(0, 0, 0, 0.6), 0 24px 48px -20px rgba(0, 0, 0, 0.7);
+  --elev-4: 0 8px 20px -8px rgba(0, 0, 0, 0.65), 0 40px 72px -28px rgba(0, 0, 0, 0.8);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
+
+  /* Headings tighten as they grow. Default tracking on a 32px heading looks
+     loose and amateur; -0.03em is what makes large type look typeset. */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.021em;
+  }
+
+  /* Numbers in stats must not jitter as they animate or refresh. */
+  .tnum,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  ::selection {
+    background: var(--brand-200);
+    color: var(--brand-900);
+  }
+
+  /* A scrollbar is a surface too. The default one on Windows is a grey slab
+     that undoes a lot of this work. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-300) transparent;
+  }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--ink-300);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover { background: var(--ink-400); background-clip: content-box; }
+}
+
+@layer utilities {
+  /* ── Surfaces ───────────────────────────────────────────────────────────── */
+
+  .surface {
+    background: var(--surface-gradient);
+    box-shadow: var(--bevel), var(--elev-1);
+    border: 1px solid var(--border);
+  }
+
+  .surface-raised {
+    background: var(--surface-gradient);
+    box-shadow: var(--bevel), var(--elev-2);
+    border: 1px solid var(--border);
+  }
+
+  .surface-float {
+    background: var(--surface-gradient);
+    box-shadow: var(--bevel), var(--elev-3);
+    border: 1px solid var(--border);
+  }
+
+  .surface-hero {
+    background: var(--surface-gradient);
+    box-shadow: var(--bevel), var(--elev-4);
+    border: 1px solid var(--border);
+  }
+
+  /* Lift on hover. Paired with .surface* on anything clickable. */
+  .lift {
+    transition:
+      transform 200ms var(--ease-out),
+      box-shadow 200ms var(--ease-out),
+      border-color 200ms var(--ease-out);
+    will-change: transform;
+  }
+  .lift:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--bevel), var(--elev-3);
+    border-color: var(--ink-300);
+  }
+  .lift:active {
+    transform: translateY(-1px);
+    transition-duration: 80ms;
+  }
+
+  /* Frosted bar for sticky headers over scrolling content. */
+  .glass {
+    background: color-mix(in srgb, var(--card) 72%, transparent);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+  }
+
+  /* ── Brand fills ────────────────────────────────────────────────────────── */
+
+  .brand-fill {
+    background-image: linear-gradient(180deg, var(--brand-500) 0%, var(--brand-600) 100%);
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+      var(--glow-brand);
+    transition: box-shadow 200ms var(--ease-out), transform 200ms var(--ease-out), filter 200ms var(--ease-out);
+  }
+  .brand-fill:hover {
+    filter: saturate(1.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+      var(--glow-brand-lg);
+    transform: translateY(-1px);
+  }
+  .brand-fill:active { transform: translateY(0); transition-duration: 80ms; }
+
+  .ink-fill {
+    background-image: linear-gradient(180deg, var(--ink-800) 0%, var(--ink-900) 100%);
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      var(--elev-2);
+  }
+
+  /* ── Icon tiles ─────────────────────────────────────────────────────────── */
+  /* The small coloured square behind an icon. Gradient + bevel + tinted glow,
+     because a flat pastel square is the single most "template" element in SaaS. */
+
+  .tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 6px -2px rgba(11, 18, 32, 0.14);
+    transition: transform 200ms var(--ease-spring);
+  }
+  .tile-brand  { background-image: linear-gradient(160deg, var(--brand-400), var(--brand-600)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), var(--glow-brand); }
+  .tile-amber  { background-image: linear-gradient(160deg, #fbbf24, #d97706); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(217,119,6,.45); }
+  .tile-indigo { background-image: linear-gradient(160deg, #818cf8, #4f46e5); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(79,70,229,.45); }
+  .tile-cyan   { background-image: linear-gradient(160deg, #22d3ee, #0891b2); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(8,145,178,.45); }
+  .tile-rose   { background-image: linear-gradient(160deg, #fb7185, #e11d48); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(225,29,72,.45); }
+  .tile-violet { background-image: linear-gradient(160deg, #c084fc, #7c3aed); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(124,58,237,.45); }
+  .tile-ink    { background-image: linear-gradient(160deg, var(--ink-600), var(--ink-800)); color: #fff; }
+
+  .group:hover .tile { transform: scale(1.06) rotate(-2deg); }
+
+  /* ── Ambient background ─────────────────────────────────────────────────── */
+  /* Two enormous, very faint colour fields behind the app. Invisible as shapes;
+     what they do is stop the page reading as a flat grey rectangle. */
+
+  .aurora {
+    position: relative;
+    isolation: isolate;
+  }
+  .aurora::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 12% -8%, rgba(16, 183, 133, 0.13), transparent 60%),
+      radial-gradient(52rem 38rem at 105% 8%, rgba(99, 102, 241, 0.11), transparent 60%),
+      radial-gradient(44rem 34rem at 60% 108%, rgba(6, 182, 212, 0.09), transparent 62%);
+  }
+  .dark .aurora::before {
+    background:
+      radial-gradient(60rem 40rem at 12% -8%, rgba(16, 183, 133, 0.12), transparent 60%),
+      radial-gradient(52rem 38rem at 105% 8%, rgba(99, 102, 241, 0.1), transparent 60%);
+  }
+
+  /* Fine grid, for hero panels that would otherwise be empty colour. */
+  .grid-lines {
+    background-image:
+      linear-gradient(to right, rgba(11, 18, 32, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(11, 18, 32, 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
+  }
+
+  /* ── Text ───────────────────────────────────────────────────────────────── */
+
+  .text-gradient {
+    background-image: linear-gradient(135deg, var(--ink-900) 20%, var(--brand-700) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .dark .text-gradient {
+    background-image: linear-gradient(135deg, #ffffff 20%, var(--brand-400) 100%);
+  }
+
+  .display {
+    letter-spacing: -0.035em;
+    line-height: 1.04;
+  }
+
+  /* ── 3D ─────────────────────────────────────────────────────────────────── */
+  /* Used sparingly — the welcome screen mock and the empty-state art. Rotating
+     real UI in perspective is what makes a product shot look like a product. */
+
+  .scene { perspective: 1600px; perspective-origin: 50% 40%; }
+  .tilt {
+    transform: rotateX(9deg) rotateY(-13deg) rotateZ(1.5deg);
+    transform-style: preserve-3d;
+    transition: transform 700ms var(--ease-out);
+  }
+  .scene:hover .tilt { transform: rotateX(4deg) rotateY(-6deg) rotateZ(0.5deg); }
+
+  /* ── Motion ─────────────────────────────────────────────────────────────── */
+
+  @keyframes rm-rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes rm-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes rm-pop {
+    0%   { opacity: 0; transform: scale(0.94); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes rm-shimmer {
+    100% { transform: translateX(100%); }
+  }
+  @keyframes rm-pulse-ring {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 183, 133, 0.4); }
+    70%  { box-shadow: 0 0 0 10px rgba(16, 183, 133, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 183, 133, 0); }
+  }
+  @keyframes rm-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-8px); }
+  }
+
+  .animate-rise { animation: rm-rise 480ms var(--ease-out) both; }
+  .animate-fade { animation: rm-fade 380ms var(--ease-out) both; }
+  .animate-pop  { animation: rm-pop 320ms var(--ease-spring) both; }
+  .animate-float { animation: rm-float 6s ease-in-out infinite; }
+  .pulse-ring { animation: rm-pulse-ring 2.4s var(--ease-out) infinite; }
+
+  /* Stagger children without writing a delay for each one. */
+  .stagger > * { animation: rm-rise 480ms var(--ease-out) both; }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 55ms; }
+  .stagger > *:nth-child(3) { animation-delay: 110ms; }
+  .stagger > *:nth-child(4) { animation-delay: 165ms; }
+  .stagger > *:nth-child(5) { animation-delay: 220ms; }
+  .stagger > *:nth-child(6) { animation-delay: 275ms; }
+  .stagger > *:nth-child(7) { animation-delay: 330ms; }
+  .stagger > *:nth-child(8) { animation-delay: 385ms; }
+
+  /* Loading placeholder with a travelling sheen — reads as "working", where a
+     static grey block reads as "broken". */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+    background: var(--ink-100);
+  }
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+    animation: rm-shimmer 1.6s infinite;
+  }
+  .dark .shimmer { background: rgba(255, 255, 255, 0.06); }
+  .dark .shimmer::after {
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  }
+
+  /* Focus ring used on every interactive element. One ring, everywhere. */
+  .ring-focus:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--brand-500);
+  }
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+/* Accessibility, and a real preference on low-power hardware. Everything above
+   degrades to an instant state change rather than disappearing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .lift:hover { transform: none; }
+  .tilt { transform: none; }
+  .shimmer::after { display: none; }
 }
