@@ -2,17 +2,17 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Upload, Download, FileSpreadsheet, CheckCircle, XCircle,
-  AlertCircle, ShoppingBag, ChevronDown, Plus, Trash2, Table
+  Upload, Download, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle,
+  ShoppingBag, Plus, Trash2, Table, Store, ShieldAlert, Info, Link2,
+  ArrowRight, Sparkles, Check,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
+import { Panel, PanelHeader, ActionButton, Pill, Tile, type TileTone } from './ui-kit';
 
 interface Product {
   id: string;
@@ -22,17 +22,33 @@ interface Product {
   averageRating: number;
 }
 
+type Source = 'csv' | 'manual' | 'aliexpress' | 'etsy';
+
+const SOURCES: Array<{
+  id: Source;
+  label: string;
+  blurb: string;
+  icon: typeof FileSpreadsheet;
+  tone: TileTone;
+}> = [
+  { id: 'csv', label: 'CSV file', blurb: 'From another review app or your seller account', icon: FileSpreadsheet, tone: 'brand' },
+  { id: 'manual', label: 'Type them in', blurb: 'A handful of reviews, entered by hand', icon: Table, tone: 'indigo' },
+  { id: 'aliexpress', label: 'AliExpress', blurb: 'Paste a listing URL you dropship', icon: Link2, tone: 'amber' },
+  { id: 'etsy', label: 'Etsy', blurb: 'Connect your shop, syncs weekly', icon: Store, tone: 'rose' },
+];
+
 export default function BulkUploadPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<{ total: number; imported: number; failed: number; errors: string[] } | null>(null);
   const [manualRows, setManualRows] = useState<Array<{ reviewerName: string; rating: string; title: string; body: string }>>([
     { reviewerName: '', rating: '5', title: '', body: '' }
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<'file' | 'manual'>('file');
+  const [source, setSource] = useState<Source>('csv');
   const [aliUrl, setAliUrl] = useState('');
   const [aliConfirm, setAliConfirm] = useState(false);
   const [aliImporting, setAliImporting] = useState(false);
@@ -51,20 +67,18 @@ export default function BulkUploadPage() {
       .catch(() => setEtsy(null));
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) {
-      if (!f.name.endsWith('.csv')) {
-        toast.error('Please upload a CSV file');
-        return;
-      }
-      setFile(f);
-      setResult(null);
+  const acceptFile = (f: File | undefined) => {
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith('.csv')) {
+      toast.error('Please upload a CSV file');
+      return;
     }
+    setFile(f);
+    setResult(null);
   };
 
   const handleUpload = async () => {
-    if (mode === 'file' && !file) {
+    if (source === 'csv' && !file) {
       toast.error('Please select a CSV file');
       return;
     }
@@ -74,7 +88,7 @@ export default function BulkUploadPage() {
 
     try {
       const formData = new FormData();
-      if (mode === 'file' && file) {
+      if (source === 'csv' && file) {
         formData.append('file', file);
       } else {
         // Convert manual rows to CSV
@@ -91,8 +105,6 @@ export default function BulkUploadPage() {
         '/api/bulk-upload', { method: 'POST', body: formData }
       );
       // errors is optional on the wire but required by the result state, so default it.
-      // Without this the type mismatch was masked by ignoreBuildErrors and `errors` could
-      // land as undefined, crashing the error list render below.
       setResult({ ...data, errors: data.errors ?? [] });
 
       if (data.imported > 0) {
@@ -115,18 +127,10 @@ export default function BulkUploadPage() {
     }
   };
 
-  const handleDownloadTemplate = () => {
-    window.open('/api/bulk-upload', '_blank');
-  };
+  const handleDownloadTemplate = () => window.open('/api/bulk-upload', '_blank');
 
-  const addRow = () => {
-    setManualRows([...manualRows, { reviewerName: '', rating: '5', title: '', body: '' }]);
-  };
-
-  const removeRow = (index: number) => {
-    setManualRows(manualRows.filter((_, i) => i !== index));
-  };
-
+  const addRow = () => setManualRows([...manualRows, { reviewerName: '', rating: '5', title: '', body: '' }]);
+  const removeRow = (index: number) => setManualRows(manualRows.filter((_, i) => i !== index));
   const updateRow = (index: number, field: string, value: string) => {
     const updated = [...manualRows];
     updated[index] = { ...updated[index], [field]: value };
@@ -198,371 +202,438 @@ export default function BulkUploadPage() {
     }
   };
 
+  const needsProduct = source === 'aliexpress';
+  const productChosen = selectedProduct && selectedProduct !== '__none__';
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-lg font-bold">Import Reviews</h2>
-        <p className="text-xs text-muted-foreground">Bring in reviews you already own, via CSV or manual entry</p>
+    <div className="space-y-5">
+      {/* ── Source picker ── */}
+      <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {SOURCES.map((s) => {
+          const active = source === s.id;
+          return (
+            <button
+              key={s.id}
+              onClick={() => setSource(s.id)}
+              className={cn(
+                'ring-focus group relative rounded-2xl p-4 text-left transition-all duration-200',
+                active
+                  ? 'surface-float -translate-y-0.5 border-brand-500/40'
+                  : 'surface-raised lift'
+              )}
+            >
+              {active && (
+                <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-brand-600 text-white shadow-[var(--glow-brand)]">
+                  <Check className="size-3" strokeWidth={3.5} />
+                </span>
+              )}
+              <Tile icon={s.icon} tone={s.tone} size="lg" />
+              <p className="mt-3 text-[13.5px] font-semibold text-ink-900 dark:text-white">{s.label}</p>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-ink-500">{s.blurb}</p>
+              {s.id === 'etsy' && etsy?.connected && (
+                <Pill tone="brand" className="mt-2">Connected</Pill>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/*
-        Replaces the marketplace URL importer, which scraped Amazon and Alibaba product
-        pages. That approach fails technically (both sites block automated fetches and
-        publish no per-review structured data) and, more importantly, republishing another
-        seller's reviews as your own is misrepresentation under the FTC Rule on Consumer
-        Reviews and the EU Omnibus Directive. This panel names the two sources that are
-        actually defensible — the same two Judge.me and Loox use.
-      */}
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-        <p className="text-xs font-semibold text-blue-900">Where reviews can come from</p>
-        <ul className="mt-1.5 space-y-1 text-[11px] text-blue-800">
-          <li>
-            <strong>Reviews you own</strong> — export them from your own seller account or
-            your previous review app, and upload the CSV below.
-          </li>
-          <li>
-            <strong>Your own customers</strong> — after an order is paid, ReviewMaster
-            emails the buyer a private link. Those come back marked as verified purchases.
-          </li>
-        </ul>
-        <p className="mt-1.5 text-[11px] text-blue-700">
-          Dropshipping from AliExpress? You can import a listing&apos;s reviews below —
-          only for the same product you actually sell, and they are always labelled with
-          their source, never as verified purchases. Copying reviews from other
-          marketplaces (Amazon, eBay, Etsy) is not supported: those describe a different
-          seller&apos;s transaction, and presenting them as yours is illegal in the US and EU.
-        </p>
+      {/* ── Provenance notice ──
+          Replaces the marketplace URL importer, which scraped Amazon and Alibaba product
+          pages. That approach fails technically (both sites block automated fetches and
+          publish no per-review structured data) and, more importantly, republishing
+          another seller's reviews as your own is misrepresentation under the FTC Rule on
+          Consumer Reviews and the EU Omnibus Directive. */}
+      <div className="flex gap-3 rounded-2xl border border-indigo-200/70 bg-indigo-50/60 p-4 dark:border-indigo-400/15 dark:bg-indigo-500/[0.07]">
+        <ShieldAlert className="mt-0.5 size-4 shrink-0 text-indigo-600 dark:text-indigo-300" />
+        <div className="text-[12px] leading-relaxed text-indigo-900 dark:text-indigo-100">
+          <p className="font-semibold">Only import reviews you can stand behind.</p>
+          <p className="mt-1 text-indigo-800/90 dark:text-indigo-200/80">
+            Reviews you own (your seller account, your previous app) and your own customers&apos;
+            reviews are always safe. AliExpress listings are allowed <em>only</em> for the same
+            product you sell, and are labelled with their source — never as verified purchases.
+            Amazon and eBay are not supported: those describe a different seller&apos;s
+            transaction, and presenting them as yours is illegal in the US and EU.
+          </p>
+        </div>
       </div>
 
-      {/* Product Selection */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <ShoppingBag className="w-4 h-4" /> Assign to Product
-          </CardTitle>
-          <CardDescription className="text-xs">Select which product these reviews are for (optional)</CardDescription>
-        </CardHeader>
-        <CardContent>
+      {/* ── Product assignment ── */}
+      <Panel>
+        <PanelHeader
+          title="Assign to a product"
+          description={
+            needsProduct
+              ? 'Required for AliExpress imports — the reviews attach to this product.'
+              : 'Optional. Leave blank for reviews that are about your store in general.'
+          }
+          icon={ShoppingBag}
+          tone="cyan"
+          action={
+            needsProduct && !productChosen ? <Pill tone="amber">Required</Pill> : undefined
+          }
+        />
+        <div className="px-5 pb-5">
           <Select value={selectedProduct} onValueChange={setSelectedProduct}>
-            <SelectTrigger className="h-9 text-xs">
-              <SelectValue placeholder="Select a product..." />
+            <SelectTrigger className="h-10 rounded-xl text-[13px]">
+              <SelectValue placeholder="Choose a product…" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__none__">No specific product (general)</SelectItem>
+              <SelectItem value="__none__">No specific product</SelectItem>
               {products.map(p => (
                 <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <p className="text-[11px] text-muted-foreground mt-2">
-            All {products.length} products synced from your Shopify store are available in the dropdown.
+          <p className="mt-2 text-[11.5px] text-ink-400">
+            {products.length} product{products.length === 1 ? '' : 's'} synced from Shopify.
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
-      {/* Upload Mode Toggle */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="p-4">
-          <div className="flex gap-2 mb-4">
-            <Button
-              variant={mode === 'file' ? 'default' : 'outline'}
-              size="sm"
-              className="h-8 text-xs gap-1.5"
-              onClick={() => setMode('file')}
+      {/* ── CSV ── */}
+      {source === 'csv' && (
+        <Panel className="animate-rise">
+          <PanelHeader
+            title="Upload a CSV"
+            description="One row per review. Up to 10MB."
+            icon={FileSpreadsheet}
+            tone="brand"
+            action={
+              <ActionButton size="sm" variant="outline" icon={Download} onClick={handleDownloadTemplate}>
+                Template
+              </ActionButton>
+            }
+          />
+
+          <div className="px-5 pb-5">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                // Drag and drop was advertised by the copy ("Drop your CSV file here")
+                // but never implemented — the div had no drop handler at all.
+                e.preventDefault();
+                setDragging(false);
+                acceptFile(e.dataTransfer.files?.[0]);
+              }}
+              className={cn(
+                'cursor-pointer rounded-2xl border-2 border-dashed p-9 text-center transition-all duration-200',
+                dragging
+                  ? 'border-brand-500 bg-brand-50/70 dark:bg-brand-500/10'
+                  : file
+                    ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/30 dark:bg-brand-500/[0.06]'
+                    : 'border-ink-300 hover:border-brand-400 hover:bg-ink-50/60 dark:border-white/12 dark:hover:bg-white/[0.03]'
+              )}
             >
-              <FileSpreadsheet className="w-3.5 h-3.5" /> CSV Upload
-            </Button>
-            <Button
-              variant={mode === 'manual' ? 'default' : 'outline'}
-              size="sm"
-              className="h-8 text-xs gap-1.5"
-              onClick={() => setMode('manual')}
-            >
-              <Table className="w-3.5 h-3.5" /> Manual Entry
-            </Button>
-          </div>
-
-          {mode === 'file' ? (
-            <div className="space-y-4">
-              {/* CSV Upload Area */}
-              <div
-                className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/30 transition-all"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
-                <Upload className="w-10 h-10 mx-auto text-muted-foreground/40" />
-                <p className="text-sm font-medium mt-3">
-                  {file ? file.name : 'Drop your CSV file here or click to browse'}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {file ? `${(file.size / 1024).toFixed(1)} KB` : 'Supports .csv files up to 10MB'}
-                </p>
-                {file && (
-                  <Button variant="ghost" size="sm" className="mt-2 text-xs text-red-500" onClick={(e) => { e.stopPropagation(); setFile(null); setResult(null); }}>
-                    Remove file
-                  </Button>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={handleDownloadTemplate}>
-                  <Download className="w-3.5 h-3.5" /> Download CSV Template
-                </Button>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs font-medium">CSV Template Format:</p>
-                <div className="mt-2 overflow-x-auto">
-                  <table className="text-[11px] w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-1 pr-3 font-medium text-muted-foreground">reviewerName</th>
-                        <th className="text-left py-1 pr-3 font-medium text-muted-foreground">rating</th>
-                        <th className="text-left py-1 pr-3 font-medium text-muted-foreground">title</th>
-                        <th className="text-left py-1 pr-3 font-medium text-muted-foreground">body</th>
-                        <th className="text-left py-1 pr-3 font-medium text-muted-foreground">reviewDate</th>
-                        <th className="text-left py-1 pr-3 font-medium text-muted-foreground">reviewerEmail</th>
-                        <th className="text-left py-1 pr-3 font-medium text-muted-foreground">verifiedPurchase</th>
-                        <th className="text-left py-1 font-medium text-muted-foreground">source</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="py-1 pr-3">John Smith</td>
-                        <td className="py-1 pr-3">5</td>
-                        <td className="py-1 pr-3">Amazing!</td>
-                        <td className="py-1 pr-3">Best product ever...</td>
-                        <td className="py-1 pr-3">2025-01-15</td>
-                        <td className="py-1 pr-3">john@email.com</td>
-                        <td className="py-1 pr-3">true</td>
-                        <td className="py-1">direct</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={(e) => acceptFile(e.target.files?.[0])} />
+              <Tile icon={file ? CheckCircle2 : Upload} tone={file ? 'brand' : 'ink'} size="xl" className="mx-auto" />
+              <p className="mt-4 text-[14px] font-semibold text-ink-900 dark:text-white">
+                {file ? file.name : 'Drop your CSV here, or click to browse'}
+              </p>
+              <p className="mt-1 text-[12px] text-ink-500">
+                {file ? `${(file.size / 1024).toFixed(1)} KB · ready to import` : 'Accepts .csv up to 10MB'}
+              </p>
+              {file && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setFile(null); setResult(null); }}
+                  className="ring-focus mt-3 rounded text-[12px] font-semibold text-rose-600 hover:text-rose-700"
+                >
+                  Remove file
+                </button>
+              )}
             </div>
-          ) : (
-            /* Manual Entry Spreadsheet */
-            <div className="space-y-3">
-              <div className="overflow-x-auto border rounded-lg">
-                <table className="w-full text-xs">
+
+            <div className="mt-4 overflow-hidden rounded-xl border border-border">
+              <div className="flex items-center gap-2 border-b border-border bg-ink-50/70 px-3 py-2 dark:bg-white/[0.03]">
+                <Info className="size-3.5 text-ink-400" />
+                <p className="text-[11.5px] font-semibold text-ink-600 dark:text-ink-300">Expected columns</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
                   <thead>
-                    <tr className="bg-gray-50 border-b">
-                      <th className="text-left p-2 font-medium w-[150px]">Reviewer Name *</th>
-                      <th className="text-left p-2 font-medium w-[80px]">Rating *</th>
-                      <th className="text-left p-2 font-medium w-[200px]">Title</th>
-                      <th className="text-left p-2 font-medium">Body *</th>
-                      <th className="p-2 w-[40px]"></th>
+                    <tr className="border-b border-border">
+                      {['reviewerName', 'rating', 'title', 'body', 'reviewDate', 'reviewerEmail', 'verifiedPurchase', 'source'].map(h => (
+                        <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-semibold text-ink-500">{h}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {manualRows.map((row, i) => (
-                      <tr key={i} className="border-b border-gray-100">
-                        <td className="p-1">
-                          <input
-                            type="text"
-                            className="w-full h-8 px-2 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            placeholder="Name"
-                            value={row.reviewerName}
-                            onChange={e => updateRow(i, 'reviewerName', e.target.value)}
-                          />
-                        </td>
-                        <td className="p-1">
-                          <select
-                            className="w-full h-8 px-2 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            value={row.rating}
-                            onChange={e => updateRow(i, 'rating', e.target.value)}
-                          >
-                            {[1, 2, 3, 4, 5].map(n => (
-                              <option key={n} value={n}>{n} Star{n > 1 ? 's' : ''}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-1">
-                          <input
-                            type="text"
-                            className="w-full h-8 px-2 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            placeholder="Review title"
-                            value={row.title}
-                            onChange={e => updateRow(i, 'title', e.target.value)}
-                          />
-                        </td>
-                        <td className="p-1">
-                          <input
-                            type="text"
-                            className="w-full h-8 px-2 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            placeholder="Review content..."
-                            value={row.body}
-                            onChange={e => updateRow(i, 'body', e.target.value)}
-                          />
-                        </td>
-                        <td className="p-1">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeRow(i)}>
-                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                    <tr className="text-ink-500">
+                      {['John Smith', '5', 'Amazing!', 'Best product ever…', '2026-01-15', 'john@email.com', 'true', 'direct'].map((v, i) => (
+                        <td key={i} className="whitespace-nowrap px-3 py-2">{v}</td>
+                      ))}
+                    </tr>
                   </tbody>
                 </table>
               </div>
-              <Button variant="outline" size="sm" className="text-xs gap-1" onClick={addRow}>
-                <Plus className="w-3.5 h-3.5" /> Add Row
-              </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Upload Button */}
-      <Button
-        onClick={handleUpload}
-        disabled={uploading || (mode === 'file' && !file) || (mode === 'manual' && manualRows.every(r => !r.reviewerName && !r.body))}
-        className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5"
-      >
-        <Upload className="w-3.5 h-3.5" />
-        {uploading ? 'Uploading...' : mode === 'file' ? 'Upload CSV' : 'Submit Reviews'}
-      </Button>
-
-      {/* AliExpress Import */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Download className="w-4 h-4" /> Import from AliExpress
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Dropshipping this product? Paste its AliExpress listing URL and its reviews are
-            imported onto the product selected above — source-labelled, never marked verified.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div>
-            <Label className="text-xs">AliExpress product URL</Label>
-            <input
-              type="url"
-              value={aliUrl}
-              onChange={e => { setAliUrl(e.target.value); setAliResult(null); }}
-              placeholder="https://www.aliexpress.com/item/1005001234567890.html"
-              className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm"
-            />
+            <ActionButton
+              className="mt-4"
+              icon={Upload}
+              onClick={handleUpload}
+              disabled={uploading || !file}
+            >
+              {uploading ? 'Importing…' : 'Import CSV'}
+            </ActionButton>
           </div>
-          <label className="flex items-start gap-2 text-[11px] text-muted-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={aliConfirm}
-              onChange={e => setAliConfirm(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span>
-              I confirm this listing is the <strong>same product</strong> I sell — these
-              reviews describe the exact item my customers receive. Imported reviews are
-              shown with their AliExpress source and are never labelled as verified purchases.
-            </span>
-          </label>
-          <Button
-            onClick={handleAliImport}
-            disabled={aliImporting || !aliUrl.trim() || !aliConfirm}
-            className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5" />
-            {aliImporting ? 'Importing…' : 'Import Reviews'}
-          </Button>
-          {aliResult && (
-            <div className="text-xs bg-emerald-50 text-emerald-800 rounded-lg p-3">
-              Imported {aliResult.imported} review{aliResult.imported === 1 ? '' : 's'}
-              {aliResult.skipped > 0 ? `, skipped ${aliResult.skipped} already imported` : ''}
-              {aliResult.truncated ? ` — the listing reports ${aliResult.listingTotal} in total; run the import again later or upgrade your plan for more room.` : ''}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </Panel>
+      )}
 
-      {/* Etsy sync */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Download className="w-4 h-4" /> Sync from Etsy
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Sell the same products on Etsy? Connect your shop and its reviews sync here —
-            weekly, automatically. Matched by product title; counted as verified reviewers,
-            because Etsy vouches for the purchase.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {etsy?.connected ? (
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
-                Connected to Etsy shop <strong>{etsy.shopId}</strong>
-                {etsy.lastSyncAt ? ` — last synced ${new Date(etsy.lastSyncAt).toLocaleDateString()}` : ' — never synced yet'}.
-              </p>
-              <Button onClick={etsySync} disabled={etsyBusy} className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
-                <Download className="w-3.5 h-3.5" /> {etsyBusy ? 'Syncing…' : 'Sync now'}
-              </Button>
+      {/* ── Manual ── */}
+      {source === 'manual' && (
+        <Panel className="animate-rise">
+          <PanelHeader
+            title="Type reviews in"
+            description="For a small batch you are transcribing by hand."
+            icon={Table}
+            tone="indigo"
+          />
+          <div className="px-5 pb-5">
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="border-b border-border bg-ink-50/70 dark:bg-white/[0.03]">
+                    <th className="w-[170px] px-2.5 py-2 text-left font-semibold text-ink-500">Reviewer *</th>
+                    <th className="w-[110px] px-2.5 py-2 text-left font-semibold text-ink-500">Rating *</th>
+                    <th className="w-[200px] px-2.5 py-2 text-left font-semibold text-ink-500">Title</th>
+                    <th className="px-2.5 py-2 text-left font-semibold text-ink-500">Review *</th>
+                    <th className="w-[44px] px-2.5 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {manualRows.map((row, i) => (
+                    <tr key={i} className="border-b border-border last:border-0">
+                      <td className="p-1.5">
+                        <Input
+                          className="h-8 rounded-lg text-[12px]"
+                          placeholder="Name"
+                          value={row.reviewerName}
+                          onChange={e => updateRow(i, 'reviewerName', e.target.value)}
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <Select value={row.rating} onValueChange={(v) => updateRow(i, 'rating', v)}>
+                          <SelectTrigger className="h-8 rounded-lg text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {[5, 4, 3, 2, 1].map(n => (
+                              <SelectItem key={n} value={String(n)}>{n} star{n > 1 ? 's' : ''}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="p-1.5">
+                        <Input
+                          className="h-8 rounded-lg text-[12px]"
+                          placeholder="Optional"
+                          value={row.title}
+                          onChange={e => updateRow(i, 'title', e.target.value)}
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <Input
+                          className="h-8 rounded-lg text-[12px]"
+                          placeholder="What did they say?"
+                          value={row.body}
+                          onChange={e => updateRow(i, 'body', e.target.value)}
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <button
+                          onClick={() => removeRow(i)}
+                          disabled={manualRows.length === 1}
+                          aria-label="Remove row"
+                          className="ring-focus rounded-lg p-1.5 text-ink-300 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 dark:hover:bg-rose-500/10"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ) : (
-            <>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Needs a free Etsy API keystring: create one at etsy.com/developers → Your apps,
-                and add <code>/api/etsy/callback</code> on this app&apos;s domain as the callback URL.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">Etsy keystring</Label>
-                  <input type="text" value={etsyKey} onChange={e => setEtsyKey(e.target.value)}
-                    className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm" />
-                </div>
-                <div>
-                  <Label className="text-xs">Shop ID or shop name</Label>
-                  <input type="text" value={etsyShop} onChange={e => setEtsyShop(e.target.value)}
-                    className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-xs shadow-sm" />
-                </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <ActionButton size="sm" variant="outline" icon={Plus} onClick={addRow}>
+                Add row
+              </ActionButton>
+              <div className="flex-1" />
+              <ActionButton
+                icon={Upload}
+                onClick={handleUpload}
+                disabled={uploading || manualRows.every(r => !r.reviewerName || !r.body)}
+              >
+                {uploading ? 'Saving…' : `Add ${manualRows.filter(r => r.reviewerName && r.body).length || ''} review${manualRows.filter(r => r.reviewerName && r.body).length === 1 ? '' : 's'}`}
+              </ActionButton>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {/* ── AliExpress ── */}
+      {source === 'aliexpress' && (
+        <Panel className="animate-rise">
+          <PanelHeader
+            title="Import from an AliExpress listing"
+            description="Paste the listing URL for a product you dropship. Reviews land on the product selected above."
+            icon={Link2}
+            tone="amber"
+          />
+          <div className="space-y-4 px-5 pb-5">
+            <div>
+              <Label className="text-[12.5px] font-semibold">Listing URL</Label>
+              <Input
+                type="url"
+                value={aliUrl}
+                onChange={e => { setAliUrl(e.target.value); setAliResult(null); }}
+                placeholder="https://www.aliexpress.com/item/1005001234567890.html"
+                className="mt-1.5 h-10 rounded-xl text-[13px]"
+              />
+            </div>
+
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-ink-50 p-3 transition-colors hover:bg-ink-100/70 dark:bg-white/[0.03] dark:hover:bg-white/[0.06]">
+              <input
+                type="checkbox"
+                checked={aliConfirm}
+                onChange={e => setAliConfirm(e.target.checked)}
+                className="mt-0.5 size-4 accent-[var(--brand-600)]"
+              />
+              <span className="text-[12px] leading-relaxed text-ink-600 dark:text-ink-300">
+                I confirm this listing is the <strong className="text-ink-800 dark:text-white">same product</strong> I
+                sell — these reviews describe the exact item my customers receive. Imported reviews
+                show their AliExpress source and are never labelled as verified purchases.
+              </span>
+            </label>
+
+            <ActionButton
+              icon={Download}
+              onClick={handleAliImport}
+              disabled={aliImporting || !aliUrl.trim() || !aliConfirm}
+            >
+              {aliImporting ? 'Importing…' : 'Import reviews'}
+            </ActionButton>
+
+            {aliResult && (
+              <div className="flex items-start gap-2.5 rounded-xl bg-brand-50 p-3.5 text-[12.5px] text-brand-800 dark:bg-brand-500/10 dark:text-brand-200">
+                <Sparkles className="mt-0.5 size-4 shrink-0" />
+                <p className="leading-relaxed">
+                  Imported <strong>{aliResult.imported}</strong> review{aliResult.imported === 1 ? '' : 's'}
+                  {aliResult.skipped > 0 ? `, skipped ${aliResult.skipped} already here` : ''}
+                  {aliResult.truncated
+                    ? ` — the listing reports ${aliResult.listingTotal} in total. Run the import again later, or upgrade for more room.`
+                    : '.'}
+                </p>
               </div>
-              <Button onClick={etsyConnect} disabled={etsyBusy || !etsyKey.trim() || !etsyShop.trim()}
-                className="bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
-                {etsyBusy ? 'Connecting…' : 'Connect Etsy'}
-              </Button>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </div>
+        </Panel>
+      )}
 
-      {/* Results */}
+      {/* ── Etsy ── */}
+      {source === 'etsy' && (
+        <Panel className="animate-rise">
+          <PanelHeader
+            title="Sync from Etsy"
+            description="Sell the same products on Etsy? Connect your shop and reviews sync in weekly, matched by product title and counted as verified reviewers."
+            icon={Store}
+            tone="rose"
+          />
+          <div className="space-y-4 px-5 pb-5">
+            {etsy?.connected ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-brand-50 p-4 dark:bg-brand-500/10">
+                <div>
+                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-brand-800 dark:text-brand-200">
+                    <CheckCircle2 className="size-4" />
+                    Connected to {etsy.shopId}
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-brand-700/80 dark:text-brand-300/80">
+                    {etsy.lastSyncAt
+                      ? `Last synced ${new Date(etsy.lastSyncAt).toLocaleDateString()}`
+                      : 'Never synced yet'}
+                  </p>
+                </div>
+                <ActionButton icon={Download} onClick={etsySync} disabled={etsyBusy}>
+                  {etsyBusy ? 'Syncing…' : 'Sync now'}
+                </ActionButton>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2.5 rounded-xl bg-ink-50 p-3.5 dark:bg-white/[0.03]">
+                  <Info className="mt-0.5 size-4 shrink-0 text-ink-400" />
+                  <p className="text-[12px] leading-relaxed text-ink-600 dark:text-ink-300">
+                    Needs a free Etsy API keystring. Create one at <strong>etsy.com/developers → Your apps</strong>,
+                    and set the callback URL to <code className="rounded bg-ink-200/70 px-1 py-0.5 text-[11px] dark:bg-white/10">/api/etsy/callback</code> on this app&apos;s domain.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-[12.5px] font-semibold">Etsy keystring</Label>
+                    <Input
+                      value={etsyKey}
+                      onChange={e => setEtsyKey(e.target.value)}
+                      placeholder="abc123def456…"
+                      className="mt-1.5 h-10 rounded-xl text-[13px]"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[12.5px] font-semibold">Shop ID or name</Label>
+                    <Input
+                      value={etsyShop}
+                      onChange={e => setEtsyShop(e.target.value)}
+                      placeholder="YourShopName"
+                      className="mt-1.5 h-10 rounded-xl text-[13px]"
+                    />
+                  </div>
+                </div>
+
+                <ActionButton
+                  trailingIcon={ArrowRight}
+                  onClick={etsyConnect}
+                  disabled={etsyBusy || !etsyKey.trim() || !etsyShop.trim()}
+                >
+                  {etsyBusy ? 'Connecting…' : 'Connect Etsy'}
+                </ActionButton>
+              </>
+            )}
+          </div>
+        </Panel>
+      )}
+
+      {/* ── Results ── */}
       {result && (
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Upload Results</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="text-center p-3 bg-emerald-50 rounded-lg">
-                <CheckCircle className="w-6 h-6 mx-auto text-emerald-500" />
-                <p className="text-lg font-bold text-emerald-700 mt-1">{result.imported}</p>
-                <p className="text-[11px] text-emerald-600">Imported</p>
-              </div>
-              <div className="text-center p-3 bg-red-50 rounded-lg">
-                <XCircle className="w-6 h-6 mx-auto text-red-500" />
-                <p className="text-lg font-bold text-red-700 mt-1">{result.failed}</p>
-                <p className="text-[11px] text-red-600">Failed</p>
-              </div>
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <AlertCircle className="w-6 h-6 mx-auto text-gray-500" />
-                <p className="text-lg font-bold">{result.total}</p>
-                <p className="text-[11px] text-muted-foreground">Total</p>
-              </div>
+        <Panel className="animate-rise">
+          <PanelHeader title="Import results" icon={CheckCircle2} tone="brand" />
+          <div className="px-5 pb-5">
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Imported', value: result.imported, icon: CheckCircle2, cls: 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' },
+                { label: 'Failed', value: result.failed, icon: XCircle, cls: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' },
+                { label: 'Rows read', value: result.total, icon: AlertCircle, cls: 'bg-ink-100 text-ink-600 dark:bg-white/5 dark:text-ink-300' },
+              ].map(s => (
+                <div key={s.label} className={cn('rounded-xl p-4 text-center', s.cls)}>
+                  <s.icon className="mx-auto size-5" />
+                  <p className="tnum mt-1.5 text-[22px] font-bold leading-none">{s.value}</p>
+                  <p className="mt-1 text-[11.5px] font-medium opacity-80">{s.label}</p>
+                </div>
+              ))}
             </div>
+
             {result.errors.length > 0 && (
-              <div className="bg-red-50 rounded-lg p-3 max-h-40 overflow-y-auto">
-                <p className="text-xs font-medium text-red-800 mb-1">Errors:</p>
+              <div className="mt-4 max-h-44 overflow-y-auto rounded-xl bg-rose-50 p-3.5 dark:bg-rose-500/10">
+                <p className="mb-1.5 text-[12px] font-semibold text-rose-800 dark:text-rose-200">
+                  {result.errors.length} row{result.errors.length === 1 ? '' : 's'} could not be imported
+                </p>
                 {result.errors.map((err, i) => (
-                  <p key={i} className="text-[11px] text-red-600">• {err}</p>
+                  <p key={i} className="text-[11.5px] leading-relaxed text-rose-700 dark:text-rose-300">• {err}</p>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       )}
     </div>
   );

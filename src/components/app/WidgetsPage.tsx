@@ -4,17 +4,16 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Star, Grid, Layers, LayoutList, Columns, MessageSquare, Eye, Sparkles,
   Monitor, Smartphone, Trash2, Save, Loader2, Info, CheckCircle2, Pencil,
+  Check, AlertTriangle, Palette, SlidersHorizontal, ListChecks, Blocks, Lock,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
+import { Panel, PanelHeader, Pill, ActionButton, EmptyState, Skeleton } from './ui-kit';
 
 /**
  * Widget builder.
@@ -143,9 +142,9 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
         <Stars rating={r.rating} color={cfg.starColor} />
         <span className="text-[11px] font-semibold">{r.name}</span>
         {cfg.showVerified && r.verified && (
-          <span className="text-[9px] px-1.5 py-px rounded-full bg-emerald-50 text-emerald-700">Verified</span>
+          <span className="text-[9px] px-1.5 py-px rounded-full bg-brand-50 text-brand-700">Verified</span>
         )}
-        {cfg.showSource && <span className="text-[9px] px-1.5 py-px rounded-full bg-slate-100 text-slate-600">Import</span>}
+        {cfg.showSource && <span className="text-[9px] px-1.5 py-px rounded-full bg-ink-100 text-ink-500">Import</span>}
         <span className="text-[9px] opacity-50 ml-auto">{r.date}</span>
       </div>
       <p className="text-[11px] font-medium mt-1.5">{r.title}</p>
@@ -153,12 +152,13 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
       {cfg.showPhotos && i === 0 && (
         <div className="flex gap-1 mt-1.5">
           {[0, 1].map(k => (
-            <div key={k} className="w-9 h-9 rounded bg-gradient-to-br from-slate-200 to-slate-300" style={{ borderRadius: Math.min(cfg.borderRadius, 8) }} />
+            <div key={k} className="w-9 h-9 rounded bg-gradient-to-br from-ink-200 to-ink-300" style={{ borderRadius: Math.min(cfg.borderRadius, 8) }} />
           ))}
         </div>
       )}
       {cfg.showReply && i === 1 && (
-        <div className="mt-1.5 pl-2 border-l-2 border-emerald-500 text-[10px] opacity-75">
+        // The storefront draws this rule in the accent colour (--rm-accent, #059669).
+        <div className="mt-1.5 pl-2 border-l-2 text-[10px] opacity-75" style={{ borderLeftColor: '#059669' }}>
           <strong>Store response</strong>
           <p className="mt-px">Thanks James — glad it arrived quickly.</p>
         </div>
@@ -175,18 +175,18 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
     return (
       <div style={{ border: '1px solid #e5e7eb', borderRadius: cfg.borderRadius, padding: 14, background: cfg.backgroundColor, color: cfg.textColor }} className="flex items-center gap-5 flex-wrap">
         <div>
-          <p className="text-2xl font-bold leading-none">4.8</p>
+          <p className="tnum text-2xl font-bold leading-none display">4.8</p>
           <Stars rating={5} color={cfg.starColor} size={14} />
-          <p className="text-[10px] opacity-60 mt-1">Based on 156 reviews</p>
+          <p className="tnum text-[10px] opacity-60 mt-1">Based on 156 reviews</p>
         </div>
         <div className="flex-1 min-w-[160px] space-y-1">
           {[[5, 65], [4, 22], [3, 8], [2, 3], [1, 2]].map(([s, pct]) => (
             <div key={s} className="flex items-center gap-2">
-              <span className="text-[10px] w-4">{s}★</span>
-              <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <span className="tnum text-[10px] w-4">{s}★</span>
+              <div className="flex-1 h-1.5 bg-ink-100 rounded-full overflow-hidden">
                 <div className="h-full rounded-full" style={{ width: `${pct}%`, background: cfg.starColor }} />
               </div>
-              <span className="text-[9px] opacity-50 w-6 text-right">{pct}%</span>
+              <span className="tnum text-[9px] opacity-50 w-6 text-right">{pct}%</span>
             </div>
           ))}
         </div>
@@ -208,13 +208,13 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
 
   if (IS_OVERLAY.has(type)) {
     return (
-      <div className="relative h-[300px] rounded-lg border bg-white overflow-hidden">
+      <div className="relative h-[300px] rounded-xl border bg-white overflow-hidden">
         {/* A stand-in storefront, so the overlay's position on the page is legible. */}
         <div className="p-4 space-y-2 opacity-30">
-          <div className="h-24 bg-gray-200 rounded" />
-          <div className="h-3 bg-gray-200 rounded w-2/3" />
-          <div className="h-3 bg-gray-200 rounded w-1/2" />
-          <div className="h-8 bg-gray-300 rounded w-32" />
+          <div className="h-24 bg-ink-200 rounded-lg" />
+          <div className="h-3 bg-ink-200 rounded w-2/3" />
+          <div className="h-3 bg-ink-200 rounded w-1/2" />
+          <div className="h-8 bg-ink-300 rounded-lg w-32" />
         </div>
 
         {type === 'popup' ? (
@@ -227,7 +227,7 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
               <p className="text-[11px] font-bold mb-2">Customer reviews</p>
               <div className="space-y-2">{SAMPLE.slice(0, 2).map((r, i) => card(r, i))}</div>
             </div>
-            <p className="absolute bottom-2 left-0 right-0 text-center text-[10px] text-muted-foreground">
+            <p className="tnum absolute bottom-2 left-0 right-0 text-center text-[10px] text-ink-400">
               Opens after {cfg.popupDelay}s, once per visit
             </p>
           </>
@@ -252,14 +252,14 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
   if (type === 'carousel') {
     return (
       <div>
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
           {SAMPLE.slice(0, Math.min(4, cfg.maxReviews)).map((r, i) => card(r, i, { minWidth: 230, maxWidth: 230, flex: '0 0 auto' }))}
         </div>
         <div className="flex justify-end gap-1.5 mt-1">
-          <span className="w-6 h-6 rounded border flex items-center justify-center text-xs">‹</span>
-          <span className="w-6 h-6 rounded border flex items-center justify-center text-xs">›</span>
+          <span className="w-6 h-6 rounded-lg border flex items-center justify-center text-xs">‹</span>
+          <span className="w-6 h-6 rounded-lg border flex items-center justify-center text-xs">›</span>
         </div>
-        {cfg.autoPlay && <p className="text-[10px] text-muted-foreground mt-1">Advances every 5s until a shopper interacts</p>}
+        {cfg.autoPlay && <p className="text-[10px] text-ink-400 mt-1">Advances every 5s until a shopper interacts</p>}
       </div>
     );
   }
@@ -279,6 +279,13 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
     <div style={{ display: 'grid', gap: 12, gridTemplateColumns: `repeat(${columns}, minmax(0,1fr))` }}>
       {SAMPLE.slice(0, Math.min(type === 'list' ? 3 : 4, cfg.maxReviews)).map((r, i) => card(r, i))}
     </div>
+  );
+}
+
+/** One label treatment for every field in the builder, so the form reads as one form. */
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <Label className="text-[11.5px] font-medium text-ink-500">{children}</Label>
   );
 }
 
@@ -410,295 +417,464 @@ export default function WidgetsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold">Widget builder</h2>
-        <p className="text-xs text-muted-foreground">
-          Choose how reviews look on each part of your storefront. Changes go live without touching your theme.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* ── Left: type, settings, saved widgets ────────────────────────────────── */}
-        <div className="space-y-4">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Widget type</CardTitle>
-              <CardDescription className="text-xs">Choose how reviews are displayed</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-2">
-                {widgetTypes.map(wt => (
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      {/* ── Left: type, settings, saved widgets ────────────────────────────────── */}
+      <div className="stagger space-y-4">
+        <Panel>
+          <PanelHeader
+            title="Widget type"
+            description="Choose how reviews are displayed."
+            icon={Blocks}
+            tone="brand"
+            action={<Pill tone="neutral" className="tnum">{widgetTypes.length} layouts</Pill>}
+          />
+          <div className="px-5 pb-5">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              {widgetTypes.map(wt => {
+                const active = selectedType === wt.id;
+                return (
                   <button
                     key={wt.id}
                     type="button"
                     title={wt.desc}
-                    className={`p-3 rounded-xl border-2 text-left transition-all ${
-                      selectedType === wt.id ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                    aria-pressed={active}
+                    className={cn(
+                      'ring-focus relative rounded-2xl p-3 text-left transition-all duration-200',
+                      active
+                        ? 'surface-float -translate-y-0.5 border-brand-500/40'
+                        : 'surface-raised lift'
+                    )}
                     onClick={() => (editingId ? setSelectedType(wt.id) : startNew(wt.id))}
                   >
-                    <wt.icon className={`w-5 h-5 ${selectedType === wt.id ? 'text-emerald-600' : 'text-gray-400'}`} />
-                    <p className="text-[11px] font-semibold mt-1.5">{wt.name}</p>
+                    {active && (
+                      <span className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full bg-brand-600 text-white shadow-[var(--glow-brand)]">
+                        <Check className="size-3" strokeWidth={3.5} />
+                      </span>
+                    )}
+                    <span
+                      className={cn(
+                        'tile size-8',
+                        active
+                          ? 'tile-brand'
+                          : 'bg-ink-100 text-ink-500 dark:bg-white/8 dark:text-ink-300'
+                      )}
+                    >
+                      <wt.icon className="size-4" strokeWidth={2.2} />
+                    </span>
+                    <p className="mt-2 text-[12.5px] font-semibold leading-tight text-ink-900 dark:text-white">
+                      {wt.name}
+                    </p>
                   </button>
-                ))}
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-3">
-                {widgetTypes.find(w => w.id === selectedType)?.desc}
-              </p>
-            </CardContent>
-          </Card>
+                );
+              })}
+            </div>
+            <p className="mt-3.5 flex items-start gap-1.5 text-[12.5px] leading-snug text-ink-500">
+              <Sparkles className="mt-px size-3.5 shrink-0 text-brand-500" strokeWidth={2.4} />
+              {widgetTypes.find(w => w.id === selectedType)?.desc}
+            </p>
+          </div>
+        </Panel>
 
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">
-                {editingId ? 'Edit widget' : 'New widget'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+        <Panel>
+          <PanelHeader
+            title={editingId ? 'Edit widget' : 'New widget'}
+            description="Name it, then pick which part of your storefront it governs."
+            icon={Pencil}
+            tone="indigo"
+            action={
+              editingId
+                ? <Pill tone="amber" icon={Pencil}>Editing</Pill>
+                : <Pill tone="brand" icon={Sparkles}>Draft</Pill>
+            }
+          />
+          <div className="space-y-4 px-5 pb-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <FieldLabel>Name</FieldLabel>
+                <Input className="mt-1.5 h-9 rounded-xl text-[13px]" value={name} onChange={e => setName(e.target.value)} />
+              </div>
+              <div>
+                <FieldLabel>Where it appears</FieldLabel>
+                <Select value={placement} onValueChange={setPlacement}>
+                  <SelectTrigger className="mt-1.5 h-9 w-full rounded-xl text-[13px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {placements.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {conflict && (
+              <div className="flex gap-2.5 rounded-xl border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-400/15 dark:bg-amber-500/[0.07]">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+                <p className="text-[12px] leading-relaxed text-amber-900 dark:text-amber-100">
+                  <strong className="font-semibold">{governing!.name}</strong> already governs the {placements.find(p => p.value === placement)?.label.toLowerCase()}.
+                  Saving this one will take over — or edit that widget instead.
+                </p>
+              </div>
+            )}
+          </div>
+        </Panel>
+
+        <Panel>
+          <PanelHeader
+            title="Layout"
+            description="How much is shown, and the shape of each card."
+            icon={SlidersHorizontal}
+            tone="cyan"
+          />
+          <div className="space-y-3.5 px-5 pb-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <FieldLabel>Reviews shown</FieldLabel>
+                <Input type="number" min={1} max={50} className="tnum mt-1.5 h-9 rounded-xl text-[13px]" value={cfg.maxReviews} onChange={e => set('maxReviews', Number(e.target.value))} />
+              </div>
+              {USES_COLUMNS.has(selectedType) && (
                 <div>
-                  <Label className="text-xs">Name</Label>
-                  <Input className="h-8 text-xs mt-1" value={name} onChange={e => setName(e.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs">Where it appears</Label>
-                  <Select value={placement} onValueChange={setPlacement}>
-                    <SelectTrigger className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
+                  <FieldLabel>Columns</FieldLabel>
+                  <Select value={String(cfg.columns)} onValueChange={v => set('columns', Number(v))}>
+                    <SelectTrigger className="mt-1.5 h-9 w-full rounded-xl text-[13px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {placements.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                      {[2, 3, 4].map(n => <SelectItem key={n} value={String(n)}>{n} columns</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-
-              {conflict && (
-                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2">
-                  <strong>{governing!.name}</strong> already governs the {placements.find(p => p.value === placement)?.label.toLowerCase()}.
-                  Saving this one will take over — or edit that widget instead.
-                </p>
               )}
+              <div>
+                <FieldLabel>Corner radius</FieldLabel>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input type="number" min={0} max={40} className="tnum h-9 flex-1 rounded-xl text-[13px]" value={cfg.borderRadius} onChange={e => set('borderRadius', Number(e.target.value))} />
+                  {/* A live shape chip: the number means nothing until you see the corner. */}
+                  <span
+                    aria-hidden
+                    className="size-9 shrink-0 border border-border bg-ink-100 dark:bg-white/8"
+                    style={{ borderRadius: Math.min(cfg.borderRadius, 18) }}
+                  />
+                </div>
+              </div>
+              {selectedType === 'popup' && (
+                <div>
+                  <FieldLabel>Open after (seconds)</FieldLabel>
+                  <Input type="number" min={0} max={120} className="tnum mt-1.5 h-9 rounded-xl text-[13px]" value={cfg.popupDelay} onChange={e => set('popupDelay', Number(e.target.value))} />
+                </div>
+              )}
+              <div>
+                <FieldLabel>Sort by</FieldLabel>
+                <Select value={cfg.sortBy} onValueChange={v => set('sortBy', v)}>
+                  <SelectTrigger className="mt-1.5 h-9 w-full rounded-xl text-[13px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="recent">Most recent</SelectItem>
+                    <SelectItem value="highest">Highest rating</SelectItem>
+                    <SelectItem value="lowest">Lowest rating</SelectItem>
+                    <SelectItem value="helpful">Most helpful</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-              <Separator />
+            {selectedType === 'carousel' && (
+              <div className="animate-rise flex items-center justify-between gap-3 rounded-xl bg-ink-50 px-3 py-2.5 dark:bg-white/[0.03]">
+                <div className="min-w-0">
+                  <span className="text-[12.5px] font-medium text-ink-800 dark:text-white">Advance automatically</span>
+                  <p className="text-[11.5px] leading-snug text-ink-500">Stops the moment a shopper interacts</p>
+                </div>
+                <Switch checked={cfg.autoPlay} onCheckedChange={v => set('autoPlay', v)} aria-label="Advance automatically" />
+              </div>
+            )}
+          </div>
+        </Panel>
 
-              <div className="space-y-3">
-                <Label className="text-xs font-medium">Layout</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">Reviews shown</Label>
-                    <Input type="number" min={1} max={50} className="h-8 text-xs mt-1" value={cfg.maxReviews} onChange={e => set('maxReviews', Number(e.target.value))} />
-                  </div>
-                  {USES_COLUMNS.has(selectedType) && (
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Columns</Label>
-                      <Select value={String(cfg.columns)} onValueChange={v => set('columns', Number(v))}>
-                        <SelectTrigger className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {[2, 3, 4].map(n => <SelectItem key={n} value={String(n)}>{n} columns</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">Corner radius</Label>
-                    <Input type="number" min={0} max={40} className="h-8 text-xs mt-1" value={cfg.borderRadius} onChange={e => set('borderRadius', Number(e.target.value))} />
-                  </div>
-                  {selectedType === 'popup' && (
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Open after (seconds)</Label>
-                      <Input type="number" min={0} max={120} className="h-8 text-xs mt-1" value={cfg.popupDelay} onChange={e => set('popupDelay', Number(e.target.value))} />
-                    </div>
-                  )}
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">Sort by</Label>
-                    <Select value={cfg.sortBy} onValueChange={v => set('sortBy', v)}>
-                      <SelectTrigger className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="recent">Most recent</SelectItem>
-                        <SelectItem value="highest">Highest rating</SelectItem>
-                        <SelectItem value="lowest">Lowest rating</SelectItem>
-                        <SelectItem value="helpful">Most helpful</SelectItem>
-                      </SelectContent>
-                    </Select>
+        <Panel>
+          <PanelHeader
+            title="Colours"
+            description="These override your account colours for this placement only."
+            icon={Palette}
+            tone="violet"
+          />
+          <div className="px-5 pb-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {([
+                ['starColor', 'Stars'],
+                ['backgroundColor', 'Card'],
+                ['textColor', 'Text'],
+              ] as const).map(([key, label]) => (
+                <div key={key}>
+                  <FieldLabel>{label}</FieldLabel>
+                  <div className="mt-1.5 flex gap-2">
+                    {/* Real swatch: the native picker sits invisibly on top of it. */}
+                    <span
+                      className="relative size-9 shrink-0 overflow-hidden rounded-xl ring-1 ring-inset ring-ink-900/12 shadow-[inset_0_1px_0_rgba(255,255,255,.45)] dark:ring-white/15"
+                      style={{ background: cfg[key] }}
+                    >
+                      <input type="color" value={cfg[key]} onChange={e => set(key, e.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" aria-label={label} />
+                    </span>
+                    <Input className="h-9 min-w-0 flex-1 rounded-xl font-mono text-[12px]" value={cfg[key]} onChange={e => set(key, e.target.value)} spellCheck={false} />
                   </div>
                 </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[11.5px] leading-snug text-ink-400">
+              Leave them alone to inherit Settings → Display.
+            </p>
+          </div>
+        </Panel>
 
-                {selectedType === 'carousel' && (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs">Advance automatically</span>
-                      <p className="text-[10px] text-muted-foreground">Stops the moment a shopper interacts</p>
-                    </div>
-                    <Switch checked={cfg.autoPlay} onCheckedChange={v => set('autoPlay', v)} />
-                  </div>
-                )}
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <Label className="text-xs font-medium">Colours</Label>
-                <div className="grid grid-cols-3 gap-3">
-                  {([
-                    ['starColor', 'Stars'],
-                    ['backgroundColor', 'Card'],
-                    ['textColor', 'Text'],
-                  ] as const).map(([key, label]) => (
-                    <div key={key}>
-                      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-                      <div className="flex gap-1.5 mt-1">
-                        <input type="color" value={cfg[key]} onChange={e => set(key, e.target.value)} className="w-8 h-8 rounded border cursor-pointer p-0" aria-label={label} />
-                        <Input className="h-8 text-[11px] flex-1 font-mono" value={cfg[key]} onChange={e => set(key, e.target.value)} spellCheck={false} />
-                      </div>
-                    </div>
-                  ))}
+        <Panel>
+          <PanelHeader
+            title="What each review shows"
+            description="Trim a card down to only the parts you want shoppers reading."
+            icon={ListChecks}
+            tone="amber"
+          />
+          <div className="px-5 pb-5">
+            <div className="overflow-hidden rounded-xl border border-border">
+              {([
+                ['showPhotos', 'Photos and video'],
+                ['showVerified', 'Verified Purchase badge'],
+                ['showSource', 'Source badge'],
+                ['showReply', 'Your replies'],
+                ['showHelpful', '“Helpful” button'],
+              ] as const).map(([key, label], i) => (
+                <div
+                  key={key}
+                  className={cn(
+                    'flex items-center justify-between gap-3 bg-card px-3 py-2.5',
+                    i > 0 && 'border-t border-border'
+                  )}
+                >
+                  <span className="text-[12.5px] text-ink-700 dark:text-ink-200">{label}</span>
+                  <Switch checked={cfg[key]} onCheckedChange={v => set(key, v)} aria-label={label} />
                 </div>
-                <p className="text-[10px] text-muted-foreground">
-                  These override your account colours for this placement only. Leave them alone to inherit Settings → Display.
-                </p>
-              </div>
+              ))}
+            </div>
+          </div>
+        </Panel>
 
-              <Separator />
+        <Panel elevation="float" className="flex flex-wrap items-center gap-2 p-3">
+          <ActionButton onClick={save} disabled={saving} className="min-w-[168px] flex-1">
+            {saving ? <Loader2 className="size-4 animate-spin" strokeWidth={2.4} /> : <Save className="size-4" strokeWidth={2.4} />}
+            {editingId ? 'Update widget' : 'Save widget'}
+          </ActionButton>
+          {editingId && (
+            <ActionButton variant="outline" onClick={() => { setEditingId(null); startNew(selectedType); }}>
+              Cancel
+            </ActionButton>
+          )}
+          <p className="w-full text-[11.5px] leading-snug text-ink-400 sm:w-auto sm:flex-1 sm:text-right">
+            Live on your storefront within about five minutes.
+          </p>
+        </Panel>
 
-              <div className="space-y-3">
-                <Label className="text-xs font-medium">What each review shows</Label>
-                {([
-                  ['showPhotos', 'Photos and video'],
-                  ['showVerified', 'Verified Purchase badge'],
-                  ['showSource', 'Source badge'],
-                  ['showReply', 'Your replies'],
-                  ['showHelpful', '“Helpful” button'],
-                ] as const).map(([key, label]) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{label}</span>
-                    <Switch checked={cfg[key]} onCheckedChange={v => set(key, v)} />
+        <Panel>
+          <PanelHeader
+            title="Your widgets"
+            description="One widget governs each placement. Inactive widgets are kept but ignored."
+            icon={Layers}
+            tone="ink"
+            action={<Pill tone="neutral" className="tnum">{widgets.length}</Pill>}
+          />
+          <div className="px-5 pb-5">
+            {loading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-xl border border-border p-2.5">
+                    <Skeleton className="size-9 rounded-xl" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-3 w-1/3" />
+                      <Skeleton className="h-2.5 w-1/4" />
+                    </div>
+                    <Skeleton className="h-5 w-8 rounded-full" />
                   </div>
                 ))}
               </div>
+            ) : widgets.length === 0 ? (
+              <EmptyState
+                icon={LayoutList}
+                tone="indigo"
+                title="No widgets yet"
+                description="Your storefront is using the default list layout. Pick a type above, then save it to take over."
+              />
+            ) : (
+              <div className="space-y-2">
+                {widgets.map(w => {
+                  const T = widgetTypes.find(t => t.id === w.widgetType);
+                  const isGoverning = governing?.id === w.id;
+                  return (
+                    <div
+                      key={w.id}
+                      className={cn(
+                        'flex items-center gap-2.5 rounded-xl border p-2.5 transition-colors',
+                        isGoverning
+                          ? 'border-brand-500/35 bg-brand-50/60 dark:border-brand-400/25 dark:bg-brand-500/[0.07]'
+                          : 'border-border bg-ink-50/70 dark:bg-white/[0.03]'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'tile size-9 shrink-0',
+                          w.isActive ? 'tile-brand' : 'bg-ink-200 text-ink-400 dark:bg-white/8 dark:text-ink-400'
+                        )}
+                      >
+                        {T ? <T.icon className="size-4" strokeWidth={2.2} /> : <Star className="size-4" strokeWidth={2.2} />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-semibold text-ink-900 dark:text-white">{w.name}</p>
+                        <p className="mt-0.5 truncate text-[11.5px] text-ink-500">
+                          {T?.name ?? w.widgetType} · {placements.find(p => p.value === w.placement)?.label ?? 'Anywhere'}
+                        </p>
+                      </div>
+                      {isGoverning && (
+                        <Pill tone="brand" icon={CheckCircle2}>Live</Pill>
+                      )}
+                      <Switch checked={w.isActive} onCheckedChange={() => toggleActive(w)} aria-label="Active" />
+                      <ActionButton
+                        variant="ghost"
+                        size="sm"
+                        className="px-2"
+                        onClick={() => startEdit(w)}
+                        aria-label="Edit"
+                        title="Edit"
+                      >
+                        <Pencil className="size-3.5" />
+                      </ActionButton>
+                      <ActionButton
+                        variant="ghost"
+                        size="sm"
+                        className="px-2 text-rose-500 hover:bg-rose-50 hover:text-rose-600 dark:text-rose-400 dark:hover:bg-rose-500/12"
+                        onClick={() => remove(w.id)}
+                        aria-label="Delete"
+                        title="Delete"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </ActionButton>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Panel>
+      </div>
 
-              <div className="flex gap-2">
-                <Button onClick={save} disabled={saving} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-xs gap-1.5">
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  {editingId ? 'Update widget' : 'Save widget'}
-                </Button>
-                {editingId && (
-                  <Button variant="outline" className="text-xs" onClick={() => { setEditingId(null); startNew(selectedType); }}>
-                    Cancel
-                  </Button>
+      {/* ── Right: preview and install ─────────────────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="sticky top-28 space-y-4">
+          <Panel elevation="hero">
+            <PanelHeader
+              title="Live preview"
+              description="Built from the settings on the left."
+              icon={Eye}
+              tone="brand"
+              action={
+                <div className="flex items-center gap-0.5 rounded-xl bg-ink-100 p-0.5 dark:bg-white/8">
+                  {([
+                    ['desktop', Monitor, 'Desktop'],
+                    ['mobile', Smartphone, 'Mobile'],
+                  ] as const).map(([id, Icon, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={device === id}
+                      onClick={() => setDevice(id)}
+                      className={cn(
+                        'ring-focus inline-flex items-center gap-1.5 rounded-[10px] px-2.5 py-1.5 text-[11.5px] font-semibold transition-all',
+                        device === id
+                          ? 'bg-card text-ink-900 shadow-[var(--elev-1)] dark:text-white'
+                          : 'text-ink-500 hover:text-ink-700 dark:hover:text-ink-200'
+                      )}
+                    >
+                      <Icon className="size-3.5" strokeWidth={2.4} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
+            <div className="px-5 pb-5">
+              {/* A stage rather than a plain box: chrome + grid backdrop reads as "your store". */}
+              <div className="relative overflow-hidden rounded-2xl border border-border bg-ink-50/80 dark:bg-white/[0.02]">
+                <div className="grid-lines pointer-events-none absolute inset-0" aria-hidden />
+
+                <div className="relative flex items-center gap-2 border-b border-border bg-card/70 px-3 py-2 backdrop-blur-sm">
+                  <span className="flex shrink-0 gap-1.5" aria-hidden>
+                    <span className="size-2.5 rounded-full bg-rose-400/80" />
+                    <span className="size-2.5 rounded-full bg-amber-400/80" />
+                    <span className="size-2.5 rounded-full bg-brand-400/80" />
+                  </span>
+                  <span className="ml-1 flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-ink-100 px-2.5 py-1 text-[10.5px] text-ink-500 dark:bg-white/8">
+                    <Lock className="size-2.5 shrink-0" strokeWidth={2.6} />
+                    <span className="truncate">
+                      your-store.myshopify.com{placement === 'product_page' ? '/products/…' : placement === 'collection_page' ? '/collections/…' : ''}
+                    </span>
+                  </span>
+                  <span className="tnum hidden shrink-0 rounded-full bg-ink-100 px-2 py-0.5 text-[10.5px] font-semibold text-ink-500 sm:inline-block dark:bg-white/8">
+                    {device === 'mobile' ? '375px' : 'Desktop'}
+                  </span>
+                </div>
+
+                <div className={cn('relative p-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
+                  <Preview type={selectedType} cfg={cfg} device={device} />
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <Pill tone="indigo">{widgetTypes.find(w => w.id === selectedType)?.name ?? selectedType}</Pill>
+                <Pill tone="cyan">{placements.find(p => p.value === placement)?.label ?? 'Anywhere'}</Pill>
+                <Pill tone="neutral" className="tnum">{cfg.maxReviews} shown</Pill>
+                {USES_COLUMNS.has(selectedType) && (
+                  <Pill tone="neutral" className="tnum">{cfg.columns} columns</Pill>
                 )}
               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Your widgets ({widgets.length})</CardTitle>
-              <CardDescription className="text-xs">
-                One widget governs each placement. Inactive widgets are kept but ignored.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="h-16 bg-gray-100 rounded-lg animate-pulse" />
-              ) : widgets.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">
-                  No widgets yet — your storefront is using the default list layout.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {widgets.map(w => {
-                    const T = widgetTypes.find(t => t.id === w.widgetType);
-                    const isGoverning = governing?.id === w.id;
-                    return (
-                      <div key={w.id} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
-                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${w.isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-200 text-gray-400'}`}>
-                          {T ? <T.icon className="w-4 h-4" /> : <Star className="w-4 h-4" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold truncate">{w.name}</p>
-                          <p className="text-[10px] text-muted-foreground capitalize">
-                            {T?.name ?? w.widgetType} · {placements.find(p => p.value === w.placement)?.label ?? 'Anywhere'}
-                          </p>
-                        </div>
-                        {isGoverning && (
-                          <Badge className="text-[10px] h-5 px-1.5 bg-emerald-600 text-white gap-1">
-                            <CheckCircle2 className="w-2.5 h-2.5" /> Live
-                          </Badge>
-                        )}
-                        <Switch checked={w.isActive} onCheckedChange={() => toggleActive(w)} aria-label="Active" />
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(w)} aria-label="Edit">
-                          <Pencil className="w-3.5 h-3.5 text-gray-500" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => remove(w.id)} aria-label="Delete">
-                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ── Right: preview and install ─────────────────────────────────────────── */}
-        <div className="space-y-4">
-          <Card className="border-0 shadow-sm sticky top-4">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-sm">Live preview</CardTitle>
-                  <CardDescription className="text-xs">Built from the settings on the left</CardDescription>
-                </div>
-                <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-                  <Button variant={device === 'desktop' ? 'secondary' : 'ghost'} size="sm" className="h-6 text-[10px] gap-1" onClick={() => setDevice('desktop')}>
-                    <Monitor className="w-3 h-3" /> Desktop
-                  </Button>
-                  <Button variant={device === 'mobile' ? 'secondary' : 'ghost'} size="sm" className="h-6 text-[10px] gap-1" onClick={() => setDevice('mobile')}>
-                    <Smartphone className="w-3 h-3" /> Mobile
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className={`bg-gray-50 rounded-xl p-4 border ${device === 'mobile' ? 'max-w-[375px] mx-auto' : ''}`}>
-                <Preview type={selectedType} cfg={cfg} device={device} />
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
 
           {/*
             Real installation instructions. The previous version of this screen offered an
             embed snippet pointing at cdn.reviewmaster.app — a domain that does not exist —
             so any merchant who followed it got nothing.
           */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-1.5">
-                <Info className="w-4 h-4 text-emerald-600" /> Putting this on your storefront
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs space-y-2.5 text-muted-foreground">
-              <p>
-                <strong className="text-foreground">1.</strong> In Shopify admin, go to
-                {' '}<strong className="text-foreground">Online Store → Themes → Customize</strong>.
+          <Panel>
+            <PanelHeader
+              title="Putting this on your storefront"
+              description="Three steps in your theme editor. No code."
+              icon={Info}
+              tone="cyan"
+            />
+            <div className="px-5 pb-5">
+              <ol className="space-y-3">
+                <li className="flex gap-2.5">
+                  <span className="tnum mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-bold text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20">1</span>
+                  <p className="text-[12.5px] leading-relaxed text-ink-500">
+                    In Shopify admin, go to
+                    {' '}<strong className="font-semibold text-ink-800 dark:text-white">Online Store → Themes → Customize</strong>.
+                  </p>
+                </li>
+                <li className="flex gap-2.5">
+                  <span className="tnum mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-bold text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20">2</span>
+                  <p className="text-[12.5px] leading-relaxed text-ink-500">
+                    Open the page you want reviews on, then
+                    {' '}<strong className="font-semibold text-ink-800 dark:text-white">Add block → Apps → Product reviews</strong>.
+                  </p>
+                </li>
+                <li className="flex gap-2.5">
+                  <span className="tnum mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-bold text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20">3</span>
+                  <p className="text-[12.5px] leading-relaxed text-ink-500">
+                    In the block&rsquo;s settings, set
+                    {' '}<strong className="font-semibold text-ink-800 dark:text-white">&ldquo;This block is on&rdquo;</strong> to
+                    {' '}<strong className="font-semibold text-ink-800 dark:text-white">{placements.find(p => p.value === placement)?.label}</strong>{' '}
+                    so it uses this widget.
+                  </p>
+                </li>
+              </ol>
+              <p className="mt-4 flex items-start gap-2 border-t border-border pt-3.5 text-[12px] leading-relaxed text-ink-400">
+                <CheckCircle2 className="mt-px size-3.5 shrink-0 text-brand-500" strokeWidth={2.4} />
+                <span>
+                  No theme code to edit, and everything is removed cleanly if you ever uninstall the app.
+                  Storefront changes appear within about five minutes.
+                </span>
               </p>
-              <p>
-                <strong className="text-foreground">2.</strong> Open the page you want reviews on, then
-                {' '}<strong className="text-foreground">Add block → Apps → Product reviews</strong>.
-              </p>
-              <p>
-                <strong className="text-foreground">3.</strong> In the block&rsquo;s settings, set
-                {' '}<strong className="text-foreground">&ldquo;This block is on&rdquo;</strong> to
-                {' '}<strong className="text-foreground">{placements.find(p => p.value === placement)?.label}</strong>{' '}
-                so it uses this widget.
-              </p>
-              <p className="pt-1 border-t">
-                No theme code to edit, and everything is removed cleanly if you ever uninstall the app.
-                Storefront changes appear within about five minutes.
-              </p>
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
         </div>
       </div>
     </div>

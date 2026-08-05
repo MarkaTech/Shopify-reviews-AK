@@ -145,7 +145,18 @@
 .rm-thumb:focus-visible { outline: 2px solid var(--rm-accent, #059669); outline-offset: 2px; }
 .rm-thumb--video { width: 96px; height: 96px; background: #1f2937; display: grid;
   place-items: center; }
-.rm-thumb__play { color: #fff; font-size: 1.6rem; line-height: 1; }
+/* The first frame of the video, painted as the thumbnail. Stacked under the play glyph
+   rather than beside it, so the tile is the same 96px square either way. */
+.rm-thumb__poster { grid-area: 1 / 1; display: block; width: 96px; height: 96px;
+  object-fit: cover; pointer-events: none; }
+.rm-thumb__play { grid-area: 1 / 1; z-index: 1; color: #fff; font-size: 1.5rem;
+  line-height: 1; display: grid; place-items: center; width: 34px; height: 34px;
+  border-radius: 999px; background: rgba(0,0,0,.5); backdrop-filter: blur(2px);
+  text-indent: 2px; transition: transform .15s ease, background .15s ease; }
+/* Reinstates the plain dark tile when the poster frame could not be decoded. */
+.rm-thumb--noposter .rm-thumb__play { background: none; width: auto; height: auto;
+  font-size: 1.6rem; }
+.rm-thumb--video:hover .rm-thumb__play { transform: scale(1.08); background: rgba(0,0,0,.65); }
 
 .rm-lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.85);
   display: grid; place-items: center; padding: 2rem; }
