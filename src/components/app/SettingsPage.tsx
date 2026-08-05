@@ -442,13 +442,10 @@ export default function SettingsPage() {
 
   return (
     <div className={cn('space-y-6', hasChanges && 'pb-24')}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="display text-[22px] font-bold text-ink-900 dark:text-white">Settings</h2>
-          <p className="mt-1 text-[13px] text-ink-500">
-            These apply to every ReviewMaster widget on your storefront.
-          </p>
-        </div>
+      {/* No page title here. The app shell (src/app/page.tsx) already renders
+          "Settings" with its breadcrumb and description above this component, and
+          repeating it put the same word on screen three times in the first 300px. */}
+      <div className="flex justify-end">
         <ActionButton variant="outline" size="sm" icon={RotateCcw} onClick={resetAll} disabled={saving}>
           Reset to defaults
         </ActionButton>

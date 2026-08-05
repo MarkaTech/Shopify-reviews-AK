@@ -211,9 +211,10 @@ export default function OnboardingCard({ onNavigate }: { onNavigate: (page: Page
                   <p
                     className={cn(
                       'text-[13px] font-semibold',
-                      done
-                        ? 'text-ink-400 line-through decoration-ink-300'
-                        : 'text-ink-900 dark:text-white'
+                      // Done steps recede to a muted weight rather than being struck
+                      // through. The tick already says "complete"; a line through the
+                      // text on top of it reads as "cancelled" or "no longer available".
+                      done ? 'text-ink-400' : 'text-ink-900 dark:text-white'
                     )}
                   >
                     {step.title}
