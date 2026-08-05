@@ -354,11 +354,18 @@
     transition-duration: 80ms;
   }
 
-  /* Frosted bar for sticky headers over scrolling content. */
+  /* Frosted bar for sticky headers over scrolling content.
+   *
+   * 72% opacity looked good over an empty page and was unreadable over a real one —
+   * body text scrolling underneath showed through the header and collided with the
+   * page title. A header has one job, and legibility beats the effect: this is now
+   * opaque enough to fully mask what passes under it, with the blur and saturation
+   * kept so it still reads as a layer of glass rather than a flat bar.
+   */
   .glass {
-    background: color-mix(in srgb, var(--card) 72%, transparent);
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    background: color-mix(in srgb, var(--card) 96%, transparent);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
   }
 
   /* ── Brand fills ────────────────────────────────────────────────────────── */
