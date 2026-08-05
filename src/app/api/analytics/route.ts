@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { getStorePlan, PLANS } from '@/lib/plans';
 
 export async function GET(request: Request) {
   try {
@@ -73,11 +74,16 @@ export async function GET(request: Request) {
     const reviewsWithImages = allReviews.filter(r => r.images && JSON.parse(r.images || '[]').length > 0).length;
     const featuredCount = allReviews.filter(r => r.isFeatured).length;
 
+    // The plan's review cap travels with the analytics payload so the shell can draw
+    // a usage meter without a second round trip on every navigation. null = unlimited.
+    const plan = await getStorePlan(storeId);
+
     return NextResponse.json({
       totalReviews, publishedReviews, pendingReviews, averageRating,
       ratingDistribution, reviewsBySource, reviewsOverTime, topProducts,
       recentReviews, verifiedPercentage, responseRate,
       sentimentDistribution, reviewsWithImages, featuredCount,
+      plan, planLimit: PLANS[plan].maxReviews,
     });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();

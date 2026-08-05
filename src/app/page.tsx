@@ -10,24 +10,29 @@ import SettingsPage from '@/components/app/SettingsPage';
 import ProductsPage from '@/components/app/ProductsPage';
 import QuestionsPage from '@/components/app/QuestionsPage';
 import IncentivesPage from '@/components/app/IncentivesPage';
+import WelcomeScreen from '@/components/app/WelcomeScreen';
 import { Toaster } from 'sonner';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Store, Star, Shield, Upload, Zap, Globe } from 'lucide-react';
+import { Star, ExternalLink, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
+import { Pill } from '@/components/app/ui-kit';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
-  dashboard: { title: 'Dashboard', desc: 'Overview of your reviews and analytics' },
-  reviews: { title: 'Reviews', desc: 'Manage all customer reviews', parent: 'Review Management' },
-  'bulk-upload': { title: 'Import Reviews', desc: 'Upload reviews you own via CSV, or collect them from real orders', parent: 'Review Management' },
-  questions: { title: 'Questions', desc: 'Answer shopper questions and publish them to your product pages', parent: 'Review Management' },
-  products: { title: 'Products', desc: 'Synced products from Shopify', parent: 'Configuration' },
-  widgets: { title: 'Widgets', desc: 'Customize review display on storefront', parent: 'Configuration' },
-  incentives: { title: 'Incentives', desc: 'Reward reviewers with a discount code — never tied to what they say', parent: 'Configuration' },
-  settings: { title: 'Settings', desc: 'App preferences and subscription', parent: 'Configuration' },
+  dashboard: { title: 'Dashboard', desc: 'How your reviews are performing' },
+  reviews: { title: 'All reviews', desc: 'Moderate, reply to and feature customer reviews', parent: 'Reviews' },
+  'bulk-upload': { title: 'Import', desc: 'Bring in reviews you own, or collect them from real orders', parent: 'Reviews' },
+  questions: { title: 'Questions', desc: 'Answer shopper questions and publish them to product pages', parent: 'Reviews' },
+  products: { title: 'Products', desc: 'Products synced from your Shopify catalogue', parent: 'Store' },
+  widgets: { title: 'Widgets', desc: 'Design how reviews appear on your storefront', parent: 'Store' },
+  incentives: { title: 'Incentives', desc: 'Reward reviewers with a discount — never tied to what they say', parent: 'Store' },
+  settings: { title: 'Settings', desc: 'Moderation rules, email timing, plan and billing', parent: 'Store' },
 };
+
+interface StoreSummary {
+  name: string;
+  shopifyDomain?: string;
+  domain?: string;
+  plan: string;
+}
 
 export default function Home() {
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
@@ -37,6 +42,14 @@ export default function Home() {
   const [storeDomain, setStoreDomain] = useState('');
   const [storePlan, setStorePlan] = useState('free');
   const [shopInput, setShopInput] = useState('');
+  // Usage for the sidebar plan meter. Kept here rather than inside Sidebar so a
+  // single fetch serves both it and anything else the shell needs.
+  const [usage, setUsage] = useState<{ reviews: number; cap: number | null; pending: number }>({
+    reviews: 0,
+    cap: null,
+    pending: 0,
+  });
+
   // Derive initial error from URL search params (no setState needed)
   const getInitialError = () => {
     if (typeof window === 'undefined') return '';
@@ -76,7 +89,7 @@ export default function Home() {
       // apiFetch, not fetch: it attaches the App Bridge session token. A bare fetch here
       // relied entirely on the cookie, which is exactly what stops working in Safari and
       // what Shopify's pre-submission check rejects.
-      const data = await apiFetch<{ store?: { name: string; shopifyDomain?: string; domain?: string; plan: string } }>('/api/store');
+      const data = await apiFetch<{ store?: StoreSummary }>('/api/store');
       if (data.store) {
         setStoreName(data.store.name);
         setStoreDomain(data.store.shopifyDomain || data.store.domain || '');
@@ -102,6 +115,23 @@ export default function Home() {
       checkSession();
     }
   }, [authError, checkSession]);
+
+  // Usage figures for the plan meter, refreshed whenever the merchant lands back on
+  // a screen that could have changed them.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    apiFetch<{ totalReviews: number; pendingReviews: number; planLimit?: number | null }>(
+      '/api/analytics'
+    )
+      .then((a) =>
+        setUsage({
+          reviews: a.totalReviews ?? 0,
+          cap: a.planLimit ?? null,
+          pending: a.pendingReviews ?? 0,
+        })
+      )
+      .catch(() => undefined);
+  }, [isAuthenticated, currentPage]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleInstall = async () => {
@@ -113,7 +143,7 @@ export default function Home() {
 
     const shopDomain = shop.includes('.myshopify.com') ? shop : `${shop}.myshopify.com`;
     if (!/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shopDomain)) {
-      setAuthError('Invalid store URL format');
+      setAuthError('That does not look like a Shopify store URL.');
       return;
     }
 
@@ -121,98 +151,42 @@ export default function Home() {
     window.location.href = `/api/auth/install?shop=${shopDomain}`;
   };
 
-  const handleLogout = () => {
-    // Clear session cookie and reload
-    document.cookie = 'reviewmaster_session=; Path=/; Max-Age=0';
-    setIsAuthenticated(false);
-    setStoreName('');
-  };
-
-  // Loading state
+  // ── Loading ──
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-          <p className="text-sm text-gray-500">Loading ReviewMaster...</p>
+      <div className="aurora flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-5">
+          <div className="relative">
+            <div className="absolute inset-0 rounded-2xl bg-brand-500/30 blur-xl" />
+            <span className="tile tile-brand pulse-ring relative size-14">
+              <Star className="size-7" fill="currentColor" strokeWidth={0} />
+            </span>
+          </div>
+          <div className="text-center">
+            <p className="text-[14px] font-semibold text-ink-800 dark:text-white">ReviewMaster</p>
+            <p className="mt-0.5 text-[12.5px] text-ink-400">Connecting to your store…</p>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Not authenticated — show install welcome screen
+  // ── Not authenticated ──
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-emerald-50/30">
-        <div className="w-full max-w-lg mx-auto px-6">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 mb-4">
-              <Star className="w-8 h-8 text-white" fill="white" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">ReviewMaster</h1>
-            <p className="text-gray-500 mt-2">The Ultimate Shopify Review App</p>
-          </div>
-
-          <Card className="shadow-xl border-0">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg">Install on Your Shopify Store</CardTitle>
-              <CardDescription>
-                Enter your Shopify store URL to install ReviewMaster and start collecting beautiful customer reviews.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="your-store.myshopify.com"
-                    value={shopInput}
-                    onChange={(e) => setShopInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleInstall()}
-                    className="pl-10 h-11"
-                  />
-                </div>
-              </div>
-
-              {authError && (
-                <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{authError}</p>
-              )}
-
-              <Button
-                onClick={handleInstall}
-                className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-base font-semibold"
-              >
-                <Store className="w-4 h-4 mr-2" />
-                Install on Shopify
-              </Button>
-
-              <div className="border-t pt-4 mt-2">
-                <p className="text-xs text-center text-gray-400 mb-4">What you get with ReviewMaster:</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <FeatureItem icon={<Star className="w-4 h-4" />} label="Collect Reviews" desc="CSV, import, manual" />
-                  <FeatureItem icon={<Upload className="w-4 h-4" />} label="Import Reviews" desc="CSV & AliExpress" />
-                  <FeatureItem icon={<Zap className="w-4 h-4" />} label="Beautiful Widgets" desc="9 customizable types" />
-                  <FeatureItem icon={<Shield className="w-4 h-4" />} label="Multi-tenant" desc="Data isolated per store" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <p className="text-center text-xs text-gray-400 mt-6">
-            By installing, you agree to our{' '}
-            <a href="/terms" className="underline hover:text-gray-600">Terms of Service</a>{' '}
-            and{' '}
-            <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>
-          </p>
-        </div>
-      </div>
+      <WelcomeScreen
+        shopInput={shopInput}
+        onShopInput={setShopInput}
+        onInstall={handleInstall}
+        error={authError}
+      />
     );
   }
 
-  // Authenticated — show the full dashboard
+  // ── Authenticated ──
   const renderPage = () => {
     switch (currentPage) {
-      case 'dashboard': return <DashboardPage />;
+      case 'dashboard': return <DashboardPage onNavigate={setCurrentPage} />;
       case 'reviews': return <ReviewsPage />;
       case 'bulk-upload': return <BulkUploadPage />;
       case 'questions': return <QuestionsPage />;
@@ -220,95 +194,80 @@ export default function Home() {
       case 'widgets': return <WidgetsPage />;
       case 'incentives': return <IncentivesPage />;
       case 'settings': return <SettingsPage />;
-      default: return <DashboardPage />;
+      default: return <DashboardPage onNavigate={setCurrentPage} />;
     }
   };
 
+  const storefrontUrl = storeDomain ? `https://${storeDomain}` : null;
+
   return (
-    <div className="flex min-h-screen bg-gray-50/50">
+    <div className="aurora flex min-h-screen bg-background">
       <Sidebar
         currentPage={currentPage}
         onPageChange={setCurrentPage}
         storeName={storeName}
         storeDomain={storeDomain}
         plan={storePlan}
+        reviewCount={usage.reviews}
+        reviewCap={usage.cap}
+        pendingCount={usage.pending}
       />
 
-      <main className="flex-1 ml-[260px]">
-        <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-200/60">
-          <div className="px-6 py-3">
-            <Breadcrumb className="mb-0">
-              <BreadcrumbList>
-                {pageInfo.parent && (
-                  <>
-                    <BreadcrumbItem>
-                      <BreadcrumbLink
-                        href="#"
-                        className="text-xs text-muted-foreground hover:text-foreground"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // Driven by the section name rather than a list of page ids, so a
-                          // new screen cannot be added with a dead parent crumb.
-                          setCurrentPage(pageInfo.parent === 'Review Management' ? 'reviews' : 'settings');
-                        }}
-                      >
-                        {pageInfo.parent}
-                      </BreadcrumbLink>
-                    </BreadcrumbItem>
-                    <BreadcrumbSeparator />
-                  </>
-                )}
-                <BreadcrumbItem>
-                  <BreadcrumbPage className="text-xs font-medium">{pageInfo.title}</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-            <div className="flex items-center justify-between mt-0.5">
-              <div>
-                <h1 className="text-base font-bold">{pageInfo.title}</h1>
-                <p className="text-[11px] text-muted-foreground">{pageInfo.desc}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="capitalize">{storeDomain || storeName}</span>
-                  <span className="text-gray-300">|</span>
-                  <span className="capitalize font-medium">{storePlan}</span>
-                </div>
-                {currentPage === 'reviews' && (
-                  <a
-                    href="#"
-                    className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
-                    onClick={(e) => { e.preventDefault(); }}
-                  >
-                    View Store Preview
-                  </a>
-                )}
-              </div>
+      <main className="ml-[264px] flex-1">
+        <header className="glass sticky top-0 z-30 border-b border-border">
+          <div className="flex items-center justify-between gap-4 px-7 py-4">
+            <div className="min-w-0">
+              {pageInfo.parent && (
+                <nav aria-label="Breadcrumb" className="mb-1 flex items-center gap-1 text-[11.5px]">
+                  <span className="font-medium text-ink-400">{pageInfo.parent}</span>
+                  <ChevronRight className="size-3 text-ink-300" />
+                  <span className="font-semibold text-ink-600 dark:text-ink-300">
+                    {pageInfo.title}
+                  </span>
+                </nav>
+              )}
+              <h1 className="text-[20px] font-bold leading-tight tracking-tight text-ink-900 dark:text-white">
+                {pageInfo.title}
+              </h1>
+              <p className="mt-0.5 truncate text-[12.5px] text-ink-500">{pageInfo.desc}</p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2.5">
+              <Pill tone={storePlan === 'free' ? 'neutral' : 'brand'} className="capitalize">
+                {storePlan} plan
+              </Pill>
+              {storefrontUrl && (
+                <a
+                  href={storefrontUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ring-focus surface inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12.5px] font-semibold text-ink-600 transition-colors hover:border-ink-300 hover:text-ink-900 dark:text-ink-300 dark:hover:text-white"
+                >
+                  View store
+                  <ExternalLink className="size-3.5" />
+                </a>
+              )}
             </div>
           </div>
         </header>
 
-        <div className="p-6">
+        {/* `key` restarts the entrance animation on every navigation, so moving between
+            screens has a beat to it rather than snapping. */}
+        <div key={currentPage} className="animate-fade px-7 py-6">
           {renderPage()}
         </div>
       </main>
 
-      <Toaster position="top-right" richColors />
-    </div>
-  );
-}
-
-function FeatureItem({ icon, label, desc }: { icon: React.ReactNode; label: string; desc: string }) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex-shrink-0 mt-0.5">
-        {icon}
-      </div>
-      <div>
-        <p className="text-xs font-medium text-gray-700">{label}</p>
-        <p className="text-[10px] text-gray-400">{desc}</p>
-      </div>
+      <Toaster
+        position="top-right"
+        richColors
+        toastOptions={{
+          style: {
+            borderRadius: '14px',
+            boxShadow: 'var(--elev-3)',
+          },
+        }}
+      />
     </div>
   );
 }
