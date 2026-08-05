@@ -20,9 +20,12 @@ export async function POST(request: NextRequest) {
   try {
     const { storeId, shop } = await withAuth(request);
 
-    // Gated behind a paid plan — this is one of the clearest paid-tier justifications in
-    // the product, since it produces measurable click-through lift on Shopping listings.
-    await assertFeature(storeId, 'advancedAnalytics');
+    // Gated on `googleFeed`, which is the flag the pricing table and the Terms actually
+    // sell this under. It checked `advancedAnalytics` — a Scale-only flag — so a Growth
+    // merchant who had paid for the Shopping feed was refused with the words "Advanced
+    // analytics is not available on the Growth plan", describing a feature they had not
+    // asked for. `googleFeed` had no reader at all.
+    await assertFeature(storeId, 'googleFeed');
 
     const token = crypto.randomBytes(24).toString('base64url');
     await db.storeSetting.upsert({

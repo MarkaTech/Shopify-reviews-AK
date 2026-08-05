@@ -27,17 +27,21 @@ interface SidebarProps {
   storeName?: string;
   storeDomain?: string;
   plan?: string;
-  /** Live usage, so the plan meter reflects reality rather than decoration. */
-  reviewCount?: number;
-  reviewCap?: number | null;
+  /**
+   * Live usage for the plan meter — review request emails sent this month against the
+   * plan's monthly allowance. This tracked total review count until the meter moved to
+   * email volume; a cumulative count could only ever go up, which made it useless as a
+   * gauge of anything the merchant could act on.
+   */
+  requestsUsed?: number;
+  requestsCap?: number | null;
   pendingCount?: number;
 }
 
 const PLAN_META: Record<string, { label: string; short: string; price: string; tone: string }> = {
   free: { label: 'Free', short: 'FREE', price: '$0', tone: 'from-slate-400 to-slate-600' },
-  starter: { label: 'Starter', short: 'START', price: '$19.99', tone: 'from-cyan-400 to-blue-600' },
-  growth: { label: 'Growth', short: 'GROW', price: '$29.99', tone: 'from-emerald-400 to-teal-600' },
-  pro: { label: 'Pro', short: 'PRO', price: '$49.99', tone: 'from-violet-400 to-fuchsia-600' },
+  growth: { label: 'Growth', short: 'GROW', price: '$12', tone: 'from-emerald-400 to-teal-600' },
+  scale: { label: 'Scale', short: 'SCALE', price: '$39', tone: 'from-violet-400 to-fuchsia-600' },
 };
 
 interface NavItem {
@@ -64,8 +68,8 @@ export default function Sidebar({
   storeName,
   storeDomain,
   plan,
-  reviewCount = 0,
-  reviewCap,
+  requestsUsed = 0,
+  requestsCap,
   pendingCount = 0,
 }: SidebarProps) {
   const planKey = plan && plan in PLAN_META ? plan : 'free';
@@ -111,8 +115,8 @@ export default function Sidebar({
         .filter((g) => g.items.length)
     : groups;
 
-  const usagePct = reviewCap ? Math.min(100, (reviewCount / reviewCap) * 100) : 0;
-  const nearCap = reviewCap != null && usagePct >= 80;
+  const usagePct = requestsCap ? Math.min(100, (requestsUsed / requestsCap) * 100) : 0;
+  const nearCap = requestsCap != null && usagePct >= 80;
 
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-[264px] flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)]">
@@ -252,13 +256,13 @@ export default function Sidebar({
 
           <div className="mt-2.5">
             <div className="mb-1.5 flex items-baseline justify-between text-[11px]">
-              <span className="text-white/45">Reviews used</span>
+              <span className="text-white/45">Requests this month</span>
               <span className="tnum font-semibold text-white/80">
-                {reviewCount.toLocaleString()}
-                <span className="text-white/35"> / {reviewCap ? reviewCap.toLocaleString() : '∞'}</span>
+                {requestsUsed.toLocaleString()}
+                <span className="text-white/35"> / {requestsCap ? requestsCap.toLocaleString() : '∞'}</span>
               </span>
             </div>
-            {reviewCap ? (
+            {requestsCap ? (
               <Meter value={usagePct} tone={nearCap ? 'amber' : 'brand'} height={5} className="bg-white/10" />
             ) : (
               <div className="flex items-center gap-1.5 text-[11px] font-medium text-brand-300">

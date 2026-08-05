@@ -2,6 +2,7 @@ import { db } from './db';
 import { sendEmail, renderReviewRequestEmail } from './email';
 import { reviewRequestUrl } from './review-requests';
 import { getRequestSettings } from './request-settings';
+import { hasRequestQuota, recordRequestSent, nextQuotaReset, getStorePlan, PLANS } from './plans';
 import { SHOPIFY_APP_URL } from './shopify';
 import { unsubscribeToken } from '@/app/api/unsubscribe/route';
 
@@ -33,7 +34,7 @@ interface DueRequest {
   sendCount: number;
 }
 
-export type SendOutcome = 'sent' | 'reminder_sent' | 'skipped' | 'failed' | 'not_configured';
+export type SendOutcome = 'sent' | 'reminder_sent' | 'skipped' | 'failed' | 'not_configured' | 'over_quota';
 
 export async function sendDueRequest(
   request: DueRequest,
@@ -56,6 +57,21 @@ export async function sendDueRequest(
     return 'skipped';
   }
 
+  // ── Monthly send quota ──
+  //
+  // Deferred to the start of next month rather than cancelled. A Free store that runs out
+  // mid-month keeps its queue: those buyers still get asked, just later. Dropping the
+  // request would lose a real review permanently to a billing limit, which is a much worse
+  // trade than a delayed email — and the merchant sees the backlog as a reason to upgrade
+  // rather than as silence.
+  if (!(await hasRequestQuota(request.storeId))) {
+    await db.reviewRequest.update({
+      where: { id: request.id },
+      data: { nextSendAt: nextQuotaReset() },
+    });
+    return 'over_quota';
+  }
+
   let itemTitles: string[] = [];
   try {
     itemTitles = (JSON.parse(request.lineItems) as Array<{ title?: string }>).map(
@@ -72,6 +88,16 @@ export async function sendDueRequest(
     `&t=${encodeURIComponent(unsubscribeToken(request.customerEmail))}`;
 
   const isReminder = request.sendCount > 0;
+
+  // A reminder booked while the store was on a paid plan must not fire after they
+  // downgrade. The scheduling check below only runs when the NEXT send is booked, so
+  // without this a cancelled plan kept sending for one more round. Checked here, at send
+  // time, against the plan as it is right now.
+  if (isReminder && !PLANS[await getStorePlan(request.storeId)].reminderEmails) {
+    await db.reviewRequest.update({ where: { id: request.id }, data: { nextSendAt: null } });
+    return 'skipped';
+  }
+
   const message = renderReviewRequestEmail({
     storeName: store.name || 'the store',
     customerName: request.customerName ? request.customerName.split(' ')[0] : null,
@@ -90,9 +116,17 @@ export async function sendDueRequest(
   });
 
   if (result.sent) {
+    // Count it only now. A send the provider rejected cost nothing and must not consume
+    // the merchant's allowance.
+    await recordRequestSent(request.storeId);
+
     const newCount = request.sendCount + 1;
+    // Reminders are a paid feature. On a plan without them the first email is the only
+    // email. A downgrade between booking and sending is caught by the send-time check
+    // above, so this only has to get the booking right.
+    const remindersAllowed = PLANS[await getStorePlan(request.storeId)].reminderEmails;
     // newCount 1 is the initial email; reminders allowed on top of it.
-    const another = newCount <= cfg.reminders;
+    const another = remindersAllowed && newCount <= cfg.reminders;
     await db.reviewRequest.update({
       where: { id: request.id },
       data: {
@@ -161,6 +195,7 @@ export async function sweepDueRequests(limit = 200): Promise<Record<SendOutcome,
     skipped: 0,
     failed: 0,
     not_configured: 0,
+    over_quota: 0,
   };
 
   // Settings fetched once per store per sweep, not once per request.

@@ -62,30 +62,45 @@ export default function TermsOfService() {
 
         <section>
           <h2 className="text-xl font-semibold">4. Plans, billing and trials</h2>
-          <p>The App has four plans:</p>
+          <p>
+            The App has three plans. Every plan includes unlimited stored reviews, unlimited
+            widgets and unlimited imports; what differs is the number of review request
+            emails sent per calendar month, and the feature set.
+          </p>
           <ul className="list-disc pl-6">
             <li>
-              <strong>Free — $0/month.</strong> Up to 50 reviews, 2 widgets (list and badge only),
-              CSV import and photo reviews.
+              <strong>Free — $0/month.</strong> Unlimited reviews, up to 100 review request
+              emails per calendar month, all widget layouts, photo reviews, CSV, AliExpress
+              and Etsy import, and Google rich snippets. Widgets carry ReviewMaster branding.
             </li>
             <li>
-              <strong>Starter — $19.99/month.</strong> Up to 500 reviews, 5 widgets, every widget
-              type, video reviews, questions and answers, and review incentives.
+              <strong>Growth — $12/month.</strong> Up to 1,000 review request emails per
+              calendar month, plus video reviews, automatic reminders, review incentives,
+              questions and answers, the Google Shopping ratings feed, Shop app syndication,
+              and removal of ReviewMaster branding.
             </li>
             <li>
-              <strong>Growth — $29.99/month.</strong> Up to 1,000 reviews, unlimited widgets, plus the
-              Google Shopping ratings feed, Shop app syndication and advanced analytics.
-            </li>
-            <li>
-              <strong>Pro — $49.99/month.</strong> Unlimited reviews, everything in Growth, plus API
-              access and white-label widgets.
+              <strong>Scale — $39/month.</strong> Unlimited review request emails, everything
+              in Growth, plus advanced analytics, API access and priority support.
             </li>
           </ul>
           <ul className="list-disc pl-6">
             <li>Paid plans are billed by Shopify every 30 days and appear on your Shopify invoice.</li>
-            <li>Every paid plan includes a 7-day free trial. You are not charged during the trial.</li>
+            <li>
+              Every paid plan includes a <strong>30-day free trial</strong>. You are not charged
+              during the trial, and you may cancel at any point before it ends without being
+              charged. Unless you cancel, billing begins automatically when the trial ends.
+            </li>
             <li>Prices are in USD and exclude any applicable taxes.</li>
-            <li>Plan limits — review counts, widget counts, widget types and per-feature access — are enforced on our servers, not in your browser. Exceeding one returns an upgrade prompt rather than silently failing.</li>
+            <li>
+              Plan limits — the monthly review request allowance and per-feature access — are
+              enforced on our servers, not in your browser. The monthly allowance resets at
+              the start of each calendar month (UTC). Review requests that exceed your monthly
+              allowance are <strong>deferred to the following month rather than discarded</strong>.
+              Requests do expire 60 days after they were scheduled, so a store that remains
+              over its allowance for an extended period may have the oldest deferred requests
+              expire before they are sent.
+            </li>
             <li>You may change or cancel your plan at any time. Your entitlement is resolved from what Shopify reports as your active subscription, so an upgrade, downgrade or cancellation takes effect through the same path.</li>
           </ul>
           <p>

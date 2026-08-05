@@ -4,8 +4,8 @@ import { getUsage } from '@/lib/plans';
 
 /**
  * Current plan, usage and feature flags for the signed-in store.
- * The dashboard uses this to show "42 / 50 reviews used" and to disable controls the
- * merchant's plan does not include.
+ * The shell uses this for the plan meter ("64 / 100 requests this month") and the
+ * Settings screen to disable controls the merchant's plan does not include.
  */
 export async function GET(request: NextRequest) {
   try {

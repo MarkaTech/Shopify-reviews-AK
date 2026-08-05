@@ -21,22 +21,39 @@ import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton } from '.
 const plans = [
   {
     id: 'free', name: 'Free', price: 0, interval: 'month',
-    features: ['50 reviews', 'Photo reviews', 'Star rating + review widget', 'CSV import & migration', 'Google rich snippets'],
+    features: [
+      'Unlimited reviews',
+      '100 review request emails a month',
+      'Import from CSV, AliExpress & Etsy',
+      'All 9 widget layouts',
+      'Photo reviews',
+      'Google rich snippets',
+    ],
     color: '',
   },
   {
-    id: 'starter', name: 'Starter', price: 19.99, interval: 'month',
-    features: ['500 reviews', 'All widget types', 'Video reviews', 'Questions & answers', 'Review incentives', 'Email review requests'],
-    color: '',
-  },
-  {
-    id: 'growth', name: 'Growth', price: 29.99, interval: 'month',
-    features: ['1,000 reviews', 'Unlimited widgets', 'Google Shopping star ratings', 'Shop app syndication', 'Advanced analytics', 'Everything in Starter'],
+    id: 'growth', name: 'Growth', price: 12, interval: 'month',
+    features: [
+      '1,000 review request emails a month',
+      'Everything in Free',
+      'Video reviews',
+      'Automatic reminders',
+      'Review incentives',
+      'Questions & answers',
+      'Shop app sync + Google Shopping',
+      'ReviewMaster branding removed',
+    ],
     color: 'is-selected', popular: true,
   },
   {
-    id: 'pro', name: 'Pro', price: 49.99, interval: 'month',
-    features: ['Unlimited reviews', 'Everything in Growth', 'API access', 'White-label widgets', 'Remove ReviewMaster branding', 'Priority support'],
+    id: 'scale', name: 'Scale', price: 39, interval: 'month',
+    features: [
+      'Unlimited review request emails',
+      'Everything in Growth',
+      'Advanced analytics',
+      'API access',
+      'Priority support',
+    ],
     color: '',
   },
 ];
@@ -54,6 +71,8 @@ interface Usage {
   plan: string;
   planLabel: string;
   price: number;
+  /** The meter: review request emails sent this calendar month. */
+  requests: { used: number; limit: number | null; percentUsed: number; resetsAt: string };
   reviews: { used: number; limit: number | null; percentUsed: number };
   widgets: { used: number; limit: number | null; percentUsed: number };
 }
@@ -902,19 +921,21 @@ export default function SettingsPage() {
 
               {usage && (
                 <div className="relative mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* Requests are the meter; reviews are unlimited on every tier and shown
+                      only so the number is visible somewhere. */}
                   <UsageBar
-                    label="Reviews"
+                    label="Review requests this month"
+                    used={usage.requests.used}
+                    limit={usage.requests.limit}
+                    percent={usage.requests.percentUsed}
+                    tone={usage.requests.percentUsed >= 90 ? 'rose' : usage.requests.percentUsed >= 70 ? 'amber' : 'brand'}
+                  />
+                  <UsageBar
+                    label="Reviews collected"
                     used={usage.reviews.used}
                     limit={usage.reviews.limit}
                     percent={usage.reviews.percentUsed}
-                    tone={usage.reviews.percentUsed >= 90 ? 'rose' : usage.reviews.percentUsed >= 70 ? 'amber' : 'brand'}
-                  />
-                  <UsageBar
-                    label="Widgets"
-                    used={usage.widgets.used}
-                    limit={usage.widgets.limit}
-                    percent={usage.widgets.percentUsed}
-                    tone={usage.widgets.percentUsed >= 90 ? 'rose' : usage.widgets.percentUsed >= 70 ? 'amber' : 'indigo'}
+                    tone="indigo"
                   />
                 </div>
               )}
