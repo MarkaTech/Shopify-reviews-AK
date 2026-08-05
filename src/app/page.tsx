@@ -44,8 +44,8 @@ export default function Home() {
   const [shopInput, setShopInput] = useState('');
   // Usage for the sidebar plan meter. Kept here rather than inside Sidebar so a
   // single fetch serves both it and anything else the shell needs.
-  const [usage, setUsage] = useState<{ reviews: number; cap: number | null; pending: number }>({
-    reviews: 0,
+  const [usage, setUsage] = useState<{ requests: number; cap: number | null; pending: number }>({
+    requests: 0,
     cap: null,
     pending: 0,
   });
@@ -123,16 +123,19 @@ export default function Home() {
   }, [authError, checkSession]);
 
   // Usage figures for the plan meter, refreshed whenever the merchant lands back on
-  // a screen that could have changed them.
+  // a screen that could have changed them. /api/usage rather than /api/analytics: the
+  // meter is monthly request volume, and analytics loads every review row to compute
+  // aggregates nobody needs in the sidebar.
   useEffect(() => {
     if (!isAuthenticated) return;
-    apiFetch<{ totalReviews: number; pendingReviews: number; planLimit?: number | null }>(
-      '/api/analytics'
-    )
-      .then((a) =>
+    Promise.all([
+      apiFetch<{ requests: { used: number; limit: number | null } }>('/api/usage'),
+      apiFetch<{ pendingReviews: number }>('/api/analytics'),
+    ])
+      .then(([u, a]) =>
         setUsage({
-          reviews: a.totalReviews ?? 0,
-          cap: a.planLimit ?? null,
+          requests: u.requests?.used ?? 0,
+          cap: u.requests?.limit ?? null,
           pending: a.pendingReviews ?? 0,
         })
       )
@@ -214,8 +217,8 @@ export default function Home() {
         storeName={storeName}
         storeDomain={storeDomain}
         plan={storePlan}
-        reviewCount={usage.reviews}
-        reviewCap={usage.cap}
+        requestsUsed={usage.requests}
+        requestsCap={usage.cap}
         pendingCount={usage.pending}
       />
 

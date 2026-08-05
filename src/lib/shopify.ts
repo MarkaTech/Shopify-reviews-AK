@@ -625,23 +625,47 @@ export async function fetchShopifyProducts(
 // because plans.ts imports the database and this module deliberately does not.
 const PLAN_PRICES: Record<string, number> = {
   free: 0,
-  starter: 19.99,
-  growth: 29.99,
-  pro: 49.99,
+  growth: 12,
+  scale: 39,
 };
 
+/**
+ * The name Shopify shows the merchant on the subscription approval screen, and the string
+ * we later read back to work out what they are on.
+ *
+ * The price is in the name deliberately. It is better UX — the approval screen states what
+ * they are agreeing to — and it makes the name self-describing, so a future repricing can
+ * be told apart from the current one by reading it.
+ *
+ * Known limitation: the `growth` id was reused across the restructure (it meant $29.99
+ * before and $12 now), so a subscription named by the OLD scheme resolves to the CURRENT
+ * Growth tier. That is safe here only because the app had not launched and no merchant was
+ * ever billed on the old tiers. If tiers are ever reshuffled again with live subscribers,
+ * disambiguate on the subscription's line-item price rather than on its name.
+ */
 export function planDisplayName(plan: string): string {
-  return `ReviewMaster ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`;
+  const label = plan.charAt(0).toUpperCase() + plan.slice(1);
+  const price = PLAN_PRICES[plan];
+  return price ? `ReviewMaster ${label} ($${price}/month)` : `ReviewMaster ${label}`;
 }
 
-/** Map a Shopify subscription name back to one of our plan keys. */
+/**
+ * Map a Shopify subscription name back to one of our plan keys.
+ *
+ * Legacy names are still recognised. A merchant who approved "ReviewMaster Pro Plan"
+ * before the three-tier restructure keeps an active Shopify subscription under that name
+ * until it is replaced, and dropping them to Free while they are still being billed would
+ * be the worst possible failure — so Starter maps up to Growth and Pro maps up to Scale.
+ * Nobody loses a feature because we renamed a tier.
+ */
 export function planFromSubscriptionName(name: string): string {
   const n = name.toLowerCase();
-  // Order matters: 'growth' and 'starter' must be tested before 'pro', since a name like
-  // "ReviewMaster Pro Growth Plan" would otherwise resolve to the wrong tier.
+  // Order matters: current names are tested before legacy ones, and 'pro' is tested last
+  // because it is a substring of nothing here but is the loosest match.
   if (n.includes('growth')) return 'growth';
-  if (n.includes('starter')) return 'starter';
-  if (n.includes('pro')) return 'pro';
+  if (n.includes('scale')) return 'scale';
+  if (n.includes('starter')) return 'growth';
+  if (n.includes('pro')) return 'scale';
   return 'free';
 }
 
@@ -728,7 +752,16 @@ export async function createRecurringCharge(
       name: planDisplayName(plan),
       returnUrl,
       test: isTestCharge,
-      trialDays: 7,
+      // 30 days, not the 7 this used to be, and not the 14-15 the category uses.
+      //
+      // The default review-request delay is 14 days after fulfilment. A 7-day trial
+      // therefore expired a full week BEFORE the merchant's first request email even
+      // sent — they cancelled having never once seen the product do the thing they were
+      // evaluating. The real cycle is order, fulfilment, 14-day delay, customer replies,
+      // merchant moderates: 20-30 days before the first review lands.
+      //
+      // 30 is simply the shortest trial that lets this product demonstrate itself.
+      trialDays: 30,
       lineItems: [
         {
           plan: {

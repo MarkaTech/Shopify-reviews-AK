@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Plan is required' }, { status: 400 });
     }
 
-    const validPlans = ['free', 'starter', 'growth', 'pro'];
+    const validPlans = ['free', 'growth', 'scale'];
     if (!validPlans.includes(plan)) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
     }
