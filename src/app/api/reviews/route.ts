@@ -1,12 +1,13 @@
 import { db } from '@/lib/db';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { assertReviewCapacity, assertFeature, planLimitResponse } from '@/lib/plans';
+import { resolvePendingMedia } from '@/lib/media-resolve';
 
 export async function GET(request: NextRequest) {
   try {
-    const { storeId } = await withAuth(request);
+    const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
     const searchParams = request.nextUrl.searchParams;
 
     const where: Record<string, unknown> = { storeId };
@@ -90,6 +91,26 @@ export async function GET(request: NextRequest) {
       }),
       db.review.count({ where }),
     ]);
+
+    // Self-healing for media that was still processing at submit time. Videos take
+    // minutes to transcode on Shopify's side, so submit parks the file GIDs in
+    // `pendingMedia` — and the merchant opening their review list is the natural
+    // "someone is about to look at these" moment to finish the job. Off the response
+    // path: the list must render instantly whether or not Shopify has caught up.
+    const anyPending = await db.review.findFirst({
+      where: { storeId, pendingMedia: { not: null } },
+      select: { id: true },
+    });
+    if (anyPending) {
+      after(async () => {
+        try {
+          const r = await resolvePendingMedia(storeId, shop, accessToken, onUnauthorized);
+          if (r.resolved) console.info('[reviews] resolved pending media:', r);
+        } catch (err) {
+          console.error('[reviews] pending media resolution failed:', err);
+        }
+      });
+    }
 
     return NextResponse.json({ reviews, total, page, totalPages: Math.ceil(total / limit) });
   } catch (error: unknown) {
