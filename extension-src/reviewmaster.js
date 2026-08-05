@@ -436,12 +436,37 @@
       });
 
       if (r.video) {
-        // Poster-and-click rather than an inline <video> per review: a product page with
-        // twenty video reviews would otherwise create twenty media elements, each
-        // fetching metadata. The player is created only when someone asks for it.
+        // The thumbnail is a real frame from the video, not a placeholder.
+        //
+        // This used to be an empty dark square with a ▶ glyph, which is indistinguishable
+        // from a broken image — a shopper cannot tell whether there is a video there or
+        // whether the page failed. `preload="metadata"` plus the `#t=0.1` media fragment
+        // makes the browser range-request only the first fraction of a second and paint
+        // that frame; it is a few tens of KB, not the file.
+        //
+        // The element is deliberately inert: no controls, muted, never played inline.
+        // Clicking still opens the lightbox, so the actual player is created once, on
+        // demand — which was the point of the original poster-and-click design.
         var vbtn = el('button', 'rm-thumb rm-thumb--video');
         vbtn.type = 'button';
         vbtn.setAttribute('aria-label', 'Play video review from ' + r.author);
+
+        var poster = document.createElement('video');
+        poster.className = 'rm-thumb__poster';
+        poster.src = r.video + '#t=0.1';
+        poster.preload = 'metadata';
+        poster.muted = true;
+        poster.playsInline = true;
+        poster.tabIndex = -1;
+        poster.setAttribute('aria-hidden', 'true');
+        // A codec the browser cannot decode leaves the frame blank; drop back to the
+        // plain dark tile rather than showing an empty box with no play affordance.
+        poster.addEventListener('error', function () {
+          vbtn.classList.add('rm-thumb--noposter');
+          if (poster.parentNode) poster.parentNode.removeChild(poster);
+        });
+
+        vbtn.appendChild(poster);
         vbtn.appendChild(el('span', 'rm-thumb__play', '▶'));
         vbtn.addEventListener('click', function () { openLightbox(r.video, 'video'); });
         media.appendChild(vbtn);

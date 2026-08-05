@@ -3,15 +3,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   HelpCircle, MessageSquare, Pin, Eye, EyeOff, Trash2, Send,
-  Loader2, ShoppingBag, Clock, CheckCircle2,
+  Loader2, ShoppingBag, Clock, CheckCircle2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { apiFetch, errorMessage } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
+import { Panel, Pill, EmptyState, ActionButton, Skeleton, Tile } from './ui-kit';
 
 /**
  * Merchant-facing Q&A moderation.
@@ -99,10 +97,6 @@ export default function QuestionsPage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // No setLoading(true) at the top. `loading` starts true, and a setState that runs
-  // synchronously in an effect body triggers a cascading render — which is what
-  // react-hooks/set-state-in-effect flags. Refetching silently after a filter change also
-  // reads better than flashing the skeleton back over a list the merchant is looking at.
   // Promise chain rather than async/await, and no setLoading(true) at the top.
   //
   // `loading` starts true and every setState here lands in a .then/.catch/.finally
@@ -221,239 +215,234 @@ export default function QuestionsPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-bold">Questions &amp; answers</h2>
-        <p className="text-xs text-muted-foreground">
-          Questions shoppers asked on your product pages. Answering one publishes it to the storefront Q&amp;A widget.
-        </p>
-      </div>
+      {/* ── Tabs ── */}
+      <Panel className="flex flex-wrap items-center gap-3 p-3">
+        <div className="flex rounded-xl bg-ink-100 p-0.5 dark:bg-white/5">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => selectTab(t.id)}
+              className={cn(
+                'ring-focus rounded-[10px] px-3 py-1.5 text-[12.5px] font-semibold transition-all',
+                tab === t.id
+                  ? 'bg-card text-ink-900 shadow-[var(--elev-1)] dark:text-white'
+                  : 'text-ink-500 hover:text-ink-700 dark:hover:text-ink-200'
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <span className="ml-auto text-[12.5px] text-ink-500">
+          {loading ? 'Loading…' : (
+            <>
+              <span className="tnum font-semibold text-ink-700 dark:text-ink-200">{total}</span>{' '}
+              question{total === 1 ? '' : 's'}
+            </>
+          )}
+        </span>
+      </Panel>
 
-      {/* Filters */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="p-3 flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-            {TABS.map(t => (
-              <Button
-                key={t.id}
-                variant={tab === t.id ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-7 text-[11px] px-3"
-                onClick={() => selectTab(t.id)}
-              >
-                {t.label}
-              </Button>
-            ))}
-          </div>
-          <span className="text-xs text-muted-foreground ml-auto">
-            {loading ? 'Loading…' : `${total} question${total === 1 ? '' : 's'}`}
-          </span>
-        </CardContent>
-      </Card>
-
-      {/* List */}
+      {/* ── List ── */}
       <div className="space-y-3">
         {loading ? (
-          <div className="space-y-3 animate-pulse">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-32 bg-gray-100 rounded-xl" />
-            ))}
-          </div>
+          Array.from({ length: 4 }).map((_, i) => (
+            <Panel key={i} className="p-4">
+              <div className="flex gap-3.5">
+                <Skeleton className="size-10 rounded-xl" />
+                <div className="flex-1 space-y-2.5">
+                  <Skeleton className="h-3.5 w-40" />
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              </div>
+            </Panel>
+          ))
         ) : questions.length === 0 ? (
-          <Card className="border-0 shadow-sm">
-            <CardContent className="py-16 text-center max-w-md mx-auto">
-              <HelpCircle className="w-12 h-12 mx-auto text-muted-foreground/30" />
-              <p className="text-sm font-medium mt-3">{EMPTY_COPY[tab].title}</p>
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{EMPTY_COPY[tab].desc}</p>
-            </CardContent>
-          </Card>
+          <Panel>
+            <EmptyState
+              icon={HelpCircle}
+              tone="violet"
+              title={EMPTY_COPY[tab].title}
+              description={EMPTY_COPY[tab].desc}
+            />
+          </Panel>
         ) : (
           questions.map(q => {
             const busy = busyId === q.id;
             const answered = q.answers.length > 0;
             return (
-              <Card
+              <Panel
                 key={q.id}
-                className={`border-0 shadow-sm transition-all ${!q.isPublished ? 'opacity-70' : ''} ${q.isPinned ? 'ring-2 ring-amber-300' : ''}`}
+                className={cn('relative overflow-hidden transition-opacity', busy && 'opacity-60')}
               >
-                <CardContent className="p-4">
-                  <div className="flex gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
-                      <HelpCircle className="w-4 h-4" />
+                {/* Status rail — same language as the review queue. */}
+                <span
+                  className={cn(
+                    'absolute inset-y-0 left-0 w-1',
+                    q.isPinned
+                      ? 'bg-gradient-to-b from-amber-300 to-amber-500'
+                      : !q.isPublished
+                        ? 'bg-gradient-to-b from-amber-200 to-amber-400'
+                        : 'bg-gradient-to-b from-brand-300 to-brand-500'
+                  )}
+                />
+
+                <div className="flex gap-3.5 p-4 pl-5">
+                  <Tile icon={HelpCircle} tone={answered ? 'brand' : 'violet'} size="lg" />
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[13.5px] font-semibold text-ink-900 dark:text-white">
+                        {q.askerName}
+                      </span>
+                      {q.isPinned && <Pill tone="amber" icon={Pin}>Pinned</Pill>}
+                      <Pill tone={q.isPublished ? 'brand' : 'neutral'} icon={q.isPublished ? CheckCircle2 : Clock}>
+                        {q.isPublished ? 'Published' : 'Pending'}
+                      </Pill>
+                      {!answered && <Pill tone="amber">Unanswered</Pill>}
+                      <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-ink-400">
+                        <Clock className="size-3" />
+                        {new Date(q.createdAt).toLocaleDateString(undefined, {
+                          day: 'numeric', month: 'short', year: 'numeric',
+                        })}
+                      </span>
                     </div>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold">{q.askerName}</span>
-                        {q.isPinned && (
-                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 border-amber-300 text-amber-700">
-                            <Pin className="w-2.5 h-2.5" /> Pinned
-                          </Badge>
-                        )}
-                        <Badge
-                          className={`text-[10px] h-5 px-1.5 gap-1 ${
-                            q.isPublished ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'
-                          }`}
+                    <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-ink-400">
+                      <ShoppingBag className="size-3 shrink-0" />
+                      <span className="truncate">
+                        {q.product ? q.product.title : 'Not linked to a product'}
+                      </span>
+                    </div>
+
+                    <p className="mt-2.5 text-[13.5px] font-medium leading-relaxed text-ink-800 dark:text-ink-100">
+                      {q.body}
+                    </p>
+
+                    {answered && (
+                      <div className="mt-3 space-y-2">
+                        {q.answers.map(a => (
+                          <div
+                            key={a.id}
+                            className="rounded-xl border-l-[3px] border-brand-500 bg-brand-50/60 py-2.5 pl-3 pr-3 dark:bg-brand-500/[0.08]"
+                          >
+                            <p className="flex flex-wrap items-center gap-1.5 text-[11.5px] font-semibold text-brand-800 dark:text-brand-200">
+                              <MessageSquare className="size-3" />
+                              {a.authorName}
+                              {a.authorType === 'merchant' && <Pill tone="brand">Store</Pill>}
+                              <span className="font-normal text-brand-600/70 dark:text-brand-300/60">
+                                {new Date(a.createdAt).toLocaleDateString()}
+                              </span>
+                            </p>
+                            <p className="mt-1 text-[12.5px] leading-relaxed text-ink-700 dark:text-ink-200">
+                              {a.body}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {composingFor === q.id ? (
+                      <div className="animate-rise mt-3">
+                        <Textarea
+                          className="min-h-[90px] rounded-xl text-[13px]"
+                          placeholder="Answer the question in your own words. This is published to the storefront exactly as written."
+                          value={drafts[q.id] || ''}
+                          onChange={e => setDrafts(d => ({ ...d, [q.id]: e.target.value }))}
+                          maxLength={5000}
+                          autoFocus
+                        />
+                        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                          <ActionButton size="sm" disabled={busy} onClick={() => submitAnswer(q.id)}>
+                            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+                            Save &amp; publish
+                          </ActionButton>
+                          <ActionButton size="sm" variant="ghost" onClick={() => setComposingFor(null)}>
+                            Cancel
+                          </ActionButton>
+                          <span className="ml-auto text-[11px] text-ink-400">
+                            Answering publishes the question — an unanswered question on a product page reads badly.
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3.5 flex flex-wrap items-center gap-1 border-t border-border pt-3">
+                        <ActionButton
+                          size="sm"
+                          variant={answered ? 'outline' : 'primary'}
+                          icon={MessageSquare}
+                          onClick={() => setComposingFor(q.id)}
                         >
-                          {q.isPublished ? <CheckCircle2 className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
-                          {q.isPublished ? 'Published' : 'Pending'}
-                        </Badge>
-                        {!answered && (
-                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-amber-300 text-amber-700">
-                            Unanswered
-                          </Badge>
-                        )}
-                        <span className="text-[11px] text-muted-foreground flex items-center gap-1 ml-auto">
-                          <Clock className="w-3 h-3" />
-                          {new Date(q.createdAt).toLocaleDateString()}
-                        </span>
+                          {answered ? 'Add another answer' : 'Answer'}
+                        </ActionButton>
+                        <ActionButton
+                          size="sm"
+                          variant="ghost"
+                          icon={q.isPublished ? EyeOff : Eye}
+                          disabled={busy}
+                          onClick={() =>
+                            patch(
+                              q.id,
+                              { isPublished: !q.isPublished },
+                              q.isPublished ? 'Question unpublished' : 'Question published'
+                            )
+                          }
+                        >
+                          {q.isPublished ? 'Unpublish' : 'Publish'}
+                        </ActionButton>
+                        <ActionButton
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() =>
+                            patch(q.id, { isPinned: !q.isPinned }, q.isPinned ? 'Unpinned' : 'Pinned to the top')
+                          }
+                        >
+                          <Pin className={cn('size-3.5', q.isPinned && 'text-amber-500')} fill={q.isPinned ? 'currentColor' : 'none'} />
+                          {q.isPinned ? 'Unpin' : 'Pin'}
+                        </ActionButton>
+                        <ActionButton
+                          size="sm"
+                          variant="ghost"
+                          icon={Trash2}
+                          className="ml-auto text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-500/10"
+                          disabled={busy}
+                          onClick={() => remove(q.id)}
+                        >
+                          Delete
+                        </ActionButton>
                       </div>
-
-                      <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground">
-                        <ShoppingBag className="w-3 h-3 flex-shrink-0" />
-                        <span className="truncate">
-                          {q.product ? q.product.title : 'Not linked to a product'}
-                        </span>
-                      </div>
-
-                      <p className="text-xs mt-2 leading-relaxed">{q.body}</p>
-
-                      {answered && (
-                        <div className="mt-3 space-y-2">
-                          {q.answers.map(a => (
-                            <div key={a.id} className="pl-3 border-l-2 border-emerald-500">
-                              <p className="text-[11px] font-medium flex items-center gap-1.5">
-                                <MessageSquare className="w-3 h-3 text-emerald-600" />
-                                {a.authorName}
-                                {a.authorType === 'merchant' && (
-                                  <span className="text-[10px] px-1.5 py-px rounded-full bg-emerald-50 text-emerald-700">
-                                    Store
-                                  </span>
-                                )}
-                                <span className="text-[10px] text-muted-foreground font-normal">
-                                  {new Date(a.createdAt).toLocaleDateString()}
-                                </span>
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{a.body}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {composingFor === q.id ? (
-                        <div className="mt-3">
-                          <Textarea
-                            className="text-xs min-h-[80px]"
-                            placeholder="Answer the question in your own words. This is published to the storefront exactly as written."
-                            value={drafts[q.id] || ''}
-                            onChange={e => setDrafts(d => ({ ...d, [q.id]: e.target.value }))}
-                            maxLength={5000}
-                          />
-                          <div className="flex items-center gap-2 mt-2">
-                            <Button
-                              size="sm"
-                              className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 gap-1.5"
-                              disabled={busy}
-                              onClick={() => submitAnswer(q.id)}
-                            >
-                              {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                              Save &amp; publish
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 text-xs"
-                              onClick={() => setComposingFor(null)}
-                            >
-                              Cancel
-                            </Button>
-                            <span className="text-[10px] text-muted-foreground ml-auto">
-                              Answering publishes the question — an unanswered question on a product page reads badly.
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <Separator className="my-3" />
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs gap-1.5"
-                              onClick={() => setComposingFor(q.id)}
-                            >
-                              <MessageSquare className="w-3 h-3" />
-                              {answered ? 'Add another answer' : 'Answer'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 text-xs gap-1.5"
-                              disabled={busy}
-                              onClick={() =>
-                                patch(
-                                  q.id,
-                                  { isPublished: !q.isPublished },
-                                  q.isPublished ? 'Question unpublished' : 'Question published'
-                                )
-                              }
-                            >
-                              {q.isPublished ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                              {q.isPublished ? 'Unpublish' : 'Publish'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 text-xs gap-1.5"
-                              disabled={busy}
-                              onClick={() =>
-                                patch(q.id, { isPinned: !q.isPinned }, q.isPinned ? 'Unpinned' : 'Pinned to the top')
-                              }
-                            >
-                              <Pin className={`w-3 h-3 ${q.isPinned ? 'text-amber-500 fill-amber-400' : ''}`} />
-                              {q.isPinned ? 'Unpin' : 'Pin'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 text-xs gap-1.5 text-red-500 hover:text-red-600 ml-auto"
-                              disabled={busy}
-                              onClick={() => remove(q.id)}
-                            >
-                              <Trash2 className="w-3 h-3" /> Delete
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </Panel>
             );
           })
         )}
       </div>
 
       {!loading && totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button
-            variant="outline"
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <ActionButton
             size="sm"
-            className="h-8 text-xs"
+            variant="outline"
+            icon={ChevronLeft}
             disabled={page <= 1}
             onClick={() => setPage(p => p - 1)}
           >
             Previous
-          </Button>
-          <span className="text-xs text-muted-foreground px-2">Page {page} of {totalPages}</span>
-          <Button
-            variant="outline"
+          </ActionButton>
+          <span className="tnum px-3 text-[12.5px] text-ink-500">Page {page} of {totalPages}</span>
+          <ActionButton
             size="sm"
-            className="h-8 text-xs"
+            variant="outline"
+            trailingIcon={ChevronRight}
             disabled={page >= totalPages}
             onClick={() => setPage(p => p + 1)}
           >
             Next
-          </Button>
+          </ActionButton>
         </div>
       )}
     </div>
