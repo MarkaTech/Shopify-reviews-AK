@@ -152,7 +152,14 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     googleFeed: true,
     shopSyndication: true,
     advancedAnalytics: true,
-    apiAccess: true,
+    // Not sold until it is built.
+    //
+    // This was `true` on the top tier, and nothing in the codebase implements it — no
+    // route, no key issuance, no docs. Charging for a feature that does not exist is a
+    // Shopify review failure on its own, and it is the kind of thing that is invisible
+    // right up until a merchant pays for the tier and asks where their key is. The flag
+    // stays so the plumbing is ready; the entitlement flips when the endpoint ships.
+    apiAccess: false,
     whiteLabel: true,
   },
 };

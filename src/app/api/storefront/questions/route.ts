@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { checkQuestionRateLimit } from '@/lib/rate-limit';
 
 /**
  * Public Q&A — read published questions, and ask a new one.
@@ -110,6 +111,17 @@ export async function POST(request: NextRequest) {
     const body = get('body', 2000);
 
     if (!shop) return NextResponse.json({ error: 'Missing store' }, { status: 400, headers: CORS });
+
+    // Same volume ceiling as the review form, on a tighter allowance — questions are
+    // rarer, and each one costs the merchant a written reply rather than a click.
+    const limit = checkQuestionRateLimit(request, shop);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many questions from here just now. Please try again later.' },
+        { status: 429, headers: { ...CORS, 'Retry-After': String(limit.retryAfter) } }
+      );
+    }
+
     if (!name || body.length < 5) {
       return NextResponse.json(
         { error: 'Please add your name and a question.' },

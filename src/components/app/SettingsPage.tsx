@@ -52,7 +52,6 @@ const plans = [
       'Unlimited review request emails',
       'Everything in Growth',
       'Advanced analytics',
-      'API access',
       'Priority support',
     ],
     color: '',
