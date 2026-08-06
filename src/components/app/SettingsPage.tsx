@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Settings, Bell, Palette, CheckCircle, CreditCard, Crown, AlertTriangle,
-  RotateCcw, Send, Loader2, Check, Sparkles, Mail, Clock, Eye, Code2,
+  RotateCcw, Send, Loader2, Check, Sparkles, Mail, Clock, Eye, Code2, Compass,
   ShieldCheck, SlidersHorizontal, Camera, BookOpen, ArrowUpRight,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -344,6 +344,25 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Bring the setup guide back.
+   *
+   * Also the only way to see the first-install experience without creating a fresh store —
+   * useful for a merchant who skipped it early and now wants the walkthrough, and the way
+   * we check the flow ourselves.
+   */
+  const replaySetup = async () => {
+    try {
+      await apiFetch('/api/onboarding', {
+        method: 'POST',
+        body: JSON.stringify({ dismissed: false }),
+      });
+      toast.success('Setup guide restored — open the Dashboard to see it.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not restore the setup guide'));
+    }
+  };
+
   const resetAll = async () => {
     setSaving(true);
     try {
@@ -464,7 +483,10 @@ export default function SettingsPage() {
       {/* No page title here. The app shell (src/app/page.tsx) already renders
           "Settings" with its breadcrumb and description above this component, and
           repeating it put the same word on screen three times in the first 300px. */}
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        <ActionButton variant="ghost" size="sm" icon={Compass} onClick={replaySetup}>
+          Show setup guide
+        </ActionButton>
         <ActionButton variant="outline" size="sm" icon={RotateCcw} onClick={resetAll} disabled={saving}>
           Reset to defaults
         </ActionButton>

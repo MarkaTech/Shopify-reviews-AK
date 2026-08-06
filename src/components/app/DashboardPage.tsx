@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import OnboardingCard from './OnboardingCard';
+import OnboardingFlow from './OnboardingFlow';
 import type { PageId } from './Sidebar';
 import {
   Panel, PanelHeader, StatCard, StatSkeletonRow, Skeleton, Stars, Pill,
@@ -55,7 +55,13 @@ const SENTIMENT = [
   { key: 'negative', name: 'Negative', color: '#e11d48' },
 ] as const;
 
-export default function DashboardPage({ onNavigate }: { onNavigate?: (page: PageId) => void }) {
+export default function DashboardPage({
+  onNavigate,
+  storeName,
+}: {
+  onNavigate?: (page: PageId) => void;
+  storeName?: string;
+}) {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const go = onNavigate ?? (() => undefined);
@@ -107,7 +113,7 @@ export default function DashboardPage({ onNavigate }: { onNavigate?: (page: Page
 
   return (
     <div className="space-y-6">
-      <OnboardingCard onNavigate={go} />
+      <OnboardingFlow onNavigate={go} storeName={storeName} />
 
       {/* ── Headline stats ── */}
       <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

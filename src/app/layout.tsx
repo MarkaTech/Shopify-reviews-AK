@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "next-themes";
@@ -12,6 +12,23 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+/**
+ * A display serif, used on exactly three surfaces: the setup guide headline, the welcome
+ * screen hero, and empty-state titles.
+ *
+ * Every Shopify review app is set in a geometric sans, so a sans headline reads as
+ * "another app in the category" no matter how well it is spaced. One well-chosen serif at
+ * large sizes is the cheapest possible signal that someone made deliberate choices here —
+ * and confining it to headlines keeps the data-dense screens legible, which is where a
+ * serif would actually hurt.
+ */
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-display",
+  weight: "400",
+  style: ["normal", "italic"],
   subsets: ["latin"],
 });
 
@@ -104,7 +121,7 @@ export default function RootLayout({
         <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased bg-background text-foreground`}
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           {children}
