@@ -282,8 +282,15 @@ export async function fetchAliExpressReviews(
   }
 
   if (host === null) {
+    // The diagnostic was in the merchant-facing message while we were getting this
+    // working — "report this diagnostic: keys=data,helpful body=..." reads as unfinished
+    // software in the feature the app leads with. It is genuinely useful when a listing
+    // fails, so it moves to the server log, where support can read it and a merchant
+    // never has to.
+    console.warn('[aliexpress] no usable envelope for', productId, '|', diags.join(' | '));
     throw new AliExpressImportError(
-      `No reviews found on that listing. If the listing definitely has reviews, report this diagnostic: ${diags.join(' | ')}`
+      'No reviews found on that listing. Check the URL points at a product page with ' +
+        'written reviews — some listings only carry star ratings, which cannot be imported.'
     );
   }
 
@@ -307,9 +314,14 @@ export async function fetchAliExpressReviews(
     // outcome: a listing whose ratings are genuinely star-only, or field names that
     // moved under us. Describe the first raw entry so the two are distinguishable from
     // the error alone.
+    console.warn(
+      `[aliexpress] ${listingTotal} ratings but none mapped for ${productId} |`,
+      `first entry keys=${firstEvalKeys || 'none'}`
+    );
     throw new AliExpressImportError(
-      `That listing reports ${listingTotal} ratings, but none could be imported — they may be star-only. ` +
-        `If the listing clearly shows written reviews, report this diagnostic: first entry keys=${firstEvalKeys || 'none'}`
+      `That listing reports ${listingTotal} rating${listingTotal === 1 ? '' : 's'}, but none of ` +
+        'them have written text — star-only ratings cannot be imported. Try a listing with ' +
+        'written reviews.'
     );
   }
 

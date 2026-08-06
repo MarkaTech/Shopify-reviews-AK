@@ -5,6 +5,7 @@ import { decryptToken } from '@/lib/crypto';
 import { validateFiles, uploadToShopify, MediaError } from '@/lib/media';
 import { getFreshAccessToken, tokenRefresherFor, TOKEN_SELECT } from '@/lib/shopify-token';
 import { getSubmissionRules } from '@/lib/storefront-config';
+import { checkSubmitRateLimit } from '@/lib/rate-limit';
 import { notifyNewReview } from '@/lib/notifications';
 import { updateProductRating } from '@/lib/ratings';
 
@@ -67,6 +68,19 @@ export async function POST(request: NextRequest) {
 
     if (!shop) {
       return NextResponse.json({ error: 'Missing store' }, { status: 400, headers: CORS });
+    }
+
+    // Volume ceiling. The honeypot, the per-email duplicate check and the plan cap all
+    // bound WHAT can be submitted; none of them bound HOW MUCH. A script posting unique
+    // names and addresses passes every one of them and buries the merchant's moderation
+    // queue — not a content attack, but a denial of the merchant's attention, which is
+    // the thing this app exists to protect.
+    const limit = checkSubmitRateLimit(request, shop);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many reviews submitted from here just now. Please try again later.' },
+        { status: 429, headers: { ...CORS, 'Retry-After': String(limit.retryAfter) } }
+      );
     }
 
     const store = await db.store.findUnique({

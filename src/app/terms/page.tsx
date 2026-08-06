@@ -81,7 +81,7 @@ export default function TermsOfService() {
             </li>
             <li>
               <strong>Scale — $39/month.</strong> Unlimited review request emails, everything
-              in Growth, plus advanced analytics, API access and priority support.
+              in Growth, plus advanced analytics and priority support.
             </li>
           </ul>
           <ul className="list-disc pl-6">
