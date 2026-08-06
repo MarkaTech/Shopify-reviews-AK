@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { apiFetch, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import type { PageId } from './Sidebar';
 import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton } from './ui-kit';
 
 // Mirrors src/lib/plans.ts. Prices and limits must match the server, which is what
@@ -199,7 +200,7 @@ function UsageBar({
   );
 }
 
-export default function SettingsPage() {
+export default function SettingsPage({ onNavigate }: { onNavigate?: (page: PageId) => void }) {
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
   const [reqSettings, setReqSettings] = useState<{ delayDays: number; reminders: number; reminderGapDays: number } | null>(null);
@@ -357,7 +358,10 @@ export default function SettingsPage() {
         method: 'POST',
         body: JSON.stringify({ dismissed: false }),
       });
-      toast.success('Setup guide restored — open the Dashboard to see it.');
+      // Take them there rather than telling them where to go. A toast that reads
+      // "open the Dashboard to see it" is the app asking the merchant to finish a job
+      // it could have finished itself.
+      onNavigate?.('dashboard');
     } catch (err) {
       toast.error(errorMessage(err, 'Could not restore the setup guide'));
     }

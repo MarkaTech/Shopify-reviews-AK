@@ -4,10 +4,24 @@ import React, { useMemo, useState } from 'react';
 import {
   LayoutDashboard, Star, FileSpreadsheet, Settings, ShoppingBag, Palette,
   MessageSquare, Search, HelpCircle, Gift, Sparkles, ChevronRight,
-  Zap, type LucideIcon,
+  Zap, ArrowUpRight, type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Tile, Meter, ActionButton } from './ui-kit';
+import { Meter, ActionButton } from './ui-kit';
+
+/**
+ * The navigation rail.
+ *
+ * This was a near-black panel. Inside Shopify's admin — which is white, with the merchant's
+ * own store nav immediately to its left — a black slab reads as a foreign object embedded
+ * in the page rather than part of the product. It also inverted the usual relationship
+ * between navigation and content: the darkest, heaviest element on screen was the one the
+ * merchant looks at least.
+ *
+ * Now a white rail raised very slightly off the page, in the same visual language as the
+ * cards it sits beside. Weight comes from typography and one accent colour rather than
+ * from a large dark fill, which is what the tools this is competing with actually do.
+ */
 
 export type PageId =
   | 'dashboard'
@@ -38,10 +52,28 @@ interface SidebarProps {
   pendingCount?: number;
 }
 
-const PLAN_META: Record<string, { label: string; short: string; price: string; tone: string }> = {
-  free: { label: 'Free', short: 'FREE', price: '$0', tone: 'from-slate-400 to-slate-600' },
-  growth: { label: 'Growth', short: 'GROW', price: '$12', tone: 'from-emerald-400 to-teal-600' },
-  scale: { label: 'Scale', short: 'SCALE', price: '$39', tone: 'from-violet-400 to-fuchsia-600' },
+const PLAN_META: Record<
+  string,
+  { label: string; short: string; price: string; chip: string }
+> = {
+  free: {
+    label: 'Free',
+    short: 'FREE',
+    price: '$0',
+    chip: 'bg-ink-100 text-ink-600 ring-ink-900/8',
+  },
+  growth: {
+    label: 'Growth',
+    short: 'GROW',
+    price: '$12',
+    chip: 'bg-brand-50 text-brand-700 ring-brand-600/15',
+  },
+  scale: {
+    label: 'Scale',
+    short: 'SCALE',
+    price: '$39',
+    chip: 'bg-violet-50 text-violet-700 ring-violet-600/15',
+  },
 };
 
 interface NavItem {
@@ -119,54 +151,53 @@ export default function Sidebar({
   const nearCap = requestsCap != null && usagePct >= 80;
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-screen w-[264px] flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)]">
-      {/* A single hairline of light down the right edge. Reads as a lit panel edge
-          rather than a border, which is the difference between "dark theme" and
-          "dark material". */}
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-px bg-gradient-to-b from-white/[0.02] via-white/[0.12] to-white/[0.02]" />
-      {/* Brand glow bleeding in from the top-left. */}
+    <aside
+      className="fixed left-0 top-0 z-40 flex h-screen w-[260px] flex-col border-r border-border bg-card"
+      style={{
+        backgroundImage: 'linear-gradient(180deg, #ffffff 0%, #fcfdfe 55%, #f9fbfd 100%)',
+        boxShadow: '1px 0 0 rgba(11,18,32,0.03), 4px 0 24px -12px rgba(11,18,32,0.10)',
+      }}
+    >
+      {/* A whisper of brand at the very top, so the rail is not a plain white column. */}
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-64 opacity-70"
+        className="pointer-events-none absolute inset-x-0 top-0 h-44"
         style={{
           background:
-            'radial-gradient(28rem 16rem at 8% 0%, rgba(16,183,133,0.22), transparent 68%)',
+            'radial-gradient(20rem 11rem at 0% 0%, rgba(16,183,133,0.10), transparent 70%)',
         }}
       />
 
       {/* ── Brand ── */}
-      <div className="relative flex items-center gap-3 px-4 pb-4 pt-5">
-        <div className="relative">
-          <div className="absolute inset-0 rounded-xl bg-brand-500/40 blur-lg" />
-          <span className="tile tile-brand relative size-10">
-            <Star className="size-5" fill="currentColor" strokeWidth={0} />
-          </span>
-        </div>
+      <div className="relative flex items-center gap-2.5 px-4 pb-4 pt-5">
+        <span className="tile tile-brand size-9">
+          <Star className="size-4.5" fill="currentColor" strokeWidth={0} />
+        </span>
         <div className="min-w-0">
-          <h1 className="text-[15px] font-bold leading-tight tracking-tight text-white">
+          <h1 className="text-[14.5px] font-bold leading-tight tracking-[-0.015em] text-ink-900 dark:text-white">
             ReviewMaster
           </h1>
-          <p className="text-[11px] text-white/40">Reviews that sell</p>
+          <p className="text-[10.5px] font-medium text-ink-400">Reviews that sell</p>
         </div>
       </div>
 
       {/* ── Search ── */}
       <div className="relative px-3 pb-3">
-        <Search className="pointer-events-none absolute left-6 top-1/2 size-3.5 -translate-y-1/2 text-white/30" />
+        <Search className="pointer-events-none absolute left-6 top-1/2 size-3.5 -translate-y-1/2 text-ink-400" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Jump to…"
           aria-label="Filter navigation"
-          className="h-9 w-full rounded-xl border border-white/[0.07] bg-white/[0.04] pl-8 pr-3 text-[12.5px] text-white placeholder:text-white/30 transition-colors focus:border-brand-500/50 focus:bg-white/[0.07] focus:outline-none"
+          className="h-9 w-full rounded-xl border border-border bg-ink-50/70 pl-8 pr-3 text-[12.5px] text-ink-800 placeholder:text-ink-400 transition-all focus:border-brand-400 focus:bg-card focus:outline-none focus:ring-4 focus:ring-brand-500/10 dark:bg-white/5 dark:text-white"
         />
       </div>
 
       {/* ── Navigation ── */}
       <nav className="no-scrollbar relative flex-1 overflow-y-auto px-3 pb-2">
         {filtered.map((group) => (
-          <div key={group.label ?? 'main'} className="mb-4">
+          <div key={group.label ?? 'main'} className="mb-5">
             {group.label && (
-              <p className="mb-1.5 px-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/25">
+              <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.15em] text-ink-400">
                 {group.label}
               </p>
             )}
@@ -179,38 +210,33 @@ export default function Sidebar({
                     onClick={() => onPageChange(item.id)}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'ring-focus group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-200',
+                      'ring-focus group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] transition-all duration-150',
                       active
-                        ? 'text-white'
-                        : 'text-white/55 hover:bg-white/[0.05] hover:text-white/90'
+                        ? 'font-semibold text-brand-800 dark:text-brand-200'
+                        : 'font-medium text-ink-600 hover:bg-ink-100/70 hover:text-ink-900 dark:text-ink-300 dark:hover:bg-white/5 dark:hover:text-white'
                     )}
                   >
                     {active && (
                       <>
-                        {/* Active row is a lit slab: gradient fill, top bevel, and a
-                            brand bar on the leading edge. */}
                         <span
-                          className="absolute inset-0 -z-10 rounded-xl border border-white/[0.09]"
-                          style={{
-                            backgroundImage:
-                              'linear-gradient(100deg, rgba(16,183,133,0.22), rgba(255,255,255,0.05))',
-                            boxShadow:
-                              'inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 12px -6px rgba(16,183,133,0.6)',
-                          }}
+                          className="absolute inset-0 -z-10 rounded-xl border border-brand-600/12 bg-brand-50 dark:border-brand-400/20 dark:bg-brand-500/12"
+                          style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)' }}
                         />
-                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 shadow-[0_0_10px_var(--brand-400)]" />
+                        <span className="absolute left-0 top-1/2 h-4.5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-600" />
                       </>
                     )}
                     <item.icon
                       className={cn(
                         'size-4 shrink-0 transition-colors',
-                        active ? 'text-brand-300' : 'text-white/40 group-hover:text-white/70'
+                        active
+                          ? 'text-brand-600 dark:text-brand-300'
+                          : 'text-ink-400 group-hover:text-ink-600 dark:group-hover:text-ink-200'
                       )}
                       strokeWidth={2.1}
                     />
                     <span className="flex-1 text-left">{item.label}</span>
                     {item.badge ? (
-                      <span className="tnum rounded-full bg-amber-400/90 px-1.5 py-px text-[10px] font-bold text-amber-950 shadow-[0_0_10px_rgba(251,191,36,.45)]">
+                      <span className="tnum rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-bold text-amber-800 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-400/15 dark:text-amber-300">
                         {item.badge > 99 ? '99+' : item.badge}
                       </span>
                     ) : null}
@@ -222,50 +248,49 @@ export default function Sidebar({
         ))}
 
         {q && !filtered.length && (
-          <p className="px-3 py-6 text-center text-[12px] text-white/30">
+          <p className="px-3 py-6 text-center text-[12px] text-ink-400">
             Nothing matches “{query}”.
           </p>
         )}
       </nav>
 
-      {/* ── Plan card ── */}
+      {/* ── Plan ── */}
       <div className="relative px-3 pb-3">
         <button
           onClick={() => onPageChange('settings')}
-          className="ring-focus group block w-full rounded-2xl border border-white/[0.08] p-3 text-left transition-all duration-200 hover:border-white/[0.16]"
-          style={{
-            backgroundImage:
-              'linear-gradient(155deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02))',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
-          }}
+          className="ring-focus surface lift group block w-full rounded-2xl p-3 text-left"
         >
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-2">
               <span
                 className={cn(
-                  'inline-flex items-center rounded-md bg-gradient-to-br px-1.5 py-0.5 text-[9.5px] font-black tracking-wider text-white shadow-sm',
-                  planMeta.tone
+                  'inline-flex items-center rounded-md px-1.5 py-0.5 text-[9.5px] font-black tracking-wider ring-1 ring-inset',
+                  planMeta.chip
                 )}
               >
                 {planMeta.short}
               </span>
-              <span className="text-[12.5px] font-semibold text-white">{planMeta.label}</span>
+              <span className="text-[12.5px] font-semibold text-ink-900 dark:text-white">
+                {planMeta.label}
+              </span>
             </span>
-            <ChevronRight className="size-3.5 text-white/30 transition-transform group-hover:translate-x-0.5" />
+            <ChevronRight className="size-3.5 text-ink-300 transition-transform group-hover:translate-x-0.5" />
           </div>
 
           <div className="mt-2.5">
             <div className="mb-1.5 flex items-baseline justify-between text-[11px]">
-              <span className="text-white/45">Requests this month</span>
-              <span className="tnum font-semibold text-white/80">
+              <span className="text-ink-500">Requests this month</span>
+              <span className="tnum font-semibold text-ink-800 dark:text-ink-100">
                 {requestsUsed.toLocaleString()}
-                <span className="text-white/35"> / {requestsCap ? requestsCap.toLocaleString() : '∞'}</span>
+                <span className="font-normal text-ink-400">
+                  {' '}/ {requestsCap ? requestsCap.toLocaleString() : '∞'}
+                </span>
               </span>
             </div>
             {requestsCap ? (
-              <Meter value={usagePct} tone={nearCap ? 'amber' : 'brand'} height={5} className="bg-white/10" />
+              <Meter value={usagePct} tone={nearCap ? 'amber' : 'brand'} height={5} />
             ) : (
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-brand-300">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-brand-700 dark:text-brand-300">
                 <Sparkles className="size-3" />
                 Unlimited
               </div>
@@ -287,18 +312,29 @@ export default function Sidebar({
       </div>
 
       {/* ── Store ── */}
-      <div className="relative border-t border-white/[0.07] px-3 py-3">
+      <div className="relative border-t border-border px-3 py-3">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.07] text-[11px] font-bold text-white/80 ring-1 ring-inset ring-white/10">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-ink-700 to-ink-900 text-[11px] font-bold text-white">
             {initialsOf(storeName || '')}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[12px] font-semibold text-white/90">
+            <p className="truncate text-[12px] font-semibold text-ink-800 dark:text-white">
               {storeName || 'Your store'}
             </p>
-            <p className="truncate text-[10.5px] text-white/35">{storeDomain || '—'}</p>
+            <p className="truncate text-[10.5px] text-ink-400">{storeDomain || '—'}</p>
           </div>
-          <span className="size-1.5 shrink-0 rounded-full bg-brand-400 shadow-[0_0_8px_var(--brand-400)]" />
+          {storeDomain && (
+            <a
+              href={`https://${storeDomain}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open your storefront"
+              title="Open your storefront"
+              className="ring-focus rounded-lg p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-white/8"
+            >
+              <ArrowUpRight className="size-3.5" />
+            </a>
+          )}
         </div>
       </div>
     </aside>

@@ -155,13 +155,15 @@
   --chart-4: #06b6d4;
   --chart-5: #a855f7;
 
-  --sidebar: var(--ink-950);
-  --sidebar-foreground: #e2e8f0;
-  --sidebar-primary: var(--brand-500);
+  /* The nav rail is a light raised panel, not a dark slab — a near-black column inside
+     Shopify's white admin read as a foreign object rather than part of the product. */
+  --sidebar: #ffffff;
+  --sidebar-foreground: var(--ink-700);
+  --sidebar-primary: var(--brand-600);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: rgba(255, 255, 255, 0.06);
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-accent: var(--ink-100);
+  --sidebar-accent-foreground: var(--ink-900);
+  --sidebar-border: var(--ink-200);
   --sidebar-ring: var(--brand-500);
 
   /* ── Elevation ──
