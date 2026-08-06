@@ -195,7 +195,7 @@ export default function Home() {
   // ── Authenticated ──
   const renderPage = () => {
     switch (currentPage) {
-      case 'dashboard': return <DashboardPage onNavigate={setCurrentPage} />;
+      case 'dashboard': return <DashboardPage onNavigate={setCurrentPage} storeName={storeName} />;
       case 'reviews': return <ReviewsPage />;
       case 'bulk-upload': return <BulkUploadPage />;
       case 'questions': return <QuestionsPage />;
@@ -203,7 +203,7 @@ export default function Home() {
       case 'widgets': return <WidgetsPage />;
       case 'incentives': return <IncentivesPage />;
       case 'settings': return <SettingsPage />;
-      default: return <DashboardPage onNavigate={setCurrentPage} />;
+      default: return <DashboardPage onNavigate={setCurrentPage} storeName={storeName} />;
     }
   };
 

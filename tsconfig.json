@@ -40,6 +40,9 @@
     "node_modules",
     ".next",
     "_backup_pre_fix",
+    // Files parked for deletion. The Cowork device bridge cannot unlink, so removed files
+    // are moved here instead — without this they keep getting typechecked after removal.
+    "_to_delete",
     "skills",
     "examples",
     "mini-services",
