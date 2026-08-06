@@ -202,7 +202,7 @@ export default function Home() {
       case 'products': return <ProductsPage />;
       case 'widgets': return <WidgetsPage />;
       case 'incentives': return <IncentivesPage />;
-      case 'settings': return <SettingsPage />;
+      case 'settings': return <SettingsPage onNavigate={setCurrentPage} />;
       default: return <DashboardPage onNavigate={setCurrentPage} storeName={storeName} />;
     }
   };
