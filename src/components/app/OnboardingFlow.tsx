@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   ShoppingBag, MessageSquarePlus, Palette, Mail, CheckCircle2, Gift,
-  Check, X, ArrowRight, Sparkles, Star, BadgeCheck, Clock, Zap,
+  Check, X, ArrowRight, ChevronRight, Sparkles, Star, BadgeCheck, Clock, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
@@ -78,8 +78,8 @@ const STEPS: StepMeta[] = [
   },
   {
     id: 'requests',
-    title: 'Turn on automatic requests',
-    body: 'Emails go out after fulfilment on your schedule, and stop the moment someone reviews.',
+    title: 'Choose when to ask',
+    body: 'You set how long after fulfilment the email goes out — same day, two weeks, two months — plus how many reminders follow. They stop the moment someone reviews.',
     cta: 'Set timing',
     icon: Mail,
     tone: 'amber',
@@ -126,11 +126,17 @@ export default function OnboardingFlow({
 }) {
   const [data, setData] = useState<Progress | null>(null);
   const [hidden, setHidden] = useState(false);
+  // The merchant's own send delay, so the preview shows their setting rather than
+  // asserting a default as though it were fixed behaviour.
+  const [delayDays, setDelayDays] = useState<number | null>(null);
 
   const load = useCallback(() => {
     apiFetch<Progress>('/api/onboarding')
       .then(setData)
       .catch(() => setData(null));
+    apiFetch<{ delayDays?: number }>('/api/request-settings')
+      .then((r) => setDelayDays(typeof r.delayDays === 'number' ? r.delayDays : null))
+      .catch(() => undefined);
   }, []);
 
   useEffect(load, [load]);
@@ -247,7 +253,7 @@ export default function OnboardingFlow({
 
         {/* ── What it looks like when it's done ── */}
         <div className="hidden lg:block">
-          <ResultPreview />
+          <ResultPreview delayDays={delayDays} onEditTiming={() => onNavigate('settings')} />
         </div>
       </div>
 
@@ -348,7 +354,13 @@ export default function OnboardingFlow({
  * adds no image weight, and cannot drift out of date with the product the way a PNG
  * checked into a repo always eventually does.
  */
-function ResultPreview() {
+function ResultPreview({
+  delayDays,
+  onEditTiming,
+}: {
+  delayDays: number | null;
+  onEditTiming: () => void;
+}) {
   return (
     <div className="relative">
       <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-ink-400">
@@ -414,23 +426,35 @@ function ResultPreview() {
         </div>
       </div>
 
-      {/* Floating proof of the automation, which is the part that is actually hard */}
-      <div
-        className="surface-float animate-float absolute -bottom-5 -left-6 w-52 rounded-xl p-3"
+      {/* The timing, as a control rather than a claim.
+          This read "14 days after delivery", which stated our default as though it were
+          fixed behaviour — and the timing is the merchant's to set anywhere from same-day
+          to two months. Showing THEIR number, and making it clickable, turns a line of
+          marketing copy into the feature it was describing. */}
+      <button
+        onClick={onEditTiming}
+        className="ring-focus surface-float animate-float lift absolute -bottom-6 -left-6 w-56 rounded-xl p-3 text-left"
         style={{ animationDelay: '1.4s' }}
       >
         <div className="flex items-center gap-2.5">
           <span className="tile tile-amber size-8">
             <Mail className="size-3.5" strokeWidth={2.4} />
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[11.5px] font-semibold text-ink-900 dark:text-white">
-              Request sent
+              Ask after fulfilment
             </p>
-            <p className="truncate text-[10.5px] text-ink-500">14 days after delivery</p>
+            <p className="truncate text-[10.5px] text-ink-500">
+              {delayDays === null
+                ? 'You choose the timing'
+                : delayDays === 0
+                  ? 'Straight away'
+                  : `Waiting ${delayDays} day${delayDays === 1 ? '' : 's'}`}
+            </p>
           </div>
+          <ChevronRight className="size-3.5 shrink-0 text-ink-300" />
         </div>
-      </div>
+      </button>
     </div>
   );
 }
