@@ -175,6 +175,11 @@ model Review {
   @@index([reviewDate])
   @@index([verificationStatus])
   @@index([storeId, productId, isPublished])
+  // The dashboard's 30-day trend filters on exactly this pair. With only the separate
+  // single-column indexes, Postgres picks one and filters the remainder in memory —
+  // which on a large store means scanning that store's entire review history to answer
+  // a question about the last month.
+  @@index([storeId, reviewDate])
 }
 
 // Import Jobs
