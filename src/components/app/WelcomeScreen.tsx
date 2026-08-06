@@ -3,7 +3,7 @@
 import React from 'react';
 import {
   Star, Store, Globe, ShieldCheck, Camera, Mail, Gift, Sparkles,
-  BadgeCheck, Zap, TrendingUp, Quote, ArrowRight,
+  BadgeCheck, Zap, TrendingUp, Quote, ArrowRight, Clock, ChevronDown,
 } from 'lucide-react';
 import { ActionButton, Stars, Pill } from './ui-kit';
 
@@ -26,8 +26,8 @@ const FEATURES = [
   {
     icon: Mail,
     tone: 'tile-brand',
-    title: 'Automatic review requests',
-    body: 'Sends after fulfilment, on your schedule, with reminders that stop the moment someone reviews.',
+    title: 'Review requests, on your timing',
+    body: 'You choose how long after fulfilment to ask — same day, two weeks, two months — and how many reminders follow. They stop the moment someone reviews.',
   },
   {
     icon: Camera,
@@ -336,20 +336,35 @@ function HeroMock() {
         </div>
       </div>
 
-      {/* Floating callout — the automation, which is the thing that actually
-          differentiates this from a widget library. */}
+      {/* Floating callout.
+          Drawn as a CONTROL rather than a status line. "14 days after delivery" stated a
+          default as though it were a fixed behaviour — which undersold the actual feature,
+          because the timing is the merchant's to set anywhere from same-day to two months.
+          A number in a field says "you decide" in a way no sentence does. */}
       <div
-        className="surface-float animate-float absolute -bottom-8 -left-10 w-56 rounded-2xl p-3.5"
+        className="surface-float animate-float absolute -bottom-8 -left-10 w-60 rounded-2xl p-3.5"
         style={{ animationDelay: '1.2s' }}
       >
         <div className="flex items-center gap-2.5">
           <span className="tile tile-amber size-9">
             <Mail className="size-4" strokeWidth={2.3} />
           </span>
-          <div className="min-w-0">
-            <p className="text-[12px] font-semibold text-ink-900 dark:text-white">Request sent</p>
-            <p className="truncate text-[11px] text-ink-500">14 days after delivery</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-semibold text-ink-900 dark:text-white">
+              Ask for a review
+            </p>
+            <p className="text-[11px] text-ink-500">after an order is fulfilled</p>
           </div>
+        </div>
+        <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-ink-50 px-2.5 py-1.5 dark:bg-white/5">
+          <Clock className="size-3.5 shrink-0 text-ink-400" />
+          <span className="text-[11px] text-ink-500">Wait</span>
+          <span className="surface flex items-center gap-1 rounded-md px-1.5 py-0.5">
+            <span className="tnum text-[11.5px] font-bold text-ink-900 dark:text-white">14</span>
+            <span className="text-[10.5px] text-ink-400">days</span>
+            <ChevronDown className="size-3 text-ink-400" />
+          </span>
+          <span className="text-[10.5px] text-ink-400">your call</span>
         </div>
       </div>
     </div>
