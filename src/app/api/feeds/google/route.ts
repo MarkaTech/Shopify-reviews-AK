@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getStorePlan, PLANS } from '@/lib/plans';
 
 /**
  * Google Merchant Center product ratings feed.
@@ -63,6 +64,21 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Not found', { status: 404 });
     }
 
+    // Checked here as well as at issuance.
+    //
+    // The token route gates on `googleFeed`, so a Free store can never mint a URL — but
+    // the token it minted on Growth kept working forever afterwards, because this
+    // endpoint asked only whether the token matched. One month of Growth bought the
+    // feature permanently. Entitlement has to be checked where the feature is used, not
+    // only where it is granted; the same reasoning applies to every flag in `plans.ts`.
+    //
+    // 404 rather than 403, for the same reason as above and because Google's crawler
+    // does nothing useful with either — the merchant sees a fetch error in Merchant
+    // Center and the app tells them why.
+    if (!PLANS[await getStorePlan(store.id)].googleFeed) {
+      return new NextResponse('Not found', { status: 404 });
+    }
+
     const reviews = await db.review.findMany({
       where: { storeId: store.id, isPublished: true, productId: { not: null } },
       orderBy: { reviewDate: 'desc' },
@@ -97,6 +113,16 @@ export async function GET(request: NextRequest) {
       parts.push('<review>');
       parts.push(`<review_id>${xmlEscape(r.id)}</review_id>`);
       parts.push(`<reviewer><name>${xmlEscape(r.reviewerName)}</name></reviewer>`);
+      // `review` is an xs:sequence, so element order is part of validity rather than
+      // style: `is_verified_purchase` and `is_incentivized_review` belong here, directly
+      // after the reviewer, and `collection_method` belongs after `products`. Emitting
+      // the incentive flag at the end — next to the thing it reads like it belongs with —
+      // invalidates the whole document, and Google rejects the feed rather than the
+      // element.
+      parts.push(`<is_verified_purchase>${r.verificationStatus === 'verified_buyer' ? 'true' : 'false'}</is_verified_purchase>`);
+      // Emitted honestly rather than omitted. Google asks for it, and the FTC requires
+      // incentivised reviews to be identified.
+      parts.push(`<is_incentivized_review>${r.isIncentivized ? 'true' : 'false'}</is_incentivized_review>`);
       parts.push(`<review_timestamp>${r.reviewDate.toISOString()}</review_timestamp>`);
       if (r.title) parts.push(`<title>${xmlEscape(r.title)}</title>`);
       parts.push(`<content>${xmlEscape(r.body)}</content>`);
@@ -112,8 +138,6 @@ export async function GET(request: NextRequest) {
       parts.push(`<product_name>${xmlEscape(r.product.title)}</product_name>`);
       parts.push(`<product_url>${xmlEscape(url)}</product_url>`);
       parts.push('</product></products>');
-      // Honest disclosure, per Google's spec and the FTC rule.
-      parts.push(`<is_incentivized_review>${r.isIncentivized ? 'true' : 'false'}</is_incentivized_review>`);
       parts.push(`<collection_method>${r.verificationStatus === 'verified_buyer' ? 'post_fulfillment' : 'unsolicited'}</collection_method>`);
       parts.push('</review>');
     }

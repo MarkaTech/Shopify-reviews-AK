@@ -209,7 +209,13 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   const [fallbackEmail, setFallbackEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [feedUrl, setFeedUrl] = useState<string | null>(null);
+  // Three states, not two. `undefined` means we have not been able to find out — still
+  // loading, or the request failed. `null` means the server told us no token exists.
+  // Collapsing those, as this did, is how a merchant with a live Merchant Center feed
+  // gets shown "Not set up yet" during a deploy blip and rotates their working URL out
+  // from under Google by clicking the obvious button.
+  const [feedUrl, setFeedUrl] = useState<string | null | undefined>(undefined);
+  const [feedLoadFailed, setFeedLoadFailed] = useState(false);
   const [feedBusy, setFeedBusy] = useState(false);
   const [feedCopied, setFeedCopied] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -358,8 +364,14 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
    */
   const loadFeedUrl = useCallback(() => {
     apiFetch<{ url: string | null }>('/api/feeds/token')
-      .then((d) => setFeedUrl(d.url))
-      .catch(() => setFeedUrl(null));
+      .then((d) => {
+        setFeedUrl(d.url);
+        setFeedLoadFailed(false);
+      })
+      .catch(() => {
+        setFeedUrl(undefined);
+        setFeedLoadFailed(true);
+      });
   }, []);
 
   useEffect(loadFeedUrl, [loadFeedUrl]);
@@ -369,6 +381,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
     try {
       const d = await apiFetch<{ url: string }>('/api/feeds/token', { method: 'POST' });
       setFeedUrl(d.url);
+      setFeedLoadFailed(false);
       toast.success(rotating ? 'New feed URL created. The old one no longer works.' : 'Feed URL created.');
     } catch (err) {
       if (err instanceof ApiError && err.isPlanLimit) {
@@ -868,6 +881,24 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                       {feedBusy ? 'Working…' : 'Generate a new URL (the current one stops working)'}
                     </button>
                   </>
+                ) : feedLoadFailed ? (
+                  // Deliberately no "Create feed URL" here. We do not know whether one
+                  // exists, and issuing one replaces whatever is there — so offering the
+                  // button on a failed read is offering to destroy a working feed.
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="max-w-md text-[12.5px] leading-relaxed text-ink-500">
+                      Couldn&apos;t check whether a feed URL exists. Nothing has changed — try again
+                      in a moment.
+                    </p>
+                    <ActionButton variant="outline" icon={RotateCcw} onClick={loadFeedUrl}>
+                      Try again
+                    </ActionButton>
+                  </div>
+                ) : feedUrl === undefined ? (
+                  <div className="flex items-center gap-2 text-[12.5px] text-ink-400">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Checking…
+                  </div>
                 ) : (
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="max-w-md text-[12.5px] leading-relaxed text-ink-500">
