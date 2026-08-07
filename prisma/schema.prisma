@@ -165,7 +165,21 @@ model Review {
   updatedAt       DateTime @updatedAt
 
   store           Store    @relation(fields: [storeId], references: [id])
-  product         Product? @relation(fields: [productId], references: [id])
+  // Explicit, because the Prisma default here is SetNull and a default is not a
+  // decision. Cascade would be worse: deleting a product would delete its reviews, which
+  // makes removing unflattering feedback a one-click operation and is precisely what the
+  // FTC rule on review suppression is about. So the reviews survive - and
+  // detachedProductShopifyId below is what lets them find their way home.
+  product         Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  // The Shopify product id this review was attached to, recorded at the moment the
+  // product row is deleted and cleared when it is re-attached.
+  //
+  // Deleting a product used to detach every one of its reviews with no way back: the
+  // local id was the only link, and it went with the row. A merchant who deletes a
+  // listing and rebuilds it - reworking a product, or an importer re-creating it - lost
+  // every review on it permanently, silently, and with the reviews still sitting in the
+  // database being counted nowhere.
+  detachedProductShopifyId String?
 
   @@index([storeId])
   @@index([productId])
@@ -175,6 +189,7 @@ model Review {
   @@index([reviewDate])
   @@index([verificationStatus])
   @@index([storeId, productId, isPublished])
+  @@index([storeId, detachedProductShopifyId])
   // The dashboard's 30-day trend filters on exactly this pair. With only the separate
   // single-column indexes, Postgres picks one and filters the remainder in memory —
   // which on a large store means scanning that store's entire review history to answer
@@ -355,7 +370,9 @@ model Question {
   updatedAt     DateTime @updatedAt
 
   store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product       Product? @relation(fields: [productId], references: [id])
+  product       Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  /** See Review.detachedProductShopifyId — a question outlives its product the same way. */
+  detachedProductShopifyId String?
   answers       Answer[]
 
   @@index([storeId])
