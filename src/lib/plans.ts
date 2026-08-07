@@ -470,10 +470,16 @@ export async function getUsage(storeId: string) {
   const plan = await getStorePlan(storeId);
   const limits = PLANS[plan];
 
-  const [reviews, widgets, requests] = await Promise.all([
+  const [reviews, widgets, requests, pendingReviews] = await Promise.all([
     db.review.count({ where: { storeId } }),
     db.widgetConfig.count({ where: { storeId } }),
     getRequestUsage(storeId),
+    // Here rather than in /api/analytics, which is where the shell used to get it.
+    // The nav badge needs one number; analytics answers fifteen aggregates plus a
+    // thirty-day scan, and the shell was firing the whole thing on every navigation to
+    // read a single count. One more `count` on a query this route already runs is free
+    // by comparison.
+    db.review.count({ where: { storeId, isPublished: false } }),
   ]);
 
   const pct = (used: number, limit: number | null) =>
@@ -483,6 +489,8 @@ export async function getUsage(storeId: string) {
     plan,
     planLabel: limits.label,
     price: limits.price,
+    /** Awaiting moderation. Drives the badge on the Reviews tab. */
+    pendingReviews,
     // The meter. Everything else here is informational.
     requests: {
       used: requests.used,

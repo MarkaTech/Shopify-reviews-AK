@@ -33,6 +33,9 @@ interface Product {
   averageRating: number;
 }
 
+/** Page size. Twenty-four divides evenly into the 2, 3 and 4 column grids below. */
+const PAGE_SIZE = 24;
+
 export default function ProductsPage({ storeDomain }: { storeDomain?: string }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +45,15 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder] = useState('desc');
   const [hasReviewsFilter, setHasReviewsFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [matching, setMatching] = useState(0);
+  // Catalogue-wide figures, answered by the server. They used to be derived in the
+  // browser from whichever products were loaded, which made them a description of the
+  // page rather than of the catalogue they claimed to describe.
+  const [summary, setSummary] = useState<{
+    products: number; reviews: number; averageRating: number; withReviews: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,11 +64,22 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
       params.set('sortBy', sortBy);
       params.set('sortOrder', sortOrder);
       if (hasReviewsFilter !== 'all') params.set('hasReviews', hasReviewsFilter);
-      params.set('limit', '50');
+      params.set('limit', String(PAGE_SIZE));
+      params.set('page', String(page));
 
       try {
-        const data = await apiFetch<{ products: Product[] }>(`/api/products?${params}`);
-        if (!cancelled) setProducts(data.products || []);
+        const data = await apiFetch<{
+          products: Product[];
+          total: number;
+          totalPages: number;
+          summary: { products: number; reviews: number; averageRating: number; withReviews: number };
+        }>(`/api/products?${params}`);
+        if (!cancelled) {
+          setProducts(data.products || []);
+          setTotalPages(data.totalPages || 1);
+          setMatching(data.total || 0);
+          setSummary(data.summary ?? null);
+        }
       } catch (err) {
         // Previously an unhandled rejection: a failed load left the spinner up forever
         // with nothing in the console a merchant could act on.
@@ -70,9 +93,16 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
     };
     load();
     return () => { cancelled = true; };
-  }, [search, sortBy, sortOrder, hasReviewsFilter, refreshKey]);
+  }, [search, sortBy, sortOrder, hasReviewsFilter, refreshKey, page]);
+
 
   // --- Add Review dialog ---------------------------------------------------------
+  // Changing what is being listed returns to the first page. Done here rather than in an
+  // effect on the filters: an effect renders once with the old page, fetches, then renders
+  // again with page 1 and fetches a second time - the merchant sees a flash of the wrong
+  // results and the server answers twice for one keystroke.
+  const changeFilter = <T,>(set: (v: T) => void) => (value: T) => { set(value); setPage(1); };
+
   const [reviewFor, setReviewFor] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ reviewerName: '', rating: 5, title: '', body: '' });
@@ -154,19 +184,19 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
     }
   };
 
-  const totalReviews = products.reduce((sum, p) => sum + p.reviewCount, 0);
-  // Guard on totalReviews, not products.length. With 17 products and 0 reviews the old
-  // check passed and then divided by zero, rendering "NaN" on the dashboard.
-  const avgAllRatings = totalReviews > 0
-    ? products.reduce((sum, p) => sum + (p.averageRating * p.reviewCount), 0) / totalReviews
-    : 0;
-  const withReviews = products.filter(p => p.reviewCount > 0).length;
+  // Straight from the server. Summing the loaded page was the bug: with a page size of
+  // fifty, a five-hundred-product store was shown a tenth of its catalogue captioned as
+  // all of it.
+  const catalogueSize = summary?.products ?? 0;
+  const totalReviews = summary?.reviews ?? 0;
+  const avgAllRatings = summary?.averageRating ?? 0;
+  const withReviews = summary?.withReviews ?? 0;
 
   return (
     <div className="space-y-6">
       {/* ── Stats ── */}
       <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Products" value={products.length} icon={ShoppingBag} tone="cyan" hint="Synced from Shopify" />
+        <StatCard label="Products" value={catalogueSize} icon={ShoppingBag} tone="cyan" hint="Synced from Shopify" />
         <StatCard label="Reviews" value={totalReviews} icon={MessageSquare} tone="brand" hint="Across all products" />
         <StatCard label="Average rating" value={avgAllRatings} decimals={1} icon={Star} tone="amber" hint={totalReviews ? <Stars rating={avgAllRatings} size={13} /> : 'No reviews yet'} />
         <StatCard
@@ -174,7 +204,7 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
           value={withReviews}
           icon={BarChart3}
           tone="indigo"
-          hint={products.length ? `${Math.round((withReviews / products.length) * 100)}% of your catalogue` : '—'}
+          hint={catalogueSize ? `${Math.round((withReviews / catalogueSize) * 100)}% of your catalogue` : '—'}
         />
       </div>
 
@@ -186,11 +216,11 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
             placeholder="Search products…"
             className="h-9 rounded-xl pl-9 text-[13px]"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => changeFilter(setSearch)(e.target.value)}
           />
         </div>
 
-        <Select value={hasReviewsFilter} onValueChange={setHasReviewsFilter}>
+        <Select value={hasReviewsFilter} onValueChange={changeFilter(setHasReviewsFilter)}>
           <SelectTrigger className="h-9 w-[142px] rounded-xl text-[13px]"><SelectValue placeholder="Reviews" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All products</SelectItem>
@@ -199,7 +229,7 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
           </SelectContent>
         </Select>
 
-        <Select value={sortBy} onValueChange={setSortBy}>
+        <Select value={sortBy} onValueChange={changeFilter(setSortBy)}>
           <SelectTrigger className="h-9 w-[150px] rounded-xl text-[13px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="createdAt">Newest</SelectItem>
@@ -248,7 +278,7 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
             }
             action={
               search ? (
-                <ActionButton variant="outline" onClick={() => setSearch('')}>Clear search</ActionButton>
+                <ActionButton variant="outline" onClick={() => changeFilter(setSearch)('')}>Clear search</ActionButton>
               ) : (
                 <ActionButton icon={ArrowDownToLine} onClick={handleSync} disabled={syncing}>
                   {syncing ? 'Syncing…' : 'Sync from Shopify'}
@@ -340,6 +370,42 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
               </div>
             </Panel>
           ))}
+        </div>
+      )}
+
+      {/* ── Pager ──
+          Only when there is more than one page: a single page of results does not need
+          navigation, and hiding it keeps the common case uncluttered. */}
+      {!loading && totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[12.5px] text-ink-500">
+            Showing{' '}
+            <span className="tnum font-semibold text-ink-800 dark:text-ink-100">
+              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, matching)}
+            </span>{' '}
+            of <span className="tnum font-semibold text-ink-800 dark:text-ink-100">{matching.toLocaleString()}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <ActionButton
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+            >
+              Previous
+            </ActionButton>
+            <span className="tnum px-1 text-[12.5px] text-ink-500">
+              Page {page} of {totalPages}
+            </span>
+            <ActionButton
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </ActionButton>
+          </div>
         </div>
       )}
 

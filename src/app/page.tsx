@@ -123,21 +123,25 @@ export default function Home() {
     setIsLoading(false);
   }, [authError, checkSession]);
 
-  // Usage figures for the plan meter, refreshed whenever the merchant lands back on
-  // a screen that could have changed them. /api/usage rather than /api/analytics: the
-  // meter is monthly request volume, and analytics loads every review row to compute
-  // aggregates nobody needs in the sidebar.
+  // Usage figures for the plan meter and the pending badge, refreshed whenever the
+  // merchant lands back on a screen that could have changed them.
+  //
+  // One request, not two. This used to call /api/analytics alongside /api/usage purely to
+  // read `pendingReviews` — fifteen aggregates and a thirty-day scan, on every navigation,
+  // for one integer, while the comment above it claimed analytics was avoided precisely
+  // because it was expensive. `getUsage` returns the count now.
   useEffect(() => {
     if (!isAuthenticated) return;
-    Promise.all([
-      apiFetch<{ plan: string; requests: { used: number; limit: number | null } }>('/api/usage'),
-      apiFetch<{ pendingReviews: number }>('/api/analytics'),
-    ])
-      .then(([u, a]) => {
+    apiFetch<{
+      plan: string;
+      pendingReviews: number;
+      requests: { used: number; limit: number | null };
+    }>('/api/usage')
+      .then((u) => {
         setUsage({
           requests: u.requests?.used ?? 0,
           cap: u.requests?.limit ?? null,
-          pending: a.pendingReviews ?? 0,
+          pending: u.pendingReviews ?? 0,
         });
         // The plan comes from here too, not only from the mount-time /api/store call.
         //

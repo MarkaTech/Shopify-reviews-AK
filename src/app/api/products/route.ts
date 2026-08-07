@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(250, Math.max(1, Number(searchParams.get('limit')) || 20));
     const skip = (page - 1) * limit;
 
-    const [products, total] = await Promise.all([
+    const [products, total, catalogueSize, withReviews, reviewAgg] = await Promise.all([
       db.product.findMany({
         where,
         include: {
@@ -95,6 +95,26 @@ export async function GET(request: NextRequest) {
         take: limit,
       }),
       db.product.count({ where }),
+
+      // ── Catalogue summary ──
+      //
+      // Scoped to the store, NOT to `where`. The page's four headline figures were
+      // computed in the browser from whichever products happened to be loaded — fifty at
+      // most — and captioned "Across all products" and "% of your catalogue". A merchant
+      // with five hundred products was shown numbers derived from a tenth of them, stated
+      // with complete confidence and wrong in a way nothing on screen could reveal.
+      //
+      // Ignoring the search and filter is deliberate: these are a description of the
+      // catalogue, which is what the captions say and what makes them stable while the
+      // merchant is filtering. Answering them here costs three counts against indexed
+      // columns and cannot drift from the page size, because it no longer knows about it.
+      db.product.count({ where: { storeId } }),
+      db.product.count({ where: { storeId, reviews: { some: {} } } }),
+      db.review.aggregate({
+        where: { storeId, productId: { not: null } },
+        _count: { _all: true },
+        _avg: { rating: true },
+      }),
     ]);
 
     const productsWithStats = products.map((p) => ({
@@ -124,6 +144,13 @@ export async function GET(request: NextRequest) {
       page,
       limit,
       totalPages: Math.max(1, Math.ceil(total / limit)),
+      summary: {
+        products: catalogueSize,
+        reviews: reviewAgg._count._all,
+        // One decimal, matching every other rating in the product.
+        averageRating: reviewAgg._avg.rating ? Math.round(reviewAgg._avg.rating * 10) / 10 : 0,
+        withReviews,
+      },
     });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();
