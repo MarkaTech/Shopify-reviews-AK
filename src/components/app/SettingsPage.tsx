@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import type { PageId } from './Sidebar';
+import type { PageId } from './TopNav';
 import { adminUrl, navigateTop } from '@/lib/admin-links';
 import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton } from './ui-kit';
 
@@ -836,7 +836,13 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                   <>
                     <Label className="text-[12.5px] font-semibold">Your feed URL</Label>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <code className="min-w-0 flex-1 truncate rounded-xl border border-border bg-ink-50 px-3 py-2.5 font-mono text-[12px] text-ink-700 dark:bg-white/5 dark:text-ink-200">
+                      {/* `break-all`, not `truncate`. A URL the merchant has to paste
+                          into Merchant Center is worth showing in full, and truncation
+                          only hid the overflow rather than preventing it: an unbroken
+                          80-character string still sets a large min-content width, which
+                          is what pushed the Copy button off the right edge. Allowing it
+                          to break makes that width one character. */}
+                      <code className="min-w-0 flex-1 rounded-xl border border-border bg-ink-50 px-3 py-2.5 font-mono text-[12px] leading-relaxed break-all text-ink-700 dark:bg-white/5 dark:text-ink-200">
                         {feedUrl}
                       </code>
                       <ActionButton

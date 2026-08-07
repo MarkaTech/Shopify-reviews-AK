@@ -12,7 +12,7 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import OnboardingFlow from './OnboardingFlow';
-import type { PageId } from './Sidebar';
+import type { PageId } from './TopNav';
 import {
   Panel, PanelHeader, StatCard, StatSkeletonRow, Skeleton, Stars, Pill,
   Meter, EmptyState, ActionButton, SectionTitle, Tile, CountUp,
