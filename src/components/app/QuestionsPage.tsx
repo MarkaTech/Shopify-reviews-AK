@@ -5,6 +5,7 @@ import {
   HelpCircle, MessageSquare, Pin, Eye, EyeOff, Trash2, Send,
   Loader2, ShoppingBag, Clock, CheckCircle2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
+import { useConfirm } from './confirm';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { apiFetch, errorMessage } from '@/lib/api-client';
@@ -88,6 +89,7 @@ const EMPTY_COPY: Record<TabId, { title: string; desc: string }> = {
 };
 
 export default function QuestionsPage() {
+  const confirm = useConfirm();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -199,6 +201,12 @@ export default function QuestionsPage() {
   };
 
   const remove = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete this question?',
+      body: 'The question and any answer you have written are removed from your storefront for good.',
+      confirmLabel: 'Delete question',
+    });
+    if (!ok) return;
     setBusyId(id);
     try {
       await apiFetch(`/api/questions/${id}`, { method: 'DELETE' });

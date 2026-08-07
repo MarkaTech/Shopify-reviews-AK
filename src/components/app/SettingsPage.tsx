@@ -6,6 +6,7 @@ import {
   RotateCcw, Send, Loader2, Check, Sparkles, Mail, Clock, Eye, Code2, Compass,
   ShieldCheck, SlidersHorizontal, Camera, BookOpen, ArrowUpRight, Globe, Copy,
 } from 'lucide-react';
+import { useConfirm } from './confirm';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -201,6 +202,7 @@ function UsageBar({
 }
 
 export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?: (page: PageId) => void; storeDomain?: string }) {
+  const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
   const [reqSettings, setReqSettings] = useState<{ delayDays: number; reminders: number; reminderGapDays: number } | null>(null);
@@ -417,6 +419,12 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   };
 
   const resetAll = async () => {
+    const ok = await confirm({
+      title: 'Reset every display setting?',
+      body: 'Colours, layout, wording and your custom CSS all go back to the defaults. Anything you have tuned for your storefront is lost, and there is no undo.',
+      confirmLabel: 'Reset everything',
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       await apiFetch('/api/storefront-config', { method: 'DELETE' });

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import TopNav, { type PageId } from '@/components/app/TopNav';
+import { ConfirmProvider } from '@/components/app/confirm';
 import DashboardPage from '@/components/app/DashboardPage';
 import ReviewsPage from '@/components/app/ReviewsPage';
 import BulkUploadPage from '@/components/app/BulkUploadPage';
@@ -228,6 +229,7 @@ export default function Home() {
   const storefrontUrl = storeDomain ? `https://${storeDomain}` : null;
 
   return (
+    <ConfirmProvider>
     <div className="aurora min-h-screen bg-background">
       <TopNav
         currentPage={currentPage}
@@ -298,5 +300,6 @@ export default function Home() {
         }}
       />
     </div>
+    </ConfirmProvider>
   );
 }

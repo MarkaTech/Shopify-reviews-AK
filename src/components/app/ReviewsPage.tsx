@@ -16,6 +16,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
+import { useConfirm } from './confirm';
 import { toast } from 'sonner';
 import { apiFetch, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -63,6 +64,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const PAGE_SIZE = 20;
 
 export default function ReviewsPage() {
+  const confirm = useConfirm();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -216,6 +218,12 @@ export default function ReviewsPage() {
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete this review?',
+      body: 'It is removed from your storefront and from the product\u2019s star rating, and cannot be restored.',
+      confirmLabel: 'Delete review',
+    });
+    if (!ok) return;
     try {
       await apiFetch(`/api/reviews/${id}`, { method: 'DELETE' });
       toast.success('Review deleted');
@@ -259,6 +267,18 @@ export default function ReviewsPage() {
   const handleBulkAction = async (action: string) => {
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
+
+    // Only the destructive branch asks. Publishing forty reviews is one undo away;
+    // deleting them is not, and a confirmation on every bulk action would train people
+    // to dismiss the one that matters.
+    if (action === 'delete') {
+      const ok = await confirm({
+        title: `Delete ${ids.length} review${ids.length === 1 ? '' : 's'}?`,
+        body: 'They are removed from your storefront and from every affected product\u2019s star rating. This cannot be undone.',
+        confirmLabel: `Delete ${ids.length}`,
+      });
+      if (!ok) return;
+    }
 
     const run = (id: string) => {
       switch (action) {
