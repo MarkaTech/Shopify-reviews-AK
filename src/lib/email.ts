@@ -21,7 +21,55 @@ import { isSuppressed } from './suppression';
 
 export type SendResult =
   | { sent: true; provider: 'ses' | 'resend' | 'sendgrid'; id?: string }
-  | { sent: false; reason: 'not_configured' | 'failed' | 'suppressed'; detail?: string };
+  | {
+      sent: false;
+      reason: 'not_configured' | 'failed' | 'suppressed';
+      detail?: string;
+      /**
+       * Whether the caller should keep retrying this address indefinitely.
+       *
+       * A provider rejection says one of two very different things, and until this
+       * existed they were indistinguishable — `reason: 'failed'` covered both. That
+       * matters because the sweep gives up on a request after a fixed number of
+       * failures: with no way to tell them apart, an expired API key produces a 100%
+       * failure rate and, two and a half days later, silently destroys every queued
+       * review request on the platform.
+       *
+       * `true` means the fault is ours or the provider's — bad credentials, throttling,
+       * an outage. Nothing about the recipient is wrong, so the request must never be
+       * abandoned; it waits for a human to fix the configuration.
+       *
+       * `false` means the provider rejected this specific message and will keep doing
+       * so. Retrying forever would block the queue for everyone.
+       *
+       * Optional, and absent means `true`. A construction site that has not thought
+       * about this should get the outcome that loses nothing — the failure mode of
+       * over-retrying is a wasted request an hour, and of under-retrying is a review
+       * the merchant never collects.
+       */
+      retryable?: boolean;
+    };
+
+/**
+ * Classify an HTTP status from a mail provider.
+ *
+ * Deliberately biased toward `retryable`. Abandoning a request throws away a review the
+ * merchant would otherwise have collected, so anything ambiguous keeps retrying: the cost
+ * of being wrong in that direction is a wasted request an hour, and in the other
+ * direction it is permanent, silent data loss.
+ *
+ *   401 / 403  bad or revoked key, unverified sending domain — configuration, not the address
+ *   404 / 405  wrong endpoint — our bug
+ *   408 / 429  timeout or throttling
+ *   5xx        the provider is down
+ *
+ * That leaves 400 and 422, which is what all three providers return for a malformed or
+ * rejected recipient. Those are the only statuses that count toward giving up.
+ */
+function isRetryableStatus(status: number): boolean {
+  if (status >= 500) return true;
+  return status === 401 || status === 403 || status === 404 || status === 405 || status === 408 || status === 429;
+}
 
 export interface EmailMessage {
   to: string;
@@ -206,7 +254,12 @@ async function sendViaSes(msg: EmailMessage): Promise<SendResult> {
   const res = await fetch(`https://${host}${path}`, { method: 'POST', headers, body: payload });
 
   if (!res.ok) {
-    return { sent: false, reason: 'failed', detail: `SES ${res.status}: ${(await res.text()).slice(0, 300)}` };
+    return {
+      sent: false,
+      reason: 'failed',
+      detail: `SES ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      retryable: isRetryableStatus(res.status),
+    };
   }
   const body = (await res.json().catch(() => ({}))) as { MessageId?: string };
   return { sent: true, provider: 'ses', id: body.MessageId };
@@ -240,7 +293,12 @@ async function sendViaResend(msg: EmailMessage): Promise<SendResult> {
   });
 
   if (!res.ok) {
-    return { sent: false, reason: 'failed', detail: `Resend ${res.status}: ${(await res.text()).slice(0, 300)}` };
+    return {
+      sent: false,
+      reason: 'failed',
+      detail: `Resend ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      retryable: isRetryableStatus(res.status),
+    };
   }
   const body = (await res.json().catch(() => ({}))) as { id?: string };
   return { sent: true, provider: 'resend', id: body.id };
@@ -270,7 +328,12 @@ async function sendViaSendGrid(msg: EmailMessage): Promise<SendResult> {
   });
 
   if (!res.ok) {
-    return { sent: false, reason: 'failed', detail: `SendGrid ${res.status}: ${(await res.text()).slice(0, 300)}` };
+    return {
+      sent: false,
+      reason: 'failed',
+      detail: `SendGrid ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      retryable: isRetryableStatus(res.status),
+    };
   }
   return { sent: true, provider: 'sendgrid' };
 }
@@ -278,7 +341,7 @@ async function sendViaSendGrid(msg: EmailMessage): Promise<SendResult> {
 /** Send a message. Never throws — a failed email must not fail the webhook that triggered it. */
 export async function sendEmail(msg: EmailMessage): Promise<SendResult> {
   const provider = emailProvider();
-  if (!provider) return { sent: false, reason: 'not_configured' };
+  if (!provider) return { sent: false, reason: 'not_configured', retryable: true };
 
   try {
     // The suppression check lives here rather than at each call site, so a feature added
@@ -291,14 +354,21 @@ export async function sendEmail(msg: EmailMessage): Promise<SendResult> {
     // mailing addresses that already bounced at exactly the moment we cannot tell, which
     // is how a suspension happens; not sending is recoverable and loud.
     if (await isSuppressed(msg.to)) {
-      return { sent: false, reason: 'suppressed' };
+      return { sent: false, reason: 'suppressed', retryable: false };
     }
 
     if (provider === 'ses') return await sendViaSes(msg);
     if (provider === 'resend') return await sendViaResend(msg);
     return await sendViaSendGrid(msg);
   } catch (err) {
-    return { sent: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };
+    // A thrown error is a network fault, a DNS failure or the suppression lookup failing
+    // closed. None of them is evidence that the address is bad.
+    return {
+      sent: false,
+      reason: 'failed',
+      detail: err instanceof Error ? err.message : String(err),
+      retryable: true,
+    };
   }
 }
 

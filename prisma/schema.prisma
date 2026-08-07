@@ -311,7 +311,8 @@ model ReviewRequest {
   // When the next email (initial or reminder) is due. Null = nothing more to send.
   // Requests used to be emailed inline from the webhook, which meant "immediately after
   // fulfilment" - before the parcel arrived - and a failed send was lost forever. The
-  // cron sweep keys on this column, so a failure is simply retried on the next run.
+  // cron sweep keys on this column, and a failure pushes it forward with a growing
+  // backoff (see sendFailures below) rather than leaving it in the past.
   nextSendAt      DateTime?
   // 0 = nothing sent yet; 1 = initial email sent; 2+ = reminders sent.
   sendCount       Int       @default(0)
