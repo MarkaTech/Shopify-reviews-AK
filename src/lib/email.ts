@@ -51,24 +51,51 @@ export type SendResult =
     };
 
 /**
- * Classify an HTTP status from a mail provider.
+ * Does this rejection identify the *recipient* as the problem?
  *
- * Deliberately biased toward `retryable`. Abandoning a request throws away a review the
- * merchant would otherwise have collected, so anything ambiguous keeps retrying: the cost
- * of being wrong in that direction is a wasted request an hour, and in the other
- * direction it is permanent, silent data loss.
+ * The status code alone cannot answer this, and an earlier version of this file assumed
+ * it could — treating 400 and 422 as "the address is bad" on the grounds that all three
+ * providers use them for a rejected recipient. True, and useless: the converse does not
+ * hold. SESv2 answers **400** for `MessageRejected`, `MailFromDomainNotVerifiedException`,
+ * `AccountSuspendedException`, `SendingPausedException` and `LimitExceededException` —
+ * every one an account-level fault that fails 100% of sends and says nothing whatsoever
+ * about who the mail was addressed to. SendGrid answers 400 for a malformed *sender*.
+ * Classifying those as permanent is how a single unverified sending identity quietly
+ * destroys every queued review request in the product.
  *
- *   401 / 403  bad or revoked key, unverified sending domain — configuration, not the address
- *   404 / 405  wrong endpoint — our bug
- *   408 / 429  timeout or throttling
- *   5xx        the provider is down
+ * So the test is positive evidence, not absence of evidence: the default is retryable,
+ * and only a body that names the destination flips it. False negatives are cheap — a
+ * genuinely dead address keeps being retried, at a growing backoff, until the request
+ * expires ~60 days after fulfilment and leaves the queue on its own. False positives are
+ * not recoverable at all. The asymmetry decides the design.
  *
- * That leaves 400 and 422, which is what all three providers return for a malformed or
- * rejected recipient. Those are the only statuses that count toward giving up.
+ * SES is never classified as permanent, on purpose. It does not reject bad recipients
+ * synchronously — it accepts the message and bounces it asynchronously, and this app
+ * already turns those bounces into suppression-list entries via the SNS webhook. A
+ * suppressed address returns `reason: 'suppressed'`, which closes the request out
+ * properly. SES's permanent-failure path already exists and it is not this one.
  */
-function isRetryableStatus(status: number): boolean {
-  if (status >= 500) return true;
-  return status === 401 || status === 403 || status === 404 || status === 405 || status === 408 || status === 429;
+function rejectsRecipient(
+  provider: 'ses' | 'resend' | 'sendgrid',
+  status: number,
+  body: string
+): boolean {
+  // Nothing outside the validation statuses is ever about the address.
+  if (status !== 400 && status !== 422) return false;
+  if (provider === 'ses') return false;
+
+  const b = body.toLowerCase();
+
+  if (provider === 'sendgrid') {
+    // SendGrid names the offending field. `personalizations.N.to.N.email` is the
+    // recipient; `from.email` is us, and must not match.
+    return /personalizations\.\d+\.to/.test(b) || b.includes('"field":"to"');
+  }
+
+  // Resend's message for a bad destination is literally "Invalid `to` field". The
+  // backtick-quoted field name is the marker; a bare "to" would match half the API's
+  // prose, and `from` errors use the same status.
+  return b.includes('`to` field') || b.includes('invalid `to`');
 }
 
 export interface EmailMessage {
@@ -254,11 +281,12 @@ async function sendViaSes(msg: EmailMessage): Promise<SendResult> {
   const res = await fetch(`https://${host}${path}`, { method: 'POST', headers, body: payload });
 
   if (!res.ok) {
+    const body = await res.text().catch(() => '');
     return {
       sent: false,
       reason: 'failed',
-      detail: `SES ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      retryable: isRetryableStatus(res.status),
+      detail: `SES ${res.status}: ${body.slice(0, 300)}`,
+      retryable: !rejectsRecipient('ses', res.status, body),
     };
   }
   const body = (await res.json().catch(() => ({}))) as { MessageId?: string };
@@ -293,11 +321,12 @@ async function sendViaResend(msg: EmailMessage): Promise<SendResult> {
   });
 
   if (!res.ok) {
+    const body = await res.text().catch(() => '');
     return {
       sent: false,
       reason: 'failed',
-      detail: `Resend ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      retryable: isRetryableStatus(res.status),
+      detail: `Resend ${res.status}: ${body.slice(0, 300)}`,
+      retryable: !rejectsRecipient('resend', res.status, body),
     };
   }
   const body = (await res.json().catch(() => ({}))) as { id?: string };
@@ -328,11 +357,12 @@ async function sendViaSendGrid(msg: EmailMessage): Promise<SendResult> {
   });
 
   if (!res.ok) {
+    const body = await res.text().catch(() => '');
     return {
       sent: false,
       reason: 'failed',
-      detail: `SendGrid ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      retryable: isRetryableStatus(res.status),
+      detail: `SendGrid ${res.status}: ${body.slice(0, 300)}`,
+      retryable: !rejectsRecipient('sendgrid', res.status, body),
     };
   }
   return { sent: true, provider: 'sendgrid' };
