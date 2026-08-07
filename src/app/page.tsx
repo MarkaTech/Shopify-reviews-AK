@@ -130,16 +130,27 @@ export default function Home() {
   useEffect(() => {
     if (!isAuthenticated) return;
     Promise.all([
-      apiFetch<{ requests: { used: number; limit: number | null } }>('/api/usage'),
+      apiFetch<{ plan: string; requests: { used: number; limit: number | null } }>('/api/usage'),
       apiFetch<{ pendingReviews: number }>('/api/analytics'),
     ])
-      .then(([u, a]) =>
+      .then(([u, a]) => {
         setUsage({
           requests: u.requests?.used ?? 0,
           cap: u.requests?.limit ?? null,
           pending: a.pendingReviews ?? 0,
-        })
-      )
+        });
+        // The plan comes from here too, not only from the mount-time /api/store call.
+        //
+        // Those were two copies of one fact with different refresh rates: the badge was
+        // read once at mount and never again, while the quota beside it refreshed on
+        // every navigation. Downgrading to Free left a sidebar reading "Growth · 3/100"
+        // — a paid label next to a free allowance, both rendered from the same component.
+        //
+        // /api/usage derives the plan the same way every server-side gate does, and it is
+        // already fetched on every navigation, so making it the single source removes the
+        // drift rather than adding a second refresh to chase it.
+        if (u.plan) setStorePlan(u.plan);
+      })
       .catch(() => undefined);
   }, [isAuthenticated, currentPage]);
   /* eslint-enable react-hooks/set-state-in-effect */
