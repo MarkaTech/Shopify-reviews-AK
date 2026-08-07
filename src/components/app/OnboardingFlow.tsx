@@ -9,7 +9,7 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { ActionButton, Pill, type TileTone, TILE_TONE } from './ui-kit';
-import type { PageId } from './Sidebar';
+import type { PageId } from './TopNav';
 
 /**
  * First-run setup.

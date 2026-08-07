@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Sidebar, { type PageId } from '@/components/app/Sidebar';
+import TopNav, { type PageId } from '@/components/app/TopNav';
 import DashboardPage from '@/components/app/DashboardPage';
 import ReviewsPage from '@/components/app/ReviewsPage';
 import BulkUploadPage from '@/components/app/BulkUploadPage';
@@ -15,7 +15,6 @@ import { Toaster } from 'sonner';
 import { Star, ExternalLink, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { navigateTop } from '@/lib/admin-links';
-import { Pill } from '@/components/app/ui-kit';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
   dashboard: { title: 'Dashboard', desc: 'How your reviews are performing' },
@@ -43,7 +42,7 @@ export default function Home() {
   const [storeDomain, setStoreDomain] = useState('');
   const [storePlan, setStorePlan] = useState('free');
   const [shopInput, setShopInput] = useState('');
-  // Usage for the sidebar plan meter. Kept here rather than inside Sidebar so a
+  // Usage for the top bar's plan meter. Kept here rather than inside TopNav so a
   // single fetch serves both it and anything else the shell needs.
   const [usage, setUsage] = useState<{ requests: number; cap: number | null; pending: number }>({
     requests: 0,
@@ -229,8 +228,8 @@ export default function Home() {
   const storefrontUrl = storeDomain ? `https://${storeDomain}` : null;
 
   return (
-    <div className="aurora flex min-h-screen bg-background">
-      <Sidebar
+    <div className="aurora min-h-screen bg-background">
+      <TopNav
         currentPage={currentPage}
         onPageChange={setCurrentPage}
         storeName={storeName}
@@ -241,47 +240,49 @@ export default function Home() {
         pendingCount={usage.pending}
       />
 
-      <main className="ml-[264px] flex-1">
-        <header className="glass sticky top-0 z-30 border-b border-border">
-          <div className="flex items-center justify-between gap-4 px-7 py-4">
-            <div className="min-w-0">
-              {pageInfo.parent && (
-                <nav aria-label="Breadcrumb" className="mb-1 flex items-center gap-1 text-[11.5px]">
-                  <span className="font-medium text-ink-400">{pageInfo.parent}</span>
-                  <ChevronRight className="size-3 text-ink-300" />
-                  <span className="font-semibold text-ink-600 dark:text-ink-300">
-                    {pageInfo.title}
-                  </span>
-                </nav>
-              )}
-              <h1 className="text-[20px] font-bold leading-tight tracking-tight text-ink-900 dark:text-white">
-                {pageInfo.title}
-              </h1>
-              <p className="mt-0.5 truncate text-[12.5px] text-ink-500">{pageInfo.desc}</p>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2.5">
-              <Pill tone={storePlan === 'free' ? 'neutral' : 'brand'} className="capitalize">
-                {storePlan} plan
-              </Pill>
-              {storefrontUrl && (
-                <a
-                  href={storefrontUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ring-focus surface inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12.5px] font-semibold text-ink-600 transition-colors hover:border-ink-300 hover:text-ink-900 dark:text-ink-300 dark:hover:text-white"
-                >
-                  View store
-                  <ExternalLink className="size-3.5" />
-                </a>
-              )}
-            </div>
+      {/*
+        One centred column, capped and padded, rather than a flex row offset by a fixed
+        rail. The old shell was `ml-[264px] flex-1` with no `min-w-0`, which had two
+        consequences: the content could not shrink below the intrinsic width of its widest
+        unbreakable string, and every `sm:`/`lg:` breakpoint in the app was measuring a
+        viewport 264px wider than the space those classes were actually laying out into.
+        Both are gone with the rail. The cap keeps line lengths readable on a wide monitor
+        instead of stretching tables and paragraphs across the whole screen.
+      */}
+      <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            {pageInfo.parent && (
+              <nav aria-label="Breadcrumb" className="mb-1 flex items-center gap-1 text-[11.5px]">
+                <span className="font-medium text-ink-400">{pageInfo.parent}</span>
+                <ChevronRight className="size-3 text-ink-300" />
+                <span className="font-semibold text-ink-600 dark:text-ink-300">{pageInfo.title}</span>
+              </nav>
+            )}
+            <h1 className="text-[20px] font-bold leading-tight tracking-tight text-ink-900 dark:text-white">
+              {pageInfo.title}
+            </h1>
+            <p className="mt-0.5 text-[12.5px] text-ink-500">{pageInfo.desc}</p>
           </div>
-        </header>
+
+          {/* Below `sm` the storefront link is dropped from the top bar, so it reappears
+              here rather than becoming unreachable on a narrow screen. */}
+          {storefrontUrl && (
+            <a
+              href={storefrontUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ring-focus surface inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12.5px] font-semibold text-ink-600 transition-colors hover:border-ink-300 hover:text-ink-900 sm:hidden dark:text-ink-300 dark:hover:text-white"
+            >
+              View store
+              <ExternalLink className="size-3.5" />
+            </a>
+          )}
+        </div>
 
         {/* `key` restarts the entrance animation on every navigation, so moving between
             screens has a beat to it rather than snapping. */}
-        <div key={currentPage} className="animate-fade px-7 py-6">
+        <div key={currentPage} className="animate-fade">
           {renderPage()}
         </div>
       </main>
