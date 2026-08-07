@@ -103,7 +103,12 @@ export async function GET(request: NextRequest) {
       parts.push(`<review_url type="singleton">${xmlEscape(url)}#reviewmaster-reviews</review_url>`);
       parts.push(`<ratings><overall min="1" max="5">${r.rating}</overall></ratings>`);
       parts.push('<products><product>');
-      parts.push(`<product_ids><gtins/><mpns/><skus/></product_ids>`);
+      // No `product_ids`. It is optional in the 2.3 schema, and the identifier containers
+      // it holds (`gtins`, `mpns`, `skus`) each require at least one child — so emitting
+      // them empty, as this did, is schema-invalid and risks Google rejecting the whole
+      // feed rather than one review. We hold no GTIN or SKU (Product carries neither), so
+      // matching is on `product_url`, which is the identifier Google falls back to and the
+      // one that lines up with `link` in the merchant's Shopping feed.
       parts.push(`<product_name>${xmlEscape(r.product.title)}</product_name>`);
       parts.push(`<product_url>${xmlEscape(url)}</product_url>`);
       parts.push('</product></products>');
