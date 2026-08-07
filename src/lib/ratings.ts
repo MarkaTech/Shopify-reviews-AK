@@ -33,6 +33,7 @@
  * push needs a value to send regardless. One row per product, recomputed on write.
  */
 
+import crypto from 'node:crypto';
 import { db } from './db';
 import { callShopifyGraphQL } from './shopify';
 
@@ -59,74 +60,100 @@ export const EMPTY_AGGREGATE: RatingAggregate = {
  * Returns the new aggregate. Does NOT push to Shopify; call `syncRatingMetafields` for
  * that, so the caller can batch pushes or defer them past the response.
  */
+/**
+ * Recompute a product's aggregate from its reviews, atomically.
+ *
+ * This was a read-then-write: `groupBy` the reviews, add them up in JavaScript, then
+ * write the totals. Two of those interleave and one silently wins — and interleaving is
+ * the normal case rather than the unlucky one, because bulk publish fires every PUT in
+ * parallel against the same product. Publish forty reviews at once and the stored count
+ * lands wherever the last writer happened to have read, which is below the truth.
+ *
+ * Worse than the number being wrong: the metafield push that follows carries whatever
+ * that request computed, so Shopify can be left holding an older value than the database.
+ * The widget reads one and the theme's stars read the other, and they disagree on the
+ * same page, with nothing to indicate which is right.
+ *
+ * So the read and the write are now one statement. The database counts the rows and
+ * writes the result without ever handing an intermediate value back to us, which removes
+ * the window rather than narrowing it. `ON CONFLICT` makes it a single round trip whether
+ * or not a row exists, replacing the previous updateMany-then-create dance.
+ *
+ * Raw SQL, deliberately, and the only raw SQL in the codebase. Prisma has no way to
+ * express "aggregate these rows and upsert the result" as one statement, and the
+ * alternatives are worse: a serializable transaction turns a forty-review bulk publish
+ * into forty contending transactions and their retries, and an advisory lock is also raw
+ * SQL for a weaker guarantee. Every value below is parameterised through Prisma's tagged
+ * template, so nothing is interpolated into the string.
+ *
+ * The store-scoped guard from the old version survives in the WHERE clause:
+ * `ProductRating.productId` is globally unique, so a bare upsert on it would take the
+ * update branch on another merchant's row if a caller ever passed a foreign id. Both keys
+ * are matched, so a foreign row updates nothing.
+ */
 export async function recomputeProductRating(
   storeId: string,
   productId: string
 ): Promise<RatingAggregate> {
-  const grouped = await db.review.groupBy({
-    by: ['rating'],
-    where: { storeId, productId, isPublished: true },
-    _count: { rating: true },
-  });
+  const [row] = await db.$queryRaw<Array<{
+    average: number; count: bigint | number;
+    count1: bigint | number; count2: bigint | number; count3: bigint | number;
+    count4: bigint | number; count5: bigint | number;
+  }>>`
+    INSERT INTO "ProductRating" (
+      "id", "storeId", "productId",
+      "average", "count", "count1", "count2", "count3", "count4", "count5", "updatedAt"
+    )
+    SELECT
+      -- Generated here rather than by the database, so this does not depend on
+      -- pgcrypto or a particular Postgres version. Prisma's cuid() default only applies
+      -- to writes Prisma builds itself, and nothing reads this id as a cuid.
+      ${crypto.randomUUID()}, ${storeId}, ${productId},
+      COALESCE(ROUND(AVG(r."rating")::numeric, 1), 0)::float8,
+      COUNT(*)::int,
+      COUNT(*) FILTER (WHERE r."rating" = 1)::int,
+      COUNT(*) FILTER (WHERE r."rating" = 2)::int,
+      COUNT(*) FILTER (WHERE r."rating" = 3)::int,
+      COUNT(*) FILTER (WHERE r."rating" = 4)::int,
+      COUNT(*) FILTER (WHERE r."rating" = 5)::int,
+      NOW()
+    FROM "Review" r
+    WHERE r."storeId" = ${storeId}
+      AND r."productId" = ${productId}
+      AND r."isPublished" = true
+    ON CONFLICT ("productId") DO UPDATE SET
+      "average"   = EXCLUDED."average",
+      "count"     = EXCLUDED."count",
+      "count1"    = EXCLUDED."count1",
+      "count2"    = EXCLUDED."count2",
+      "count3"    = EXCLUDED."count3",
+      "count4"    = EXCLUDED."count4",
+      "count5"    = EXCLUDED."count5",
+      "updatedAt" = NOW()
+    WHERE "ProductRating"."storeId" = ${storeId}
+    RETURNING "average", "count", "count1", "count2", "count3", "count4", "count5"
+  `;
 
-  const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-  let total = 0;
-  let sum = 0;
-
-  for (const row of grouped) {
-    const stars = Math.min(5, Math.max(1, row.rating)) as 1 | 2 | 3 | 4 | 5;
-    const n = row._count.rating;
-    distribution[stars] += n;
-    total += n;
-    sum += stars * n;
+  // No row back means the ON CONFLICT guard refused: a ProductRating for this productId
+  // exists under a different storeId, which should be impossible and is worth a log line
+  // rather than a silent no-op. Nothing permanent is lost — the aggregate is recomputed
+  // from scratch on every change.
+  if (!row) {
+    console.error(
+      `[ratings] refused to write ProductRating for product ${productId}: row belongs to another store`
+    );
+    return { average: 0, count: 0, distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } };
   }
 
-  // Round to one decimal. Shopify's `rating` metafield accepts more precision, but a
-  // displayed "4.2857142857" is noise, and rounding once here keeps the widget, the
-  // metafield and the JSON-LD in exact agreement rather than each rounding differently.
-  const average = total === 0 ? 0 : Math.round((sum / total) * 10) / 10;
-
-  const counts = {
-    average,
-    count: total,
-    count1: distribution[1],
-    count2: distribution[2],
-    count3: distribution[3],
-    count4: distribution[4],
-    count5: distribution[5],
+  const n = (v: bigint | number) => Number(v);
+  return {
+    average: row.average ?? 0,
+    count: n(row.count),
+    distribution: {
+      1: n(row.count1), 2: n(row.count2), 3: n(row.count3),
+      4: n(row.count4), 5: n(row.count5),
+    },
   };
-
-  // Store-scoped write, not a bare upsert on the globally-unique productId.
-  //
-  // `ProductRating.productId` is unique across the whole table, so `upsert({ where: {
-  // productId } })` would happily take the update branch on a row belonging to a different
-  // merchant if a caller ever passed a foreign product id. Callers now validate ownership
-  // before they get here (see lib/ownership.ts), but this function is the sink every path
-  // funnels through and it should not depend on all of them being careful forever.
-  //
-  // updateMany with both keys is the guard: a row owned by another store matches zero
-  // records and changes nothing.
-  const updated = await db.productRating.updateMany({
-    where: { productId, storeId },
-    data: counts,
-  });
-
-  if (updated.count === 0) {
-    try {
-      await db.productRating.create({ data: { storeId, productId, ...counts } });
-    } catch (error) {
-      // A unique-constraint failure here means a row exists for this productId under a
-      // DIFFERENT storeId — which should be impossible now, and is worth knowing about
-      // rather than swallowing. The aggregate is recomputed from scratch on every change,
-      // so skipping this one write loses nothing permanent.
-      console.error(
-        `[ratings] could not create ProductRating for product ${productId} in store ${storeId}:`,
-        error
-      );
-    }
-  }
-
-  return { average, count: total, distribution };
 }
 
 const METAFIELDS_SET = `
