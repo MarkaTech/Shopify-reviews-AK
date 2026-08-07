@@ -42,6 +42,7 @@
  */
 
 import { db } from './db';
+import { getStorePlan, PLANS } from './plans';
 import { callShopifyGraphQL } from './shopify';
 
 export const PRODUCT_REVIEW_TYPE = 'product_review';
@@ -142,11 +143,26 @@ export async function enableSyndication(
 }
 
 /** Is syndication usable for this store right now? */
+/**
+ * Whether reviews should be pushed to the Shop app for this store.
+ *
+ * Two conditions, and it used to check only the second. The merchant's toggle said
+ * whether they *want* syndication; nothing anywhere asked whether they are paying for
+ * it. Settings sells this as "Shop app sync" on the Growth plan, so a Free store could
+ * switch it on and get the feature — the flag existed in `plans.ts` and had no reader.
+ *
+ * Checked here rather than at the toggle because this is the choke point every caller
+ * already goes through, and because entitlement has to hold at use time: gating only the
+ * switch would leave a store that downgrades still syndicating, on a setting they turned
+ * on while they were entitled to it.
+ */
 export async function isSyndicationEnabled(storeId: string): Promise<boolean> {
   const setting = await db.storeSetting.findUnique({
     where: { storeId_key: { storeId, key: 'syndication_enabled' } },
   });
-  return setting?.value === 'true';
+  if (setting?.value !== 'true') return false;
+
+  return PLANS[await getStorePlan(storeId)].shopSyndication;
 }
 
 export async function setSyndicationEnabled(storeId: string, enabled: boolean): Promise<void> {

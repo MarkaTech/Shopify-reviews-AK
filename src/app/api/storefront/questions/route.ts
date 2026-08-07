@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { checkQuestionRateLimit } from '@/lib/rate-limit';
+import { getStorePlan, PLANS } from '@/lib/plans';
 
 /**
  * Public Q&A — read published questions, and ask a new one.
@@ -138,6 +139,23 @@ export async function POST(request: NextRequest) {
     });
     if (!store?.isActive) {
       return NextResponse.json({ error: 'Unknown store' }, { status: 404, headers: CORS });
+    }
+
+    // Questions & answers is sold on the Growth plan and had no reader anywhere, so a
+    // Free store got it. Gated here, where a question is created, because that is what
+    // the feature costs the merchant — a written reply — and what it actually is.
+    //
+    // Deliberately NOT on the GET above. Questions already asked and answered stay
+    // visible on the storefront after a downgrade: they are the merchant's content and a
+    // shopper's, and pulling them would silently gut a product page rather than stop a
+    // feature. Same reasoning as the send quota, which defers rather than deletes.
+    //
+    // Worded for the shopper, who has never heard of a plan and did nothing wrong.
+    if (!PLANS[await getStorePlan(store.id)].questionsAndAnswers) {
+      return NextResponse.json(
+        { error: 'This shop is not accepting questions at the moment.' },
+        { status: 403, headers: CORS }
+      );
     }
 
     const product = shopifyProductId
