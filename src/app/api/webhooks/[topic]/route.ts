@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookHmac } from '@/lib/shopify';
 import { clearWebhookRegistration } from '@/lib/webhook-health';
 import { db } from '@/lib/db';
+import { recomputeProductRating } from '@/lib/ratings';
 import { handleComplianceTopic } from '@/lib/compliance';
 
 export async function POST(
@@ -58,6 +59,38 @@ export async function POST(
 
 // ── Webhook Topic Handlers ──
 type WebhookHandler = (data: Record<string, unknown>, storeId: string, shop: string) => Promise<void>;
+
+/**
+ * Re-attach reviews and questions that were detached when this product was deleted.
+ *
+ * The counterpart to the stamping in `products-delete`. A merchant who deletes a listing
+ * and re-creates it — a rework, a re-import, an accidental delete undone in Shopify —
+ * gets their reviews back automatically, because the Shopify product id is the same even
+ * though our row is new.
+ *
+ * `productId: null` in the filter is deliberate: only rows still orphaned are claimed. A
+ * review that has since been attached to something else is left where it is.
+ *
+ * The aggregate has to be recomputed afterwards, or the product returns with its reviews
+ * visible and a star rating of zero — which looks more like a bug than the detachment did.
+ */
+async function relinkDetached(storeId: string, shopifyId: string, productId: string): Promise<void> {
+  const [reviews] = await Promise.all([
+    db.review.updateMany({
+      where: { storeId, productId: null, detachedProductShopifyId: shopifyId },
+      data: { productId, detachedProductShopifyId: null },
+    }),
+    db.question.updateMany({
+      where: { storeId, productId: null, detachedProductShopifyId: shopifyId },
+      data: { productId, detachedProductShopifyId: null },
+    }),
+  ]);
+
+  if (reviews.count > 0) {
+    console.log(`[webhook] re-attached ${reviews.count} review(s) to restored product ${shopifyId}`);
+    await recomputeProductRating(storeId, productId);
+  }
+}
 
 const webhookHandlers: Record<string, WebhookHandler> = {
   'app-uninstalled': async (_data, storeId) => {
@@ -121,11 +154,14 @@ const webhookHandlers: Record<string, WebhookHandler> = {
       tags: product.tags || null,
     };
 
-    await db.product.upsert({
+    const row = await db.product.upsert({
       where: { storeId_shopifyId: { storeId, shopifyId: String(product.id) } },
       create: { storeId, shopifyId: String(product.id), ...fields },
       update: fields,
+      select: { id: true },
     });
+
+    await relinkDetached(storeId, String(product.id), row.id);
   },
 
   'products-update': async (data, storeId) => {
@@ -167,14 +203,44 @@ const webhookHandlers: Record<string, WebhookHandler> = {
         productType: product.product_type || null,
         tags: product.tags || null,
       },
-    });
+      select: { id: true },
+    }).then((row) => relinkDetached(storeId, String(product.id), row.id));
   },
 
   'products-delete': async (data, storeId) => {
     const product = data as { id: number };
-    await db.product.deleteMany({
-      where: { storeId, shopifyId: String(product.id) },
+    const shopifyId = String(product.id);
+
+    // Stamp the Shopify id onto the reviews and questions about to lose their link,
+    // BEFORE the row goes.
+    //
+    // `productId` is the only association a review has, and the schema sets it to null
+    // when the product is deleted (see the note there for why not Cascade). That left
+    // the reviews in the database, attached to nothing, counted nowhere, and
+    // unrecoverable — the id that would have identified them died with the row. A
+    // merchant reworking a listing, or an importer re-creating one, lost every review on
+    // it permanently and was told nothing.
+    //
+    // Recording the id here costs one indexed update and makes the loss reversible:
+    // `relinkDetached` below puts them back the moment the product reappears.
+    const existing = await db.product.findUnique({
+      where: { storeId_shopifyId: { storeId, shopifyId } },
+      select: { id: true },
     });
+    if (!existing) return;
+
+    await Promise.all([
+      db.review.updateMany({
+        where: { storeId, productId: existing.id },
+        data: { detachedProductShopifyId: shopifyId },
+      }),
+      db.question.updateMany({
+        where: { storeId, productId: existing.id },
+        data: { detachedProductShopifyId: shopifyId },
+      }),
+    ]);
+
+    await db.product.delete({ where: { id: existing.id } });
   },
 
   // The order has been fulfilled — create the review request. NOTE: nothing is emailed
