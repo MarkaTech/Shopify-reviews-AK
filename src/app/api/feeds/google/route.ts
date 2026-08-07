@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getStorePlan, PLANS } from '@/lib/plans';
+import { buildProductReviewsFeed } from '@/lib/google-feed';
 
 /**
  * Google Merchant Center product ratings feed.
@@ -9,35 +10,15 @@ import { getStorePlan, PLANS } from '@/lib/plans';
  * ratings on Shopping listings, which lifts click-through. The research put it firmly in
  * the "competitive" tier and it is a genuine paid-plan justification.
  *
- * The policy constraint that shapes the whole implementation
- * ---------------------------------------------------------
- * Google's Product Ratings programme requires you to submit **all** reviews, including
- * low-star ones. Filtering to flatter the merchant is a policy violation that gets the
- * whole feed rejected — and it is independently illegal under the FTC rule, the EU
- * Omnibus Directive and the UK DMCC Act. So this endpoint has no rating filter and no
- * setting to add one. The only exclusions are structural:
+ * The route does authentication, entitlement and the query. The document itself is built
+ * by `buildProductReviewsFeed`, which is a pure function so it can be tested — see
+ * `tests/google-feed.test.ts`. Worth the separation because an invalid feed does not
+ * throw: it is served with a 200, fetched by Google, and rejected in full, taking every
+ * one of that merchant's star ratings with it.
  *
- *   - unpublished reviews (not visible to shoppers either, so not part of the corpus)
- *   - reviews with no product link (nothing to attribute them to)
- *
- * `is_incentivized_review` is emitted honestly rather than omitted. Google asks for it,
- * and the FTC requires incentivised reviews to be identified.
- *
- * Served unauthenticated at a per-store token URL because Google's crawler fetches it on a
- * schedule with no ability to log in. The token is the access control.
+ * Served unauthenticated at a per-store token URL because Google's crawler fetches it on
+ * a schedule with no ability to log in. The token is the access control.
  */
-
-function xmlEscape(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-    // Strip control characters — XML 1.0 forbids them and one stray byte in a review body
-    // invalidates the entire feed.
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -96,56 +77,9 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const siteUrl = `https://${store.domain || store.shopifyDomain}`;
-    const parts: string[] = [];
+    const xml = buildProductReviewsFeed(store, reviews);
 
-    parts.push('<?xml version="1.0" encoding="UTF-8"?>');
-    parts.push('<feed xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" xsi:noNamespaceSchemaLocation="http://www.google.com/shopping/reviews/schema/product/2.3/product_reviews.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">');
-    parts.push('<version>2.3</version>');
-    parts.push(`<aggregator><name>${xmlEscape(store.name || 'ReviewMaster')}</name></aggregator>`);
-    parts.push(`<publisher><name>${xmlEscape(store.name || 'Store')}</name><favicon>${xmlEscape(siteUrl)}/favicon.ico</favicon></publisher>`);
-    parts.push('<reviews>');
-
-    for (const r of reviews) {
-      if (!r.product?.shopifyId) continue;
-      const url = r.product.handle ? `${siteUrl}/products/${r.product.handle}` : siteUrl;
-
-      parts.push('<review>');
-      parts.push(`<review_id>${xmlEscape(r.id)}</review_id>`);
-      parts.push(`<reviewer><name>${xmlEscape(r.reviewerName)}</name></reviewer>`);
-      // `review` is an xs:sequence, so element order is part of validity rather than
-      // style: `is_verified_purchase` and `is_incentivized_review` belong here, directly
-      // after the reviewer, and `collection_method` belongs after `products`. Emitting
-      // the incentive flag at the end — next to the thing it reads like it belongs with —
-      // invalidates the whole document, and Google rejects the feed rather than the
-      // element.
-      parts.push(`<is_verified_purchase>${r.verificationStatus === 'verified_buyer' ? 'true' : 'false'}</is_verified_purchase>`);
-      // Emitted honestly rather than omitted. Google asks for it, and the FTC requires
-      // incentivised reviews to be identified.
-      parts.push(`<is_incentivized_review>${r.isIncentivized ? 'true' : 'false'}</is_incentivized_review>`);
-      parts.push(`<review_timestamp>${r.reviewDate.toISOString()}</review_timestamp>`);
-      if (r.title) parts.push(`<title>${xmlEscape(r.title)}</title>`);
-      parts.push(`<content>${xmlEscape(r.body)}</content>`);
-      parts.push(`<review_url type="singleton">${xmlEscape(url)}#reviewmaster-reviews</review_url>`);
-      parts.push(`<ratings><overall min="1" max="5">${r.rating}</overall></ratings>`);
-      parts.push('<products><product>');
-      // No `product_ids`. It is optional in the 2.3 schema, and the identifier containers
-      // it holds (`gtins`, `mpns`, `skus`) each require at least one child — so emitting
-      // them empty, as this did, is schema-invalid and risks Google rejecting the whole
-      // feed rather than one review. We hold no GTIN or SKU (Product carries neither), so
-      // matching is on `product_url`, which is the identifier Google falls back to and the
-      // one that lines up with `link` in the merchant's Shopping feed.
-      parts.push(`<product_name>${xmlEscape(r.product.title)}</product_name>`);
-      parts.push(`<product_url>${xmlEscape(url)}</product_url>`);
-      parts.push('</product></products>');
-      parts.push(`<collection_method>${r.verificationStatus === 'verified_buyer' ? 'post_fulfillment' : 'unsolicited'}</collection_method>`);
-      parts.push('</review>');
-    }
-
-    parts.push('</reviews>');
-    parts.push('</feed>');
-
-    return new NextResponse(parts.join('\n'), {
+    return new NextResponse(xml, {
       headers: {
         'Content-Type': 'application/xml; charset=utf-8',
         // Google fetches daily at most; an hour of cache costs nothing and protects the
