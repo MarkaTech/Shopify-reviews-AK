@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Settings, Bell, Palette, CheckCircle, CreditCard, Crown, AlertTriangle,
   RotateCcw, Send, Loader2, Check, Sparkles, Mail, Clock, Eye, Code2, Compass,
-  ShieldCheck, SlidersHorizontal, Camera, BookOpen, ArrowUpRight,
+  ShieldCheck, SlidersHorizontal, Camera, BookOpen, ArrowUpRight, Globe, Copy,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { apiFetch, errorMessage } from '@/lib/api-client';
+import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import type { PageId } from './Sidebar';
 import { adminUrl, navigateTop } from '@/lib/admin-links';
@@ -209,6 +209,9 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   const [fallbackEmail, setFallbackEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
+  const [feedBusy, setFeedBusy] = useState(false);
+  const [feedCopied, setFeedCopied] = useState(false);
   const [testing, setTesting] = useState(false);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [upgrading, setUpgrading] = useState<string | null>(null);
@@ -342,6 +345,39 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
       toast.error(errorMessage(err, 'Could not save settings'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  /**
+   * Google Merchant Center feed.
+   *
+   * The endpoints for this have existed since the feature was built; nothing in the app
+   * ever called them. So "Google Shopping" was sold on the Growth plan and there was no
+   * way for a merchant to reach it — the URL they need was reachable only by someone who
+   * knew to POST to an undocumented route.
+   */
+  const loadFeedUrl = useCallback(() => {
+    apiFetch<{ url: string | null }>('/api/feeds/token')
+      .then((d) => setFeedUrl(d.url))
+      .catch(() => setFeedUrl(null));
+  }, []);
+
+  useEffect(loadFeedUrl, [loadFeedUrl]);
+
+  const issueFeedUrl = async (rotating: boolean) => {
+    setFeedBusy(true);
+    try {
+      const d = await apiFetch<{ url: string }>('/api/feeds/token', { method: 'POST' });
+      setFeedUrl(d.url);
+      toast.success(rotating ? 'New feed URL created. The old one no longer works.' : 'Feed URL created.');
+    } catch (err) {
+      if (err instanceof ApiError && err.isPlanLimit) {
+        toast.error(err.userMessage, { description: 'Google Shopping ratings need the Growth plan or above.' });
+      } else {
+        toast.error(errorMessage(err, 'Could not create the feed URL'));
+      }
+    } finally {
+      setFeedBusy(false);
     }
   };
 
@@ -770,6 +806,79 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                   <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[11.5px] dark:bg-white/10">url()</code> are stripped when saved —
                   they are script-execution paths on your storefront.
                 </p>
+              </div>
+            </Panel>
+
+            {/* ── Google Shopping ── */}
+            <Panel>
+              <PanelHeader
+                icon={Globe}
+                tone="cyan"
+                title="Google Shopping star ratings"
+                description="Put your star ratings on Google Shopping listings. Paste this URL into Google Merchant Center once; it refreshes on its own after that."
+                action={<Pill tone="brand">Growth and above</Pill>}
+              />
+              <div className="border-t border-border p-5">
+                {feedUrl ? (
+                  <>
+                    <Label className="text-[12.5px] font-semibold">Your feed URL</Label>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <code className="min-w-0 flex-1 truncate rounded-xl border border-border bg-ink-50 px-3 py-2.5 font-mono text-[12px] text-ink-700 dark:bg-white/5 dark:text-ink-200">
+                        {feedUrl}
+                      </code>
+                      <ActionButton
+                        size="sm"
+                        variant={feedCopied ? 'soft' : 'outline'}
+                        icon={feedCopied ? Check : Copy}
+                        onClick={() => {
+                          navigator.clipboard?.writeText(feedUrl).then(
+                            () => {
+                              setFeedCopied(true);
+                              setTimeout(() => setFeedCopied(false), 2000);
+                            },
+                            () => toast.error('Could not copy — select the URL and copy it manually.')
+                          );
+                        }}
+                      >
+                        {feedCopied ? 'Copied' : 'Copy'}
+                      </ActionButton>
+                    </div>
+
+                    <div className="mt-4 rounded-xl bg-ink-50 p-3.5 dark:bg-white/[0.03]">
+                      <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">
+                        In Google Merchant Center
+                      </p>
+                      <ol className="mt-1.5 list-decimal space-y-1 pl-4 text-[12px] leading-relaxed text-ink-500">
+                        <li>Go to Products → Feeds → add a supplemental feed</li>
+                        <li>Choose <strong>Scheduled fetch</strong> and paste the URL above</li>
+                        <li>Set it to fetch daily</li>
+                      </ol>
+                      <p className="mt-2 text-[11.5px] text-ink-400">
+                        Google requires <strong>every</strong> review to be submitted, including
+                        low ratings — filtering them is a policy violation and gets the whole feed
+                        rejected. This feed sends all published reviews and never filters by star.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => issueFeedUrl(true)}
+                      disabled={feedBusy}
+                      className="ring-focus mt-3 rounded text-[12px] font-semibold text-ink-500 transition-colors hover:text-rose-600 disabled:opacity-50"
+                    >
+                      {feedBusy ? 'Working…' : 'Generate a new URL (the current one stops working)'}
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="max-w-md text-[12.5px] leading-relaxed text-ink-500">
+                      Not set up yet. Creating a URL takes a second — you paste it into Merchant
+                      Center and Google fetches your reviews on a schedule from then on.
+                    </p>
+                    <ActionButton icon={Globe} onClick={() => issueFeedUrl(false)} disabled={feedBusy}>
+                      {feedBusy ? 'Creating…' : 'Create feed URL'}
+                    </ActionButton>
+                  </div>
+                )}
               </div>
             </Panel>
           </div>
