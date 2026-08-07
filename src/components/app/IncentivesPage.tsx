@@ -19,6 +19,7 @@ import {
   Panel, PanelHeader, StatCard, Tile, Pill, EmptyState, ActionButton, SectionTitle, Skeleton,
   type TileTone,
 } from './ui-kit';
+import { useConfirm } from './confirm';
 
 /**
  * Review incentives.
@@ -163,6 +164,7 @@ function RewardTier({
 }
 
 export default function IncentivesPage() {
+  const confirm = useConfirm();
   const [incentives, setIncentives] = useState<Incentive[]>([]);
   const [stats, setStats] = useState<Stats>({ issued: 0, redeemed: 0, expired: 0 });
   const [loading, setLoading] = useState(true);
@@ -278,6 +280,12 @@ export default function IncentivesPage() {
   };
 
   const remove = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete this incentive?',
+      body: 'Reviewers stop being offered it from now on. Discount codes already issued stay valid until they expire \u2014 deleting this does not claw them back.',
+      confirmLabel: 'Delete incentive',
+    });
+    if (!ok) return;
     try {
       await apiFetch('/api/incentives', { method: 'DELETE', body: JSON.stringify({ id }) });
       toast.success('Incentive deleted. Codes already issued stay valid until they expire.');

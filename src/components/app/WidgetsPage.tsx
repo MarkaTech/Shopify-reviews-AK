@@ -6,6 +6,7 @@ import {
   Monitor, Smartphone, Trash2, Save, Loader2, Info, CheckCircle2, Pencil,
   Check, AlertTriangle, Palette, SlidersHorizontal, ListChecks, Blocks, Lock,
 } from 'lucide-react';
+import { useConfirm } from './confirm';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -290,6 +291,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 export default function WidgetsPage() {
+  const confirm = useConfirm();
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -406,6 +408,12 @@ export default function WidgetsPage() {
   };
 
   const remove = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete this widget?',
+      body: 'It stops appearing on your storefront immediately. Its layout and colour settings are not kept, so rebuilding it means configuring it again.',
+      confirmLabel: 'Delete widget',
+    });
+    if (!ok) return;
     try {
       await apiFetch('/api/widgets', { method: 'DELETE', body: JSON.stringify({ id }) });
       toast.success('Widget deleted');
