@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { adminUrl } from '@/lib/admin-links';
 import {
   Panel, StatCard, Stars, Pill, EmptyState, ActionButton, Skeleton, Meter,
 } from './ui-kit';
@@ -32,7 +33,7 @@ interface Product {
   averageRating: number;
 }
 
-export default function ProductsPage() {
+export default function ProductsPage({ storeDomain }: { storeDomain?: string }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -121,11 +122,12 @@ export default function ProductsPage() {
       toast.error('This product has no Shopify ID and cannot be opened.');
       return;
     }
-    window.open(
-      `https://admin.shopify.com/products/${product.shopifyId}`,
-      '_blank',
-      'noopener,noreferrer'
-    );
+    const url = adminUrl(storeDomain, `/products/${product.shopifyId}`);
+    if (!url) {
+      toast.error('Could not work out your store address.');
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleSync = async () => {

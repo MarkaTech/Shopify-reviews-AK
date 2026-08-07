@@ -96,19 +96,35 @@ const webhookHandlers: Record<string, WebhookHandler> = {
       tags?: string;
     };
 
-    await db.product.create({
-      data: {
-        storeId,
-        shopifyId: String(product.id),
-        title: product.title,
-        handle: product.handle,
-        description: product.body_html || null,
-        image: product.image?.src || null,
-        price: product.variants?.[0]?.price ? parseFloat(product.variants[0].price) : null,
-        vendor: product.vendor || null,
-        productType: product.product_type || null,
-        tags: product.tags || null,
-      },
+    // upsert, not create.
+    //
+    // Shopify delivers webhooks AT LEAST once, so a duplicate delivery is ordinary
+    // traffic rather than an error. `create` hit the (storeId, shopifyId) unique
+    // constraint, threw P2002 and returned 500 — at which point Shopify retries the same
+    // failure and eventually DELETES the subscription. The store then never hears about
+    // a new product again, and every review collected for one saves with productId: null,
+    // invisible on the product page it belongs to.
+    //
+    // The failure compounds: webhook-health.ts only re-registers when its marker is
+    // absent, and the marker is present, so nothing repairs it. One duplicate delivery
+    // permanently breaks product tracking for that store, silently.
+    //
+    // products-update in this same file already upserts. The asymmetry was the bug.
+    const fields = {
+      title: product.title,
+      handle: product.handle,
+      description: product.body_html || null,
+      image: product.image?.src || null,
+      price: product.variants?.[0]?.price ? parseFloat(product.variants[0].price) : null,
+      vendor: product.vendor || null,
+      productType: product.product_type || null,
+      tags: product.tags || null,
+    };
+
+    await db.product.upsert({
+      where: { storeId_shopifyId: { storeId, shopifyId: String(product.id) } },
+      create: { storeId, shopifyId: String(product.id), ...fields },
+      update: fields,
     });
   },
 
