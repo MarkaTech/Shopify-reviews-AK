@@ -32,9 +32,46 @@ interface DueRequest {
   orderNumber: string | null;
   lineItems: string;
   sendCount: number;
+  sendFailures: number;
 }
 
-export type SendOutcome = 'sent' | 'reminder_sent' | 'skipped' | 'failed' | 'not_configured' | 'over_quota';
+export type SendOutcome =
+  | 'sent'
+  | 'reminder_sent'
+  | 'skipped'
+  | 'failed'
+  | 'abandoned'
+  | 'not_configured'
+  | 'over_quota';
+
+/**
+ * Retry policy for a transient send failure.
+ *
+ * The sweep takes the 200 requests with the oldest `nextSendAt`. Leaving that column
+ * untouched on failure — which is what this used to do, deliberately, as "the retry
+ * mechanism" — means a permanently failing row stays the oldest row forever and is picked
+ * first on every run. Two hundred of those anywhere on the platform and the sweep spends
+ * every hour retrying the same dead addresses and never reaches anyone else's queue. It
+ * fails quietly: the cron returns HTTP 200 with `{"failed":200}` and the workflow is green.
+ *
+ * So a failure now pushes the row into the future, doubling each time, and gives up after
+ * MAX_SEND_FAILURES attempts. Seven attempts, retried at +1h, +2h, +4h, +8h, +16h and
+ * +32h: about 63 hours of trying, which outlasts any realistic provider outage while a
+ * genuinely undeliverable address removes itself from the queue instead of blocking it.
+ *
+ * Giving up is reported as its own outcome rather than folded into `failed`, so the cron
+ * log distinguishes "the provider is having a bad hour" from "these addresses are dead".
+ */
+const MAX_SEND_FAILURES = 7;
+const RETRY_BASE_MS = 60 * 60 * 1000;
+/** Safety bound on the exponent — the give-up check reaches first, but not by accident. */
+const MAX_BACKOFF_STEPS = 6;
+
+function retryDelayMs(failures: number): number {
+  // `failures` includes the one just recorded, so the first retry waits one base interval
+  // rather than none.
+  return RETRY_BASE_MS * 2 ** Math.min(failures - 1, MAX_BACKOFF_STEPS);
+}
 
 export async function sendDueRequest(
   request: DueRequest,
@@ -131,6 +168,9 @@ export async function sendDueRequest(
       where: { id: request.id },
       data: {
         sendCount: newCount,
+        // A send that worked clears the failure history. Whatever went wrong before is
+        // over, and the reminder booked below deserves its own full retry budget.
+        sendFailures: 0,
         sentAt: request.sendCount === 0 ? new Date() : undefined,
         nextSendAt: another ? new Date(Date.now() + cfg.reminderGapDays * 86_400_000) : null,
       },
@@ -155,9 +195,31 @@ export async function sendDueRequest(
     return 'not_configured';
   }
 
-  // Transient failure: leave nextSendAt where it is. The next sweep retries. This is
-  // deliberate — it is the retry mechanism.
-  console.error(`[review-request] send failed for ${request.customerEmail}: ${result.detail}`);
+  // Transient failure. See MAX_SEND_FAILURES above for why this cannot simply leave
+  // `nextSendAt` alone and let the next sweep pick it up again.
+  const failures = request.sendFailures + 1;
+
+  if (failures >= MAX_SEND_FAILURES) {
+    await db.reviewRequest.update({
+      where: { id: request.id },
+      data: { sendFailures: failures, nextSendAt: null },
+    });
+    console.error(
+      `[review-request] giving up on ${request.customerEmail} after ${failures} failures: ${result.detail}`
+    );
+    return 'abandoned';
+  }
+
+  await db.reviewRequest.update({
+    where: { id: request.id },
+    data: {
+      sendFailures: failures,
+      nextSendAt: new Date(Date.now() + retryDelayMs(failures)),
+    },
+  });
+  console.error(
+    `[review-request] send failed for ${request.customerEmail} (attempt ${failures}/${MAX_SEND_FAILURES}): ${result.detail}`
+  );
   return 'failed';
 }
 
@@ -184,6 +246,7 @@ export async function sweepDueRequests(limit = 200): Promise<Record<SendOutcome,
       orderNumber: true,
       lineItems: true,
       sendCount: true,
+      sendFailures: true,
     },
     orderBy: { nextSendAt: 'asc' },
     take: limit,
@@ -194,6 +257,7 @@ export async function sweepDueRequests(limit = 200): Promise<Record<SendOutcome,
     reminder_sent: 0,
     skipped: 0,
     failed: 0,
+    abandoned: 0,
     not_configured: 0,
     over_quota: 0,
   };
