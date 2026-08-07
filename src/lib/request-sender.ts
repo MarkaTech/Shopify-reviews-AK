@@ -54,29 +54,28 @@ export type SendOutcome =
  * every hour retrying the same dead addresses and never reaches anyone else's queue. It
  * fails quietly: the cron returns HTTP 200 with `{"failed":200}` and the workflow is green.
  *
- * So a failure now pushes the row into the future, doubling each time: +1h, +2h, +4h,
- * +8h, +16h, +32h. Giving up is reported as its own outcome rather than folded into
- * `failed`, so the cron log distinguishes "the provider is having a bad hour" from
- * "these addresses are dead".
+ * So every failure increments `sendFailures` and pushes the row into the future,
+ * doubling each time: +1h, +2h, +4h, +8h, +16h, then +32h from there on. That alone is
+ * what unblocks the queue, and it applies to every kind of failure without exception.
  *
- * **Only a failure the provider attributes to the address counts toward giving up.**
- * That distinction is the whole safety of this mechanism. `sendEmail` returns
- * `retryable` (see `email.ts`): a 401 from a rotated key, a 403 from an unverified
- * sending domain, a 429, a 5xx or a socket reset all set it, and those failures back off
- * without ever incrementing the counter.
+ * **Giving up is a separate decision, and it needs positive evidence.** A request is
+ * abandoned only once it has failed MAX_SEND_FAILURES times *and* the latest failure is
+ * one the provider attributed to the recipient (`retryable === false`, classified in
+ * `email.ts` from the response body, not the status code). Anything else — a rotated
+ * key, an unverified sending domain, a 429, a 5xx, a socket reset — backs off forever
+ * and is never abandoned.
  *
- * Without it the backoff would be worse than the bug it replaces. An expired API key
- * fails every send platform-wide; each row would climb to seven failures and, about 63
- * hours later, set `nextSendAt: null` — permanently, since nothing else ever writes that
- * column and no path resurrects an abandoned request. A weekend of a bad credential
- * would silently destroy every queued review request in the product, where the old
- * behaviour merely paused and resumed intact. Backing off a stuck queue is worth doing;
- * deleting it is not.
+ * The asymmetry is the point. An expired credential fails every send platform-wide; if
+ * that could abandon requests, a bad key over a weekend would silently destroy every
+ * queued review request in the product, permanently, since nothing resurrects one. A
+ * dead address that is never abandoned costs one send attempt every 32 hours until the
+ * request expires ~60 days after fulfilment and leaves the queue by itself. Backing off
+ * a stuck queue is worth doing; deleting it is not.
  */
 const MAX_SEND_FAILURES = 7;
 const RETRY_BASE_MS = 60 * 60 * 1000;
-/** Safety bound on the exponent — the give-up check reaches first, but not by accident. */
-const MAX_BACKOFF_STEPS = 6;
+/** 2**5 = 32 hours, the ceiling on how long a failing request waits between attempts. */
+const MAX_BACKOFF_STEPS = 5;
 
 function retryDelayMs(failures: number): number {
   // `failures` includes the one just recorded, so the first retry waits one base interval
@@ -230,80 +229,41 @@ export async function sendDueRequest(
   }
 
   // Failure. See MAX_SEND_FAILURES above for why this cannot simply leave `nextSendAt`
-  // alone and let the next sweep pick it up again — and why a provider-side fault must
-  // not spend the request's retry budget.
-  // `!== false` rather than truthiness: absent means retryable, so a future call path
-  // that forgets to classify its failure fails safe rather than abandoning requests.
-  if (result.retryable !== false) {
-    const wait = retryDelayMs(request.sendFailures + 1);
-    await db.reviewRequest.update({
-      where: { id: request.id },
-      // `sendFailures` deliberately untouched. The backoff still grows with it, so a
-      // long outage stops hammering the provider, but the request can never be
-      // abandoned for a fault that says nothing about the recipient. It waits, at worst
-      // 32 hours at a time, until the configuration is fixed.
-      data: { nextSendAt: new Date(Date.now() + wait) },
-    });
-    console.error(
-      `[review-request] provider-side failure for ${request.customerEmail}, retrying in ${Math.round(wait / 3_600_000)}h: ${result.detail}`
-    );
-    return 'failed';
-  }
-
+  // alone and let the next sweep pick it up again.
   const failures = request.sendFailures + 1;
 
-  if (failures >= MAX_SEND_FAILURES) {
+  // `=== false` rather than falsiness: absent means retryable, so a call path that has
+  // not classified its failure keeps the request alive instead of discarding it.
+  const rejectedByRecipient = result.retryable === false;
+
+  if (rejectedByRecipient && failures >= MAX_SEND_FAILURES) {
     await db.reviewRequest.update({
       where: { id: request.id },
       data: { sendFailures: failures, nextSendAt: null },
     });
     console.error(
-      `[review-request] giving up on ${request.customerEmail} after ${failures} rejections: ${result.detail}`
+      `[review-request] giving up on ${request.customerEmail} after ${failures} attempts, last rejected as a bad recipient: ${result.detail}`
     );
     return 'abandoned';
   }
 
+  const wait = retryDelayMs(failures);
   await db.reviewRequest.update({
     where: { id: request.id },
-    data: {
-      sendFailures: failures,
-      nextSendAt: new Date(Date.now() + retryDelayMs(failures)),
-    },
+    data: { sendFailures: failures, nextSendAt: new Date(Date.now() + wait) },
   });
   console.error(
-    `[review-request] rejected for ${request.customerEmail} (attempt ${failures}/${MAX_SEND_FAILURES}): ${result.detail}`
+    `[review-request] send failed for ${request.customerEmail} ` +
+      `(attempt ${failures}, ${rejectedByRecipient ? 'recipient rejected' : 'provider-side'}, ` +
+      `retrying in ${Math.round(wait / 3_600_000)}h): ${result.detail}`
   );
   return 'failed';
 }
 
 /**
- * Most of one sweep any single store may occupy.
- *
- * The window is filled strictly oldest-first, which is fair between requests and not
- * between merchants. One store can hold every slot indefinitely, and the quota path makes
- * that easy to reach rather than hypothetical: an over-quota request is deferred to
- * `nextQuotaReset()`, which is *the same millisecond* for every deferred row in the
- * product, and earlier than anything scheduled organically for the rest of the month.
- *
- * So a Free store doing 500 orders a day accumulates ~15,000 requests stamped
- * 00:05 on the 1st. From that moment every sweep filled all 200 slots with that one
- * store's rows, sent its 100 and deferred the rest — for the three days it took to walk
- * the backlog, during which no other merchant on the platform received a single review
- * request. At 2,000 orders a day the drain never finished and the starvation was
- * permanent. No failure was required; one large store on the free plan was enough.
- *
- * Two changes, because there are two problems. This cap is the general one: with 200
- * slots and a cap of 40, at least five stores are served whenever five have work, and a
- * store with a real backlog still drains — just not at everyone else's expense. Where
- * only one store has work it gets 40 an hour, comfortably above what a single store
- * generates in an hour.
- *
- * The quota case is handled separately in the loop below, because a cap alone would still
- * let a few exhausted stores spend their whole share discovering they are exhausted. Once
- * one row comes back `over_quota`, that store's entire due backlog is deferred in a single
- * statement and the store is skipped for the rest of the run.
+ * Most stores one sweep will look at. A bound on the fan-out below, not on fairness.
  */
-const MAX_PER_STORE_PER_SWEEP = 40;
+const MAX_STORES_PER_SWEEP = 100;
 
 /**
  * Sweep every due request. Called by the cron route.
@@ -311,34 +271,45 @@ const MAX_PER_STORE_PER_SWEEP = 40;
  * Bounded per run: a backlog (first deploy over an existing store, or an outage) drains
  * across successive hourly runs instead of one enormous request that gets killed by the
  * platform's timeout.
+ *
+ * **Why this does not just take the oldest 200 rows.** That is fair between requests and
+ * not between merchants, and one store can hold every slot indefinitely. The quota path
+ * makes it easy to reach rather than hypothetical: an over-quota request is deferred to
+ * `nextQuotaReset()`, the *same millisecond* for every deferred row in the product and
+ * earlier than anything scheduled organically for the rest of the month. A Free store
+ * doing 500 orders a day accumulates ~15,000 requests stamped 00:05 on the 1st, and from
+ * then on every sweep filled all 200 slots with that one store's rows for the three days
+ * it took to walk the backlog, while no other merchant received a single email. At 2,000
+ * orders a day it never finished. No failure was required — one large store was enough.
+ *
+ * The fix is to choose the *stores* first and then take rows within each, rather than
+ * capping a single oldest-first result set. Capping afterwards looks equivalent and is
+ * strictly worse: if the oldest rows all belong to one store, a cap of 40 attempts 40 of
+ * them, skips the rest, and ends the run with 160 of 200 slots unused — starving everyone
+ * else *and* cutting total throughput. Nothing refills the window, because the window was
+ * already spent.
+ *
+ * Choosing stores first makes the share fall out of how many are competing: one store
+ * with work gets the whole 200, five get 40 each, a hundred get 2 each. No store is ever
+ * starved by another's backlog, and a lone store keeps full throughput.
  */
 export async function sweepDueRequests(limit = 200): Promise<Record<SendOutcome, number>> {
   const now = new Date();
+  const dueWhere = {
+    nextSendAt: { lte: now },
+    submittedAt: null,
+    expiresAt: { gt: now },
+  };
 
-  // Over-fetched, then capped per store below. Reading more rows than we will act on is
-  // the price of fairness: if we asked the database for exactly `limit`, a single store's
-  // backlog would fill the result set before any other store's rows were even considered,
-  // and capping afterwards would leave the window half empty. The select is six small
-  // columns on an indexed range, so the extra rows are cheap.
-  const candidates = await db.reviewRequest.findMany({
-    where: {
-      nextSendAt: { lte: now },
-      submittedAt: null,
-      expiresAt: { gt: now },
-    },
-    select: {
-      id: true,
-      storeId: true,
-      token: true,
-      customerEmail: true,
-      customerName: true,
-      orderNumber: true,
-      lineItems: true,
-      sendCount: true,
-      sendFailures: true,
-    },
-    orderBy: { nextSendAt: 'asc' },
-    take: limit * 5,
+  // Which stores have work, longest-waiting first. Ordering on each store's oldest due
+  // request is what rotates stores across sweeps: a store served this hour has no old
+  // rows left, so it sorts behind whoever was skipped.
+  const storesWithWork = await db.reviewRequest.groupBy({
+    by: ['storeId'],
+    where: dueWhere,
+    _min: { nextSendAt: true },
+    orderBy: { _min: { nextSendAt: 'asc' } },
+    take: MAX_STORES_PER_SWEEP,
   });
 
   const counts: Record<SendOutcome, number> = {
@@ -353,61 +324,92 @@ export async function sweepDueRequests(limit = 200): Promise<Record<SendOutcome,
 
   // Settings fetched once per store per sweep, not once per request.
   const settingsCache = new Map<string, { reminders: number; reminderGapDays: number }>();
-  const attempted = new Map<string, number>();
-  // Stores whose whole backlog has already been pushed to the next quota reset in this
-  // run. Usage only ever climbs within a month, so a store that is out of allowance now
-  // is still out of allowance later in the same sweep — the answer cannot change.
-  const exhausted = new Set<string>();
+  // Reported separately from `over_quota`, which counts requests this run actually
+  // looked at. Folding a 15,000-row bulk defer into it would make the numbers
+  // incommensurable and the log unreadable as "what this run did".
+  let bulkDeferred = 0;
+
   let slots = 0;
 
-  for (const request of candidates) {
+  for (let i = 0; i < storesWithWork.length; i++) {
     if (slots >= limit) break;
-    if (exhausted.has(request.storeId)) continue;
-    const taken = attempted.get(request.storeId) ?? 0;
-    if (taken >= MAX_PER_STORE_PER_SWEEP) continue;
-    attempted.set(request.storeId, taken + 1);
-    slots++;
+    const { storeId } = storesWithWork[i];
 
-    // Isolated. Every branch of `sendDueRequest` writes `nextSendAt`, so the only way a
-    // row can still stall the queue is by throwing before it gets there — and without
-    // this the throw would take the whole sweep with it, discarding the counts and
-    // returning 500 while every row behind it goes unattempted for another hour. The
-    // realistic trigger is a GDPR redaction deleting a request between the read above
-    // and its update (Prisma P2025), which is nobody's bug and should cost one row.
-    try {
-      let cfg = settingsCache.get(request.storeId);
-      if (!cfg) {
-        cfg = await getRequestSettings(request.storeId);
-        settingsCache.set(request.storeId, cfg);
-      }
-      const outcome = await sendDueRequest(request, cfg);
-      counts[outcome]++;
+    // Recomputed each time, over what is actually left and how many stores are left to
+    // serve. So the share falls out of how many stores are competing — one store with
+    // work keeps the whole window, five get 40 each, a hundred get 2 each — and a store
+    // that turns out to need less than its share hands the remainder to the ones behind
+    // it rather than leaving the window half empty. `ceil` so the last store is never
+    // allotted zero.
+    const share = Math.max(1, Math.ceil((limit - slots) / (storesWithWork.length - i)));
 
-      if (outcome === 'over_quota') {
-        // One store out of allowance should cost one slot, not forty. Walking its
-        // backlog row by row would spend the rest of its share re-deriving the same
-        // answer — and with a handful of large free stores in that state, they would
-        // between them consume the entire window every hour while sending nothing.
-        //
-        // The answer is known for every one of its due rows, so they all move at once.
-        // This runs once per store per month rather than every hour, which is what turns
-        // a three-day drain into a single statement.
-        exhausted.add(request.storeId);
-        const bulk = await db.reviewRequest.updateMany({
-          where: {
-            storeId: request.storeId,
-            nextSendAt: { lte: now },
-            submittedAt: null,
-            expiresAt: { gt: now },
-          },
-          data: { sendFailures: 0, nextSendAt: nextQuotaReset() },
-        });
-        counts.over_quota += bulk.count;
+    const due = await db.reviewRequest.findMany({
+      where: { ...dueWhere, storeId },
+      select: {
+        id: true,
+        storeId: true,
+        token: true,
+        customerEmail: true,
+        customerName: true,
+        orderNumber: true,
+        lineItems: true,
+        sendCount: true,
+        sendFailures: true,
+      },
+      orderBy: { nextSendAt: 'asc' },
+      take: Math.min(share, limit - slots),
+    });
+
+    for (const request of due) {
+      slots++;
+
+      // Isolated. Every branch of `sendDueRequest` writes `nextSendAt`, so the only way
+      // a row can still stall the queue is by throwing before it gets there — and
+      // without this the throw would take the whole sweep with it, discarding the counts
+      // and returning 500 while every row behind it goes unattempted for another hour.
+      // The realistic trigger is a GDPR redaction deleting a request between the read
+      // above and its update (Prisma P2025), which is nobody's bug and should cost one
+      // row rather than everybody's hour.
+      try {
+        let cfg = settingsCache.get(storeId);
+        if (!cfg) {
+          cfg = await getRequestSettings(storeId);
+          settingsCache.set(storeId, cfg);
+        }
+        const outcome = await sendDueRequest(request, cfg);
+        counts[outcome]++;
+
+        if (outcome === 'over_quota') {
+          // One store out of allowance should cost one slot, not its whole share.
+          // Walking the backlog row by row spends the rest of that share re-deriving an
+          // answer that cannot change: `recordRequestSent` only ever increments, and the
+          // usage key is scoped to the month, so a store that is out of allowance now is
+          // still out of allowance later in this run.
+          //
+          // The answer is known for every one of its due rows, so they all move at once.
+          // That is what turns a three-day drain into a single statement, and it runs
+          // once per store per month rather than every hour.
+          //
+          // The bulk `where` will also sweep up rows `sendDueRequest` would have closed
+          // out — a redacted address, a suppressed one, a reminder on a downgraded plan.
+          // They are deferred a month and closed out then instead. Deliberate: the
+          // alternative is walking them here, which is the cost this exists to avoid.
+          const bulk = await db.reviewRequest.updateMany({
+            where: { ...dueWhere, storeId },
+            data: { sendFailures: 0, nextSendAt: nextQuotaReset() },
+          });
+          bulkDeferred += bulk.count;
+          break;
+        }
+      } catch (err) {
+        console.error(`[review-request] sweep error on request ${request.id}:`, err);
+        counts.failed++;
       }
-    } catch (err) {
-      console.error(`[review-request] sweep error on request ${request.id}:`, err);
-      counts.failed++;
     }
+  }
+
+  if (bulkDeferred > 0) {
+    console.log(`[review-request] deferred ${bulkDeferred} request(s) to the next quota reset`);
   }
 
   return counts;

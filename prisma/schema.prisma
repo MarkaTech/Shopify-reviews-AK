@@ -316,9 +316,10 @@ model ReviewRequest {
   nextSendAt      DateTime?
   // 0 = nothing sent yet; 1 = initial email sent; 2+ = reminders sent.
   sendCount       Int       @default(0)
-  // Consecutive transient send failures. Drives the retry backoff and the point at which
-  // the request is given up on. Reset to 0 after any successful send, so a reminder that
-  // fails later starts with a full retry budget of its own.
+  // Consecutive failed send attempts, of any kind. Drives the retry backoff, and is one
+  // of the two conditions for giving up - the other being that the provider blamed the
+  // recipient rather than our configuration. Reset to 0 after any successful send, and
+  // after a quota or no-provider deferral, neither of which is a failure.
   sendFailures    Int       @default(0)
 
   @@unique([storeId, shopifyOrderId])

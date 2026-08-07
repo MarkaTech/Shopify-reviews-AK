@@ -890,7 +890,17 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                       Couldn&apos;t check whether a feed URL exists. Nothing has changed — try again
                       in a moment.
                     </p>
-                    <ActionButton variant="outline" icon={RotateCcw} onClick={loadFeedUrl}>
+                    <ActionButton
+                      variant="outline"
+                      icon={RotateCcw}
+                      onClick={() => {
+                        // Clearing the flag first puts the panel back in the "Checking…"
+                        // state, which is both honest and what stops a second click
+                        // firing a concurrent request.
+                        setFeedLoadFailed(false);
+                        loadFeedUrl();
+                      }}
+                    >
                       Try again
                     </ActionButton>
                   </div>
