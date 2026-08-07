@@ -96,7 +96,10 @@ export const PLANS: Record<PlanId, PlanLimits> = {
   free: {
     label: 'Free',
     price: 0,
-    maxRequestsPerMonth: 100,
+    // ⚠️ TEMPORARY — set to 1 to test the over-quota path. REVERT TO 100 BEFORE LAUNCH.
+    // Sending 100 emails to prove the ceiling works is not a test anyone runs, so the
+    // ceiling is lowered instead. `git revert` the commit that set this.
+    maxRequestsPerMonth: 1,
     maxReviews: null,
     maxWidgets: null,
     allowedWidgetTypes: null,
