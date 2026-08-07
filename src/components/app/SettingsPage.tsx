@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { apiFetch, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import type { PageId } from './Sidebar';
+import { adminUrl, navigateTop } from '@/lib/admin-links';
 import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton } from './ui-kit';
 
 // Mirrors src/lib/plans.ts. Prices and limits must match the server, which is what
@@ -199,7 +200,7 @@ function UsageBar({
   );
 }
 
-export default function SettingsPage({ onNavigate }: { onNavigate?: (page: PageId) => void }) {
+export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?: (page: PageId) => void; storeDomain?: string }) {
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
   const [reqSettings, setReqSettings] = useState<{ delayDays: number; reminders: number; reminderGapDays: number } | null>(null);
@@ -591,7 +592,7 @@ export default function SettingsPage({ onNavigate }: { onNavigate?: (page: PageI
                 />
                 <ToggleRow
                   title="Video uploads"
-                  description="One video per review, up to 50MB. Starter plan and above."
+                  description="One video per review, up to 50MB. Growth plan and above."
                   checked={b('allowVideo')}
                   onChange={v => setBehaviour('allowVideo', v)}
                 />
@@ -935,9 +936,12 @@ export default function SettingsPage({ onNavigate }: { onNavigate?: (page: PageI
                   trailingIcon={ArrowUpRight}
                   onClick={() => {
                     // Subscriptions live in the merchant's Shopify admin, not in our app.
-                    const url = 'https://admin.shopify.com/settings/billing/subscriptions';
-                    if (window.top) window.top.location.href = url;
-                    else window.location.href = url;
+                    const url = adminUrl(storeDomain, '/settings/billing/subscriptions');
+                    if (!url) {
+                      toast.error('Could not work out your store address.');
+                      return;
+                    }
+                    navigateTop(url);
                   }}
                 >
                   Manage Billing

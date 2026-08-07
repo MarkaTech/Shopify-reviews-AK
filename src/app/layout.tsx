@@ -80,7 +80,11 @@ export async function generateMetadata(): Promise<Metadata> {
     description:
       "The most powerful and customizable review app for Shopify stores. Import reviews, showcase them beautifully, and build trust with your customers.",
     icons: {
-      icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+      // First-party. This pointed at z-cdn.chatglm.cn — an unrelated third-party CDN,
+      // in the <head> of every page, on every load. A reviewer opening devtools sees a
+      // request to a domain that has nothing to do with this app, and it is a live
+      // dependency on someone else's uptime for the app's own icon.
+      icon: "/icon.svg",
     },
   };
 }

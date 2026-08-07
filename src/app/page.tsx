@@ -14,6 +14,7 @@ import WelcomeScreen from '@/components/app/WelcomeScreen';
 import { Toaster } from 'sonner';
 import { Star, ExternalLink, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
+import { navigateTop } from '@/lib/admin-links';
 import { Pill } from '@/components/app/ui-kit';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
@@ -157,7 +158,14 @@ export default function Home() {
     }
 
     setAuthError('');
-    window.location.href = `/api/auth/install?shop=${shopDomain}`;
+    // window.top, not window.location. This screen can render inside Shopify's iframe on
+    // the reauth path, and Shopify's OAuth consent screen refuses to be framed — so
+    // navigating the frame produced a blank rectangle exactly when a merchant most needed
+    // the flow to work. The Etsy and billing handoffs already did this correctly.
+    // Absolute, because navigateTop leaves our origin behind: a relative path assigned
+    // to window.top.location resolves against admin.shopify.com, which would have sent
+    // the merchant to a Shopify 404 instead of our install route.
+    navigateTop(`${window.location.origin}/api/auth/install?shop=${shopDomain}`);
   };
 
   // ── Loading ──
@@ -199,10 +207,10 @@ export default function Home() {
       case 'reviews': return <ReviewsPage />;
       case 'bulk-upload': return <BulkUploadPage />;
       case 'questions': return <QuestionsPage />;
-      case 'products': return <ProductsPage />;
+      case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage />;
       case 'incentives': return <IncentivesPage />;
-      case 'settings': return <SettingsPage onNavigate={setCurrentPage} />;
+      case 'settings': return <SettingsPage onNavigate={setCurrentPage} storeDomain={storeDomain} />;
       default: return <DashboardPage onNavigate={setCurrentPage} storeName={storeName} />;
     }
   };
