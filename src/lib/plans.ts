@@ -40,7 +40,6 @@ export interface PlanLimits {
   googleFeed: boolean;
   /** Shop app syndication via the product_review metaobject. */
   shopSyndication: boolean;
-  advancedAnalytics: boolean;
   apiAccess: boolean;
   whiteLabel: boolean;
 }
@@ -111,7 +110,6 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     incentives: false,
     googleFeed: false,
     shopSyndication: false,
-    advancedAnalytics: false,
     apiAccess: false,
     whiteLabel: false,
   },
@@ -131,7 +129,6 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     incentives: true,
     googleFeed: true,
     shopSyndication: true,
-    advancedAnalytics: false,
     apiAccess: false,
     whiteLabel: true,
   },
@@ -151,7 +148,6 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     incentives: true,
     googleFeed: true,
     shopSyndication: true,
-    advancedAnalytics: true,
     // Not sold until it is built.
     //
     // This was `true` on the top tier, and nothing in the codebase implements it — no
@@ -177,7 +173,6 @@ export type FeatureFlag =
   | 'incentives'
   | 'googleFeed'
   | 'shopSyndication'
-  | 'advancedAnalytics'
   | 'apiAccess'
   | 'whiteLabel';
 
@@ -394,7 +389,6 @@ export async function assertFeature(storeId: string, feature: FeatureFlag): Prom
     incentives: 'Review incentives',
     googleFeed: 'Google Shopping star ratings',
     shopSyndication: 'Shop app syndication',
-    advancedAnalytics: 'Advanced analytics',
     apiAccess: 'API access',
     whiteLabel: 'White-label widgets',
   };
@@ -510,7 +504,6 @@ export async function getUsage(storeId: string) {
       incentives: limits.incentives,
       googleFeed: limits.googleFeed,
       shopSyndication: limits.shopSyndication,
-      advancedAnalytics: limits.advancedAnalytics,
       apiAccess: limits.apiAccess,
       whiteLabel: limits.whiteLabel,
     },

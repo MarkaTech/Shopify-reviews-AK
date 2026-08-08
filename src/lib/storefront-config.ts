@@ -151,6 +151,14 @@ export interface StorefrontConfig {
     defaultSort: string;
   };
   /** Merchant CSS, sanitised. Empty string means none. */
+  /**
+   * Whether to show "Reviews by ReviewMaster" under the widget.
+   *
+   * Not a merchant setting — derived from the plan, and deliberately not writable through
+   * the `sf.*` settings path, so it cannot be switched off by anyone who has not paid to
+   * switch it off. `whiteLabel` in plans.ts is what decides it.
+   */
+  branding: boolean;
   customCss: string;
 }
 
@@ -238,6 +246,10 @@ export const DEFAULT_CONFIG: StorefrontConfig = {
     defaultSort: 'recent',
   },
   customCss: '',
+  // Overwritten from the plan in getStorefrontConfig. The default is the paid
+  // behaviour, so a failure anywhere upstream leaves a storefront unbranded rather than
+  // stamping one that has paid not to be.
+  branding: false,
 };
 
 /** StoreSetting keys are namespaced so they cannot collide with anything else. */
@@ -333,6 +345,9 @@ function emptyConfig(): StorefrontConfig {
     text: { ...DEFAULT_CONFIG.text },
     behaviour: { ...DEFAULT_CONFIG.behaviour },
     customCss: DEFAULT_CONFIG.customCss,
+    // Assume the paid behaviour until the plan says otherwise. If the plan lookup fails
+    // the widget stays clean rather than stamping a paying merchant's storefront.
+    branding: false,
   };
 }
 
@@ -389,6 +404,13 @@ export async function getStorefrontConfig(
   if (placement !== undefined) {
     await applyActiveWidget(storeId, placement, config);
   }
+
+  // Resolved from the plan rather than from a setting, and last, so nothing above can
+  // overwrite it. The attribution is what the Free tier trades for being free — and what
+  // "white label" on the paid tiers actually removes. Before this, the widget carried no
+  // attribution at all, so every store already had white label and the paid feature had
+  // nothing to take away.
+  config.branding = !PLANS[await getStorePlan(storeId)].whiteLabel;
 
   return config;
 }

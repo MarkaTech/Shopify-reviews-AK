@@ -53,7 +53,6 @@ const plans = [
     features: [
       'Unlimited review request emails',
       'Everything in Growth',
-      'Advanced analytics',
       'Priority support',
     ],
     color: '',

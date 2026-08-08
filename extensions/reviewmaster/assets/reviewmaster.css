@@ -338,3 +338,36 @@
   .rm-widget--carousel .rm-list { scroll-behavior: auto; }
   .rm-panel, .rm-trigger { transition: none !important; }
 }
+
+/* ── Attribution ──
+   "Reviews by ReviewMaster", rendered only for stores on the free plan (see
+   Widget.prototype.applyBranding). Paid plans have `whiteLabel` and never see it.
+
+   Styled to be quiet on purpose. It sits on a merchant's storefront, next to their own
+   design, and an attribution line that fights that design is one they will find a way to
+   remove — with custom CSS, or by leaving. So: small, muted, borrowing the merchant's own
+   border and text colours rather than introducing any of ours, and underlined only on
+   hover. Visible to anyone looking for it, invisible to anyone who is not. */
+.rm-branding {
+  margin-top: 1rem;
+  padding-top: .75rem;
+  border-top: 1px solid var(--rm-border, #e5e7eb);
+  text-align: center;
+}
+.rm-branding__link {
+  font-size: .6875rem;
+  line-height: 1;
+  letter-spacing: .01em;
+  /* Inherits the merchant's card text colour at low opacity, so it reads correctly on a
+     dark theme without needing a second colour setting. */
+  color: var(--rm-card-text, #1f2937);
+  opacity: .45;
+  text-decoration: none;
+  transition: opacity .15s ease;
+}
+.rm-branding__link:hover,
+.rm-branding__link:focus-visible {
+  opacity: .8;
+  text-decoration: underline;
+}
+.rm-theme--minimal .rm-branding { border-top: 0; }

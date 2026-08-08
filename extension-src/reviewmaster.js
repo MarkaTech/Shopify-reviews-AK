@@ -322,6 +322,41 @@
     applyCustomCss(data.config.customCss);
     this.applyLayout();
     this.applyText();
+    this.applyBranding(data.config.branding);
+  };
+
+  /**
+   * "Reviews by ReviewMaster", on the free plan only.
+   *
+   * The trade the free tier makes. Paid plans get `whiteLabel` and this never renders —
+   * which is the first time that feature has removed anything, because until now the
+   * widget carried no attribution on any plan.
+   *
+   * Deliberately quiet: small, muted, below the reviews, and it inherits the merchant's
+   * own border colour rather than introducing one of ours. A storefront belongs to the
+   * merchant, and an attribution line that fights the design is one they will find a way
+   * to delete — via custom CSS, or by leaving.
+   *
+   * `rel="noopener"` because it opens in a new tab, and `nofollow` because a link on
+   * every free store is exactly the footprint search engines treat as a link scheme.
+   * Built with createElement and textContent, like everything else here: this runs on a
+   * merchant's storefront and must not be an innerHTML path.
+   */
+  Widget.prototype.applyBranding = function (show) {
+    var existing = this.root.querySelector('.rm-branding');
+    // Idempotent: applyConfig can run more than once on the same instance, and a plan can
+    // change between loads. Clearing first means it never doubles up or lingers after an
+    // upgrade.
+    if (existing) existing.parentNode.removeChild(existing);
+    if (!show) return;
+
+    var wrap = el('div', 'rm-branding');
+    var link = el('a', 'rm-branding__link', 'Reviews by ReviewMaster');
+    link.href = 'https://apps.shopify.com/reviewmaster';
+    link.target = '_blank';
+    link.rel = 'noopener nofollow';
+    wrap.appendChild(link);
+    this.root.appendChild(wrap);
   };
 
   Widget.prototype.render = function (data) {
