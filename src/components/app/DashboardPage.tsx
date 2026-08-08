@@ -13,6 +13,7 @@ import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import OnboardingFlow from './OnboardingFlow';
 import type { PageId } from './TopNav';
+import RequestPerformance from './RequestPerformance';
 import {
   Panel, PanelHeader, StatCard, StatSkeletonRow, Skeleton, Stars, Pill,
   Meter, EmptyState, ActionButton, SectionTitle, Tile, CountUp,
@@ -319,6 +320,12 @@ export default function DashboardPage({
               </div>
             </Panel>
           </div>
+
+          {/* ── How the invitations are performing ──
+              Placed above the review breakdowns on purpose. Those describe reviews the
+              merchant already has; this one describes whether more are coming, which is
+              the question they open the dashboard to answer. */}
+          <RequestPerformance />
 
           {/* ── Distribution / products / sources ── */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
