@@ -28,6 +28,26 @@ const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string
   settings: { title: 'Settings', desc: 'Moderation rules, email timing, plan and billing', parent: 'Store' },
 };
 
+const PAGE_IDS = Object.keys(PAGE_TITLES) as PageId[];
+
+/**
+ * Which screen the URL is asking for.
+ *
+ * The app had no addressable state at all: `currentPage` was React state and nothing
+ * else, so no screen could be linked to, bookmarked, or reached by the back button, and
+ * a reload always landed on the dashboard.
+ *
+ * That became a blocker rather than a nicety with the Shopify navigation menu below.
+ * `ui-nav-menu` is rendered by Shopify in the admin chrome, *outside* this iframe, so a
+ * click on it cannot be intercepted here — App Bridge navigates the frame to the href.
+ * The only way to honour it is for the href to say which screen it wants.
+ */
+function pageFromUrl(): PageId | null {
+  if (typeof window === 'undefined') return null;
+  const requested = new URLSearchParams(window.location.search).get('page');
+  return requested && (PAGE_IDS as string[]).includes(requested) ? (requested as PageId) : null;
+}
+
 interface StoreSummary {
   name: string;
   shopifyDomain?: string;
@@ -36,7 +56,9 @@ interface StoreSummary {
 }
 
 export default function Home() {
-  const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
+  // Initialised from the URL, so a reload, a bookmark or a nav-menu click all land on
+  // the screen that was asked for rather than on the dashboard.
+  const [currentPage, setCurrentPage] = useState<PageId>(() => pageFromUrl() ?? 'dashboard');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [storeName, setStoreName] = useState('');
@@ -159,6 +181,31 @@ export default function Home() {
   }, [isAuthenticated, currentPage]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  /**
+   * Navigate, and say so in the URL.
+   *
+   * `pushState` rather than `replaceState`: each screen becomes a back-button stop, which
+   * is what a merchant expects from something that looks like a set of pages. The shop
+   * and host parameters are preserved — Shopify puts them on every embedded request and
+   * dropping them breaks the session-token handshake on the next reload.
+   */
+  const navigate = useCallback((page: PageId) => {
+    setCurrentPage(page);
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    params.set('page', page);
+    window.history.pushState({ page }, '', `${window.location.pathname}?${params}`);
+  }, []);
+
+  // The other direction. Covers the browser's back and forward buttons, and App Bridge
+  // driving the frame from the navigation menu — which it does through the History API,
+  // so there is no reload to hook and no click of ours to intercept.
+  useEffect(() => {
+    const onPop = () => setCurrentPage(pageFromUrl() ?? 'dashboard');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   const handleInstall = async () => {
     const shop = shopInput.trim().toLowerCase();
     if (!shop) {
@@ -218,15 +265,15 @@ export default function Home() {
   // ── Authenticated ──
   const renderPage = () => {
     switch (currentPage) {
-      case 'dashboard': return <DashboardPage onNavigate={setCurrentPage} storeName={storeName} />;
+      case 'dashboard': return <DashboardPage onNavigate={navigate} storeName={storeName} />;
       case 'reviews': return <ReviewsPage />;
       case 'bulk-upload': return <BulkUploadPage />;
       case 'questions': return <QuestionsPage />;
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage />;
       case 'incentives': return <IncentivesPage />;
-      case 'settings': return <SettingsPage onNavigate={setCurrentPage} storeDomain={storeDomain} />;
-      default: return <DashboardPage onNavigate={setCurrentPage} storeName={storeName} />;
+      case 'settings': return <SettingsPage onNavigate={navigate} storeDomain={storeDomain} />;
+      default: return <DashboardPage onNavigate={navigate} storeName={storeName} />;
     }
   };
 
@@ -234,10 +281,37 @@ export default function Home() {
 
   return (
     <ConfirmProvider>
+    {/*
+      Shopify's own navigation menu.
+
+      A Built for Shopify criterion, and without it the app's screens exist only inside
+      its own frame: a merchant browsing the admin sees "ReviewMaster" as a single
+      destination with nothing under it, while every other app they have lists its
+      sections in the sidebar.
+
+      Rendered by Shopify in the admin chrome, outside this iframe, from these anchors —
+      which is why they must be real hrefs. A click cannot be intercepted here; App Bridge
+      drives the frame through the History API, and `navigate`/`popstate` above are what
+      pick it up.
+
+      `rel="home"` marks the entry Shopify shows under the app's own name. Exactly one
+      link must carry it, and it must be the first.
+
+      Lower-case `ui-nav-menu` is a custom element defined by the App Bridge script in
+      layout.tsx, so React passes it through to the DOM untouched rather than treating it
+      as a component.
+    */}
+    <ui-nav-menu>
+      <a href="/?page=dashboard" rel="home">Dashboard</a>
+      {PAGE_IDS.filter((id) => id !== 'dashboard').map((id) => (
+        <a key={id} href={`/?page=${id}`}>{PAGE_TITLES[id].title}</a>
+      ))}
+    </ui-nav-menu>
+
     <div className="aurora min-h-screen bg-background">
       <TopNav
         currentPage={currentPage}
-        onPageChange={setCurrentPage}
+        onPageChange={navigate}
         storeName={storeName}
         storeDomain={storeDomain}
         plan={storePlan}
