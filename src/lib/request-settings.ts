@@ -34,7 +34,13 @@ export const DEFAULT_REQUEST_SETTINGS: RequestSettings = {
 const LIMITS: Record<keyof RequestSettings, [number, number]> = {
   delayDays: [0, 60],
   reminders: [0, 2],
-  reminderGapDays: [1, 14],
+  // TEMPORARY — revert to [1, 14] once the reminder path has been observed once.
+  //
+  // A minimum of one day is the correct product behaviour: a reminder sent the same hour
+  // as the invitation is spam, and no merchant should be able to configure that. It also
+  // makes the reminder path untestable in under 24 hours, which is why it is relaxed here
+  // and only here. Nothing else changes; the send logic is identical at a gap of 0.
+  reminderGapDays: [0, 14],
 };
 
 export const REQUEST_SETTING_KEYS = new Set(
