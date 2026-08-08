@@ -52,7 +52,6 @@ export async function GET(request: Request) {
       pendingReviews,
       ratingGroups,
       sourceGroups,
-      sentimentGroups,
       verifiedCount,
       repliedCount,
       featuredCount,
@@ -69,7 +68,6 @@ export async function GET(request: Request) {
 
       db.review.groupBy({ by: ['rating'], where: { storeId }, _count: { _all: true } }),
       db.review.groupBy({ by: ['source'], where: { storeId }, _count: { _all: true } }),
-      db.review.groupBy({ by: ['sentiment'], where: { storeId }, _count: { _all: true } }),
 
       db.review.count({ where: { storeId, verifiedPurchase: true } }),
       // Not just `not: null`. The review editor supports clearing a reply back to an
@@ -135,11 +133,25 @@ export async function GET(request: Request) {
     const reviewsBySource: Record<string, number> = {};
     for (const g of sourceGroups) reviewsBySource[g.source] = g._count._all;
 
+    // ── Sentiment ──
+    //
+    // Derived from the ratings we already grouped, not from `Review.sentiment`.
+    //
+    // That column is written in exactly one place — the storefront submit route — so a
+    // review from CSV import, AliExpress, Etsy, the emailed review form or manual entry
+    // has none. The old code folded null into "neutral", which meant a store with a 4.8
+    // average and 125 reviews was shown "10% positive, 111 neutral": not a rounding
+    // problem but a straight misreading of its own data, on a card captioned "Derived
+    // from star ratings" while deriving nothing.
+    //
+    // Deriving it here makes the caption true for every review whatever its origin, needs
+    // no backfill of existing rows, and costs nothing — `ratingGroups` is already loaded.
+    // The thresholds match what the submit route stores, so nothing shifts for reviews
+    // that do have the column set.
     const sentimentDistribution: Record<string, number> = { positive: 0, neutral: 0, negative: 0 };
-    for (const g of sentimentGroups) {
-      // `sentiment` is nullable; the old code folded null into neutral, so this does too.
-      const key = g.sentiment || 'neutral';
-      sentimentDistribution[key] = (sentimentDistribution[key] || 0) + g._count._all;
+    for (const g of ratingGroups) {
+      const bucket = g.rating >= 4 ? 'positive' : g.rating <= 2 ? 'negative' : 'neutral';
+      sentimentDistribution[bucket] += g._count._all;
     }
 
     const averageRating = ratingAgg._avg.rating
