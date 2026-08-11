@@ -43,7 +43,18 @@ const plans = [
       'Automatic reminders',
       'Review incentives',
       'Questions & answers',
-      'Shop app sync + Google Shopping',
+      // "Shop app sync" is not sold here, and will not be until it can actually run.
+      //
+      // The syndication code in src/lib/syndication.ts is real and gated correctly, but
+      // it needs write_product_reviews and read_metaobjects, which Shopify only grants
+      // after approving the Standard Product Review Syndication Program. Until then the
+      // scopes are deliberately unrequested (see DEFAULT_SCOPES), nothing sets the
+      // syndication_enabled flag, and the feature cannot be switched on by anyone.
+      //
+      // Selling it in the meantime is a pricing-accuracy violation and, worse, a promise
+      // to a paying merchant that nothing in the product can keep. It goes back on this
+      // list the day the programme approval lands.
+      'Google Shopping star ratings',
       'ReviewMaster branding removed',
     ],
     color: 'is-selected', popular: true,
@@ -450,6 +461,19 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
 
   const handleUpgrade = async (planId: string) => {
     if (planId === currentPlan) return;
+
+    // Downgrading now actually cancels the Shopify subscription, so it is a money
+    // decision and gets asked about. Upgrading does not: Shopify's own approval screen
+    // is the confirmation, and asking twice is friction in front of a purchase.
+    if (planId === 'free') {
+      const ok = await confirm({
+        title: 'Cancel your subscription?',
+        body: 'Your paid features stop straight away and Shopify stops billing you. Your reviews, widgets and settings are all kept — you can resubscribe whenever you like.',
+        confirmLabel: 'Cancel subscription',
+      });
+      if (!ok) return;
+    }
+
     setUpgrading(planId);
     try {
       const data = await apiFetch<{ confirmationUrl?: string; activated?: boolean }>('/api/billing', {

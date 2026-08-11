@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
       activated: plan !== 'free',
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to confirm subscription';
+    console.error('[billing/confirm] failed:', error);
     const status = (error as Error & { status?: number }).status || 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: 'Could not confirm your subscription.' }, { status });
   }
 }
