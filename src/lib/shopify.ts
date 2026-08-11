@@ -811,6 +811,71 @@ export interface ActiveSubscription {
   trialDays: number;
 }
 
+const CANCEL_SUBSCRIPTION = `
+  mutation CancelAppSubscription($id: ID!) {
+    appSubscriptionCancel(id: $id) {
+      appSubscription { id status }
+      userErrors { field message }
+    }
+  }
+`;
+
+/**
+ * Cancel every active subscription this app holds for a shop.
+ *
+ * There was no cancel anywhere in this codebase. "Downgrade to Free" wrote `plan: 'free'`
+ * to our own database and stopped, which produced the worst possible outcome for the
+ * merchant: their paid features switched off immediately, Shopify carried on charging
+ * them, and `reconcilePlan` — seeing a subscription Shopify still reported as ACTIVE —
+ * put them back on the paid tier within the hour. The cancellation undid itself while the
+ * money kept moving.
+ *
+ * App Store requirement 1.2.3 is explicit that a merchant must be able to change plan
+ * without contacting support or reinstalling, and reviewers test the downgrade direction.
+ * But the reason to care is the merchant who cannot make the charge stop from inside the
+ * app they are being charged by.
+ *
+ * Cancels ALL active subscriptions rather than one id. Shopify permits only one active
+ * subscription per app in normal operation, but a failed upgrade can leave a second
+ * behind, and cancelling "the one we know about" would leave a merchant paying for a
+ * charge nothing in our UI can see.
+ *
+ * Returns the number cancelled so the caller can tell "downgraded" from "was already on
+ * the free plan" without a second round trip.
+ */
+export async function cancelActiveSubscriptions(
+  shop: string,
+  accessToken: string,
+  onUnauthorized?: () => Promise<string | null>
+): Promise<number> {
+  const subs = await fetchActiveSubscriptions(shop, accessToken, onUnauthorized);
+  if (!subs.length) return 0;
+
+  let cancelled = 0;
+  for (const sub of subs) {
+    const data = await callShopifyGraphQL<{
+      appSubscriptionCancel: {
+        appSubscription: { id: string; status: string } | null;
+        userErrors: Array<{ field: string[]; message: string }>;
+      };
+    }>(shop, accessToken, CANCEL_SUBSCRIPTION, { id: sub.id }, onUnauthorized);
+
+    const errors = data.appSubscriptionCancel?.userErrors ?? [];
+    if (errors.length) {
+      // Loud and fatal. A partial cancel is exactly the state that produced the original
+      // bug — local plan says free, Shopify says active, reconciliation reverts. Better
+      // the merchant sees an error and the plan stays paid than sees success and keeps
+      // being billed.
+      throw new Error(
+        `Could not cancel subscription ${sub.id}: ${errors.map((e) => e.message).join('; ')}`
+      );
+    }
+    cancelled++;
+  }
+
+  return cancelled;
+}
+
 /**
  * Read the app's currently ACTIVE subscriptions for this shop, straight from Shopify.
  *

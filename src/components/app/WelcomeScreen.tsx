@@ -2,10 +2,10 @@
 
 import React from 'react';
 import {
-  Star, Store, Globe, ShieldCheck, Camera, Mail, Gift, Sparkles,
+  Star, Store, ShieldCheck, Camera, Mail, Gift,
   BadgeCheck, Zap, TrendingUp, Quote, ArrowRight, Clock, ChevronDown,
 } from 'lucide-react';
-import { ActionButton, Stars, Pill } from './ui-kit';
+import { Stars, Pill } from './ui-kit';
 
 /**
  * The install screen.

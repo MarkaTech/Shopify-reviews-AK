@@ -76,8 +76,8 @@ export default function TermsOfService() {
             <li>
               <strong>Growth — $12/month.</strong> Up to 1,000 review request emails per
               calendar month, plus video reviews, automatic reminders, review incentives,
-              questions and answers, the Google Shopping ratings feed, Shop app syndication,
-              and removal of ReviewMaster branding.
+              questions and answers, the Google Shopping ratings feed, and removal of
+              ReviewMaster branding.
             </li>
             <li>
               <strong>Scale — $39/month.</strong> Unlimited review request emails, everything
