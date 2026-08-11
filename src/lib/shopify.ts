@@ -6,9 +6,26 @@
 import crypto from 'crypto';
 import { shopifyClientId } from './client-id';
 
-const SHOPIFY_API_KEY = shopifyClientId() || 'test_key';
-const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || 'test_secret';
-const SHOPIFY_APP_URL = process.env.SHOPIFY_APP_URL || 'http://localhost:3000';
+const SHOPIFY_API_KEY = shopifyClientId() || '';
+
+/**
+ * These used to be `|| 'test_key'`, `|| 'test_secret'` and `|| 'http://localhost:3000'`.
+ *
+ * Every one of those defaults fails *open*, and silently. The secret is what
+ * `verifyWebhookHmac` compares against, so an environment missing SHOPIFY_API_SECRET
+ * booted green and verified every webhook — including the GDPR ones — against a constant
+ * published in this repository. Anyone could have signed `shop/redact` for any store.
+ *
+ * The app-URL default is the same failure in a different costume: with it, the hourly
+ * sweep cheerfully emails real customers review links pointing at `http://localhost:3000`.
+ * Nothing errors; the merchant simply collects no reviews and cannot see why.
+ *
+ * A missing secret is now empty, and every consumer refuses rather than proceeding —
+ * matching `verifySessionToken` and `crypto.ts`, which already got this right. The
+ * failure is loud and immediate instead of invisible and permanent.
+ */
+const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || '';
+const SHOPIFY_APP_URL = process.env.SHOPIFY_APP_URL || '';
 
 /**
  * OAuth scopes.
@@ -145,6 +162,13 @@ function digest(message: string, secret: string): string {
  * the encoded variant. Use `new URL(request.url).search.slice(1)`.
  */
 export function verifyShopifyHmac(queryString: string, secret: string = SHOPIFY_API_SECRET): boolean {
+  // No secret means we cannot verify anything. Refusing is the only safe answer: an
+  // HMAC check that "passes" because both sides hashed with '' authenticates nobody.
+  if (!secret) {
+    console.error('[hmac] SHOPIFY_API_SECRET is not configured — refusing to verify');
+    return false;
+  }
+
   const params = new URLSearchParams(queryString);
   const hmac = params.get('hmac');
 
@@ -180,6 +204,13 @@ export function verifyShopifyHmac(queryString: string, secret: string = SHOPIFY_
 }
 
 export function verifyWebhookHmac(body: string, hmacHeader: string, secret: string = SHOPIFY_API_SECRET): boolean {
+  // Same reasoning as verifyShopifyHmac. Without a secret this is not a weaker check,
+  // it is no check — and the callers are the order and GDPR webhooks.
+  if (!secret) {
+    console.error('[webhook] SHOPIFY_API_SECRET is not configured — refusing to verify');
+    return false;
+  }
+
   if (!hmacHeader) return false;
 
   const expectedHmac = crypto

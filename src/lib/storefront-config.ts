@@ -41,6 +41,7 @@
  */
 
 import { db } from './db';
+import { sanitiseCss } from './css-sanitiser';
 import { getStorePlan, PLANS } from './plans';
 
 /** The nine display styles offered on the Widgets page. */
@@ -293,32 +294,6 @@ export const VALID_KEYS = new Set([...Object.keys(flatten(DEFAULT_CONFIG)), CSS_
 
 const HEX = /^#[0-9a-fA-F]{3,8}$/;
 
-/**
- * Sanitise merchant-authored CSS before it is injected into their storefront.
- *
- * The threat model is not "a merchant attacks themselves" — it is a compromised merchant
- * account, or a staff member with admin access, turning the review widget into a delivery
- * mechanism aimed at shoppers. So:
- *
- *   - `<` and `>` are stripped, which makes `</style>` breakout impossible.
- *   - `@import` is removed: it fetches and executes a stylesheet from a third-party origin,
- *     which is both an exfiltration channel (via selectors) and a hard dependency on
- *     someone else's uptime on the merchant's product page.
- *   - `expression(` (legacy IE) and `javascript:` are removed — both execute script.
- *   - `url()` is restricted to https and data: images. `url(http://…)` is mixed content on
- *     an HTTPS storefront; anything else is a fetch we should not be making.
- *
- * Not a sandbox, and not sold as one. It closes the paths that turn CSS into script.
- */
-export function sanitiseCss(raw: string): string {
-  return String(raw ?? '')
-    .slice(0, 20000)
-    .replace(/[<>]/g, '')
-    .replace(/@import[^;]*;?/gi, '')
-    .replace(/expression\s*\(/gi, '')
-    .replace(/javascript\s*:/gi, '')
-    .replace(/url\s*\(\s*(['"]?)(?!https:|data:image\/)[^)]*\)/gi, 'none');
-}
 
 /** Coerce one persisted string into the shape the config field expects. */
 function applyValue(
@@ -633,3 +608,5 @@ export async function getSubmissionRules(storeId: string): Promise<{
 
   return out;
 }
+
+export { sanitiseCss };
