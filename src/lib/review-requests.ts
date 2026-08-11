@@ -52,20 +52,116 @@ function emailFrom(order: OrderPayload): string | null {
 }
 
 /**
+ * Re-read an order from the Admin API when the webhook payload has no usable email.
+ *
+ * Webhook payloads are not a data-export channel, and Shopify says so: customer fields
+ * on an order webhook are redacted unless the app holds Level 2 protected-customer-data
+ * approval, and holding the `read_customers` scope does not by itself change that. An app
+ * on Level 1 (Proof of Concept) receives `orders/fulfilled` with `customer` and `email`
+ * stripped — the notification arrives, the personal data does not.
+ *
+ * Reading the buyer's address straight out of the payload therefore has a failure mode
+ * where nothing errors and nothing sends: `emailFrom` returns null, one line goes to the
+ * log, and the merchant's review programme quietly does nothing for every order. That is
+ * the entire product, silently off, with a green webhook in the dashboard.
+ *
+ * So the webhook is treated as a notification and the order is fetched when the payload
+ * comes back thin — which is the pattern Shopify recommends. On Level 2 this never runs;
+ * on Level 1 it is what makes the feature work at all.
+ */
+async function fetchOrderFromAdmin(
+  storeId: string,
+  shop: string,
+  orderId: string | number
+): Promise<OrderPayload | null> {
+  try {
+    const { callShopifyGraphQL } = await import('./shopify');
+    const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('./shopify-token');
+
+    const accessToken = await getFreshAccessTokenByStoreId(storeId);
+    const gid = String(orderId).startsWith('gid://')
+      ? String(orderId)
+      : `gid://shopify/Order/${orderId}`;
+
+    const data = await callShopifyGraphQL<{
+      order: {
+        id: string;
+        name?: string | null;
+        email?: string | null;
+        customer?: { firstName?: string | null; lastName?: string | null; email?: string | null } | null;
+        lineItems?: { nodes: Array<{ title?: string | null; product?: { legacyResourceId?: string | null } | null }> } | null;
+      } | null;
+    }>(
+      shop,
+      accessToken,
+      `query OrderForReviewRequest($id: ID!) {
+        order(id: $id) {
+          id
+          name
+          email
+          customer { firstName lastName email }
+          lineItems(first: 50) { nodes { title product { legacyResourceId } } }
+        }
+      }`,
+      { id: gid },
+      tokenRefresherFor(storeId)
+    );
+
+    const o = data.order;
+    if (!o) return null;
+
+    return {
+      id: orderId,
+      order_number: o.name ?? undefined,
+      email: o.email ?? null,
+      customer: o.customer
+        ? { first_name: o.customer.firstName, last_name: o.customer.lastName, email: o.customer.email }
+        : null,
+      line_items: (o.lineItems?.nodes || []).map((li) => ({
+        product_id: li.product?.legacyResourceId ?? null,
+        title: li.title ?? undefined,
+      })),
+    };
+  } catch (error) {
+    // Never throws to the caller. A failed re-read must not turn a webhook Shopify
+    // considers delivered into a 500 and a retry storm; the outcome is the same as before
+    // this existed — no request created — but now it is logged as a real failure.
+    console.error(`[review-request] could not re-read order ${orderId} from the Admin API:`, error);
+    return null;
+  }
+}
+
+/**
  * Build a review request from a fulfilled order.
  * Returns null when the order has no usable email or no products we track.
  */
 export async function createRequestForOrder(
   storeId: string,
-  order: OrderPayload,
-  delayDays = 0
+  orderPayload: OrderPayload,
+  delayDays = 0,
+  shop?: string
 ): Promise<{ token: string; email: string; lineItems: RequestLineItem[] } | null> {
-  const email = emailFrom(order);
+  let order = orderPayload;
+  let email = emailFrom(order);
+
+  // Thin payload — see fetchOrderFromAdmin. Only reached when the webhook carried no
+  // usable address, so the ordinary path costs nothing.
+  if (!email && shop) {
+    const refetched = await fetchOrderFromAdmin(storeId, shop, order.id);
+    if (refetched) {
+      order = { ...refetched, id: order.id };
+      email = emailFrom(order);
+      if (email) {
+        console.log(`[review-request] order ${order.id}: payload was redacted, recovered the address from the Admin API`);
+      }
+    }
+  }
+
   if (!email) {
     // Say so. A silently skipped order cost a real debugging session: the merchant
     // fulfils a test order with no customer attached, nothing happens, and nothing
     // anywhere explains why.
-    console.log(`[review-request] order ${order.id}: no customer email on the order — nothing to send`);
+    console.log(`[review-request] order ${order.id}: no customer email on the order or via the Admin API — nothing to send`);
     return null;
   }
 

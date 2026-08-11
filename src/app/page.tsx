@@ -15,7 +15,6 @@ import WelcomeScreen from '@/components/app/WelcomeScreen';
 import { Toaster } from 'sonner';
 import { Star, ExternalLink, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
-import { navigateTop } from '@/lib/admin-links';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
   dashboard: { title: 'Dashboard', desc: 'How your reviews are performing' },
@@ -64,7 +63,6 @@ export default function Home() {
   const [storeName, setStoreName] = useState('');
   const [storeDomain, setStoreDomain] = useState('');
   const [storePlan, setStorePlan] = useState('free');
-  const [shopInput, setShopInput] = useState('');
   // Usage for the top bar's plan meter. Kept here rather than inside TopNav so a
   // single fetch serves both it and anything else the shell needs.
   const [usage, setUsage] = useState<{ requests: number; cap: number | null; pending: number }>({
@@ -206,30 +204,6 @@ export default function Home() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const handleInstall = async () => {
-    const shop = shopInput.trim().toLowerCase();
-    if (!shop) {
-      setAuthError('Please enter your store URL');
-      return;
-    }
-
-    const shopDomain = shop.includes('.myshopify.com') ? shop : `${shop}.myshopify.com`;
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shopDomain)) {
-      setAuthError('That does not look like a Shopify store URL.');
-      return;
-    }
-
-    setAuthError('');
-    // window.top, not window.location. This screen can render inside Shopify's iframe on
-    // the reauth path, and Shopify's OAuth consent screen refuses to be framed — so
-    // navigating the frame produced a blank rectangle exactly when a merchant most needed
-    // the flow to work. The Etsy and billing handoffs already did this correctly.
-    // Absolute, because navigateTop leaves our origin behind: a relative path assigned
-    // to window.top.location resolves against admin.shopify.com, which would have sent
-    // the merchant to a Shopify 404 instead of our install route.
-    navigateTop(`${window.location.origin}/api/auth/install?shop=${shopDomain}`);
-  };
-
   // ── Loading ──
   if (isLoading) {
     return (
@@ -253,12 +227,7 @@ export default function Home() {
   // ── Not authenticated ──
   if (!isAuthenticated) {
     return (
-      <WelcomeScreen
-        shopInput={shopInput}
-        onShopInput={setShopInput}
-        onInstall={handleInstall}
-        error={authError}
-      />
+      <WelcomeScreen error={authError} />
     );
   }
 
