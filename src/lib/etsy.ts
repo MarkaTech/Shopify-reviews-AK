@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { db } from './db';
+import { recomputeProductRating } from './ratings';
 import { encryptToken, decryptToken } from './crypto';
 
 /**
@@ -289,21 +290,30 @@ export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> 
   let imported = 0;
   let skippedExisting = 0;
   let skippedUnmatched = 0;
+  const touchedProducts = new Set<string>();
 
   for (const r of all) {
     const tx = String(r.transaction_id ?? '');
     const rating = Math.round(Number(r.rating ?? 0));
     if (!tx || rating < 1 || rating > 5) continue;
+    // The in-memory set is kept as a cheap first pass — it saves a round trip for the
+    // common case of re-syncing an unchanged shop. It is no longer the guarantee: the set
+    // is a snapshot and cannot see a concurrent run, which is how the daily cron
+    // overlapping a manual "Sync now" imported every review twice. The unique index on
+    // (storeId, source, sourceReviewKey) is what actually enforces it.
     if (known.has(tx)) { skippedExisting++; continue; }
 
     const productId = r.listing_id ? listingToProduct.get(r.listing_id) ?? null : null;
     if (!productId) { skippedUnmatched++; continue; }
 
     const ts = (r.create_timestamp ?? r.created_timestamp ?? 0) * 1000;
-    await db.review.create({
+    try {
+      await db.review.create({
       data: {
         storeId,
         productId,
+        // Etsy's transaction id is stable per review, so it is the natural key.
+        sourceReviewKey: tx,
         reviewerName: 'Etsy Customer',
         rating,
         body: String(r.review ?? '').trim(),
@@ -318,9 +328,37 @@ export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> 
         isPublished: true,
         ...(ts > 0 && ts < Date.now() ? { reviewDate: new Date(ts) } : {}),
       },
-    });
+      });
+    } catch (error) {
+      // P2002 means a concurrent run already imported this one. Not an error.
+      if ((error as { code?: string }).code === 'P2002') {
+        skippedExisting++;
+        continue;
+      }
+      throw error;
+    }
     known.add(tx);
+    touchedProducts.add(productId);
     imported++;
+  }
+
+  // Recompute every product this sync touched.
+  //
+  // Without it the import was invisible. Reviews were created isPublished:true and
+  // nothing updated ProductRating or the Shopify metafields, so the theme's stars, the
+  // Shop app, the Google feed and the widget's own header all still read "No reviews
+  // yet" over a list of imported reviews. ratings.ts states the invariant — every path
+  // that mutates a review must call this — and the AliExpress importer documents having
+  // already been fixed for exactly this. Etsy was missed.
+  //
+  // Best-effort per product: an aggregate that fails must not lose the imported reviews,
+  // and the next publish or sync recomputes it anyway.
+  for (const productId of touchedProducts) {
+    try {
+      await recomputeProductRating(storeId, productId);
+    } catch (error) {
+      console.error(`[etsy] rating recompute failed for product ${productId}:`, error);
+    }
   }
 
   await putSetting(storeId, K.lastSyncAt, new Date().toISOString());

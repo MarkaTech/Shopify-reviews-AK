@@ -67,11 +67,34 @@ async function handleDataRequest(data: Record<string, unknown>, shop: string) {
 
 /** A customer asked to be erased. */
 async function handleCustomerRedact(data: Record<string, unknown>, shop: string) {
-  const payload = data as { customer?: { email?: string } };
-  const email = payload.customer?.email;
+  const payload = data as {
+    customer?: { id?: number | string; email?: string };
+    orders_to_redact?: Array<number | string>;
+  };
+
+  // Lower-cased before it is matched against anything.
+  //
+  // This used the address exactly as Shopify sent it, in five exact-match queries. The
+  // two ways an address enters this database disagree about case: a storefront submission
+  // stores what the shopper typed (`src/app/api/storefront/submit/route.ts` only trims),
+  // while a review invitation stores it lower-cased (`review-requests.ts`). So a shopper
+  // who reviewed as `Jane@Example.com` matched zero rows, the handler logged
+  // "0 review(s), 0 question(s)…", returned 200, and their name, address and location
+  // stayed in the database. An erasure that erases nothing, reported as success.
+  const email = payload.customer?.email?.trim().toLowerCase() || null;
+
+  // Shopify also names the orders belonging to this person. That is the only handle we
+  // have when the email is absent — which happens for a phone-only customer, and for any
+  // app whose protected-customer-data approval does not include the email field.
+  const orderIds = (payload.orders_to_redact ?? []).map(String).filter(Boolean);
 
   const store = await db.store.findUnique({ where: { shopifyDomain: shop } });
-  if (!store || !email) return;
+  if (!store) return;
+
+  if (!email && !orderIds.length) {
+    console.warn(`[GDPR] customers/redact for ${shop}: payload carried neither an email nor orders_to_redact — nothing to match on`);
+    return;
+  }
 
   const storeId = store.id;
 
@@ -83,9 +106,13 @@ async function handleCustomerRedact(data: Record<string, unknown>, shop: string)
   // pending review invitations, in incentive grants and in the buyer email recorded by the
   // orders/paid analytics handler. An erasure request that erases one of five copies is
   // not an erasure request, and it is one of the things an app reviewer tests directly.
+  // `mode: 'insensitive'` on an equality match, so a stored `Jane@Example.com` is found
+  // by a lower-cased needle regardless of which path wrote it.
+  const emailMatch = email ? { equals: email, mode: 'insensitive' as const } : undefined;
+
   const [reviews, questions, requests, grants] = await Promise.all([
     db.review.updateMany({
-      where: { storeId, reviewerEmail: email },
+      where: emailMatch ? { storeId, reviewerEmail: emailMatch } : { storeId, id: '' },
       data: {
         reviewerName: 'Anonymous',
         reviewerEmail: null,
@@ -98,29 +125,59 @@ async function handleCustomerRedact(data: Record<string, unknown>, shop: string)
     }),
 
     db.question.updateMany({
-      where: { storeId, askerEmail: email },
+      where: emailMatch ? { storeId, askerEmail: emailMatch } : { storeId, id: '' },
       data: { askerName: 'Anonymous', askerEmail: null },
     }),
 
     // Deleted outright rather than anonymised. A review invitation is a pending instruction
     // to email this person; with the address gone it has no purpose, and keeping the order
     // snapshot would preserve exactly what was asked to be erased.
-    db.reviewRequest.deleteMany({ where: { storeId, customerEmail: email } }),
+    // Matched on the order id as well as the address. ReviewRequest is the one table
+    // that records shopifyOrderId, so `orders_to_redact` reaches it directly — which is
+    // what makes erasure work at all when the payload carries no email.
+    db.reviewRequest.deleteMany({
+      where: {
+        storeId,
+        OR: [
+          ...(emailMatch ? [{ customerEmail: emailMatch }] : []),
+          ...(orderIds.length ? [{ shopifyOrderId: { in: orderIds } }] : []),
+        ],
+      },
+    }),
 
     // The discount code itself lives in Shopify and keeps working until it expires — that
     // is the merchant's commercial arrangement. Only our copy of who it went to is cleared.
     db.incentiveGrant.updateMany({
-      where: { incentive: { storeId }, customerEmail: email },
+      where: emailMatch
+        ? { incentive: { storeId }, customerEmail: emailMatch }
+        : { incentive: { storeId }, id: '' },
       data: { customerEmail: '' },
     }),
   ]);
 
   // Analytics events embed the buyer's email inside a JSON blob, so there is no column to
-  // null. Matching rows are dropped: they are aggregate usage signals and losing a handful
-  // costs nothing next to keeping an address that was asked to be forgotten.
-  const events = await db.analyticsEvent.deleteMany({
-    where: { storeId, eventData: { contains: email } },
-  });
+  // null and the row has to go.
+  //
+  // The match cannot be a bare substring. `contains: 'n@x.com'` also matches
+  // `john@x.com`, `ben@x.com` and `karen@x.com` — so redacting one shopper silently
+  // deleted other customers' order analytics, and the count in the log reported the
+  // over-deletion as success. Short addresses are common and this needs no adversary.
+  //
+  // Matching on the address wrapped in the JSON quoting that surrounds it means a hit is
+  // a whole field value rather than a fragment of a longer one. Two forms because the
+  // address can appear as a value or inside a nested object, and the case-insensitive
+  // flag for the same reason as above.
+  const events = email
+    ? await db.analyticsEvent.deleteMany({
+        where: {
+          storeId,
+          OR: [
+            { eventData: { contains: `"${email}"`, mode: 'insensitive' } },
+            { eventData: { contains: `:"${email}"`, mode: 'insensitive' } },
+          ],
+        },
+      })
+    : { count: 0 };
 
   console.log(
     `[GDPR] customers/redact for ${shop}: ${reviews.count} review(s), ${questions.count} question(s), ` +
@@ -146,16 +203,47 @@ async function handleShopRedact(_data: Record<string, unknown>, shop: string) {
   // Review before the reviews themselves are deleted, or the link to find them is gone.
   // ReviewTranslation keys on reviewId with no relation declared, so it cannot be filtered
   // through Review — the ids have to be collected first, while the reviews still exist.
-  const reviewIds = await db.review.findMany({ where: { storeId }, select: { id: true } });
-  if (reviewIds.length) {
-    await db.reviewTranslation.deleteMany({
-      where: { reviewId: { in: reviewIds.map((r) => r.id) } },
+  // Batched, because the unbatched version could not complete for a large store.
+  //
+  // It collected every review id and passed them to a single `deleteMany({ id: { in } })`.
+  // Prisma binds one parameter per id and Postgres' wire protocol caps a statement at
+  // 65,535 — so past roughly that many reviews the statement threw. Combined with the
+  // handler returning 200 on error (fixed separately), the result was: Shopify records a
+  // success, never retries, and the store's data is never deleted. The stores it failed
+  // for were the largest ones, which are also the ones holding the most personal data.
+  //
+  // Everything below is idempotent — deleting rows that are already gone is a no-op — so
+  // a timeout partway through is safe. Shopify retries a non-2xx, and each retry resumes
+  // from wherever the last one reached rather than starting over. That is what makes an
+  // unbounded amount of work survivable inside a webhook with a short timeout, without a
+  // job queue.
+  const ID_BATCH = 5_000;
+  for (;;) {
+    const batch = await db.review.findMany({
+      where: { storeId },
+      select: { id: true },
+      take: ID_BATCH,
     });
+    if (!batch.length) break;
+
+    const ids = batch.map((r) => r.id);
+    // ReviewTranslation has no foreign key to Review, so it cannot cascade and cannot be
+    // filtered through the relation — the ids have to be gathered while the reviews still
+    // exist. Its translation goes first, then the reviews it pointed at.
+    await db.reviewTranslation.deleteMany({ where: { reviewId: { in: ids } } });
+    await db.review.deleteMany({ where: { id: { in: ids } } });
+
+    if (batch.length < ID_BATCH) break;
   }
+
   await db.reviewRequest.deleteMany({ where: { storeId } });
 
   // Children first: Review and Product hold foreign keys to Store. Deleting the store row
   // cascades Question/Answer, Incentive/IncentiveGrant and ProductRating.
+  //
+  // A final sweep for reviews created between the batch loop finishing and here — a
+  // storefront submission landing mid-redaction would otherwise leave a row whose
+  // Restrict-by-default relation blocks `store.delete` below and fails the whole handler.
   await db.review.deleteMany({ where: { storeId } });
   await db.product.deleteMany({ where: { storeId } });
   await db.importJob.deleteMany({ where: { storeId } });
