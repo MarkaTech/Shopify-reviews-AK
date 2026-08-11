@@ -9,6 +9,7 @@
  * check is a suggestion, not a limit.
  */
 
+import crypto from 'node:crypto';
 import { db } from './db';
 
 export type PlanId = 'free' | 'growth' | 'scale';
@@ -293,17 +294,26 @@ export async function getRequestUsage(storeId: string): Promise<{
  */
 export async function recordRequestSent(storeId: string): Promise<void> {
   const key = usageKey();
-  const existing = await db.storeSetting.findUnique({
-    where: { storeId_key: { storeId, key } },
-    select: { value: true },
-  });
-  const next = String((Number(existing?.value ?? 0) || 0) + 1);
 
-  await db.storeSetting.upsert({
-    where: { storeId_key: { storeId, key } },
-    create: { storeId, key, value: next },
-    update: { value: next },
-  });
+  // Incremented in the database, not read into JavaScript and written back.
+  //
+  // The old shape was findUnique, add one, upsert. Two sends interleaving both read the
+  // same value and both wrote the same result, so the meter under-counted by exactly the
+  // number of concurrent sends. That is the merchant's monthly allowance quietly leaking:
+  // a Free store on 100 could send meaningfully more, and the busier the store the wider
+  // the gap — the counter is least accurate precisely when it matters most.
+  //
+  // `ON CONFLICT DO UPDATE` with the arithmetic inside the statement makes it atomic
+  // under any amount of concurrency. The value is stored as text because StoreSetting is
+  // a generic key/value table, so it is cast in and back out; a row whose value is not a
+  // number is treated as zero rather than poisoning the count.
+  await db.$executeRaw`
+    INSERT INTO "StoreSetting" ("id", "storeId", "key", "value", "createdAt", "updatedAt")
+    VALUES (${crypto.randomUUID()}, ${storeId}, ${key}, '1', NOW(), NOW())
+    ON CONFLICT ("storeId", "key") DO UPDATE
+      SET "value" = (COALESCE(NULLIF("StoreSetting"."value", '')::numeric, 0) + 1)::bigint::text,
+          "updatedAt" = NOW()
+  `;
 }
 
 /**

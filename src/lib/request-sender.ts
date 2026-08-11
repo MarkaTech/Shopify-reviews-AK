@@ -72,6 +72,15 @@ export type SendOutcome =
  * request expires ~60 days after fulfilment and leaves the queue by itself. Backing off
  * a stuck queue is worth doing; deleting it is not.
  */
+/**
+ * How long a claimed row is held before it becomes due again.
+ *
+ * Long enough that a slow provider call cannot expire the claim mid-send, short enough
+ * that a process killed between claim and write costs one cycle rather than a day. The
+ * hourly sweep means anything under an hour is effectively "the next run".
+ */
+const CLAIM_HOLD_MS = 15 * 60 * 1000;
+
 const MAX_SEND_FAILURES = 7;
 const RETRY_BASE_MS = 60 * 60 * 1000;
 /** 2**5 = 32 hours, the ceiling on how long a failing request waits between attempts. */
@@ -162,6 +171,32 @@ export async function sendDueRequest(
     unsubscribeUrl,
     isReminder,
   });
+
+  // ── Claim the row before sending ──
+  //
+  // The sweep selects rows whose `nextSendAt` is in the past and mails them. Nothing
+  // marked a row as in flight, so two sweeps running at once both saw the same rows and
+  // both sent. That is not hypothetical: a 200-row sweep can outlast Azure's 230-second
+  // front-end timeout, the workflow sees a 502 and reports failure, and the natural
+  // response is to re-run it — at which point every row the first pass had not yet
+  // reached is still due, and every row it *had* reached is still due too, because
+  // `sendCount` is only written after the send. The customer gets the same invitation
+  // twice, and the duplicate lands against a shared sending domain's complaint rate.
+  //
+  // A compare-and-swap on `nextSendAt` is enough, and needs no new column: push the row
+  // into the future conditional on it still being due. Exactly one concurrent writer can
+  // match, and the loser gets count 0 and steps aside. Every path below then sets the
+  // real `nextSendAt` — the next reminder, a backoff, a quota deferral, or null — so the
+  // hold is temporary by construction. If the process dies mid-send the row simply
+  // becomes due again after CLAIM_HOLD_MS rather than being stranded.
+  const claim = await db.reviewRequest.updateMany({
+    where: { id: request.id, nextSendAt: { lte: new Date() } },
+    data: { nextSendAt: new Date(Date.now() + CLAIM_HOLD_MS) },
+  });
+  if (claim.count === 0) {
+    // Another sweep has this one. Not an error, and not this run's to count.
+    return 'skipped';
+  }
 
   const result = await sendEmail({
     ...message,
