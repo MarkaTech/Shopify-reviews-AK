@@ -75,13 +75,30 @@ jobs:
       #      "allow Azure services" rule, and no laptop is involved at all.
       # Skipped quietly when the secret is absent, so forks and secretless checkouts
       # still deploy code-only changes.
-      - name: Push Prisma schema to production
+      # Migrations, not `db push --accept-data-loss`.
+      #
+      # What was here ran `prisma db push --accept-data-loss` against production on every
+      # push to main. `db push` is a prototyping tool: it reshapes the database to match
+      # the schema file with no history and no review, and `--accept-data-loss` turns its
+      # one safety feature — refusing a destructive change — into silent execution. A
+      # renamed field or a narrowed type would have dropped the column and its contents
+      # mid-deploy, with the only record being a line in a CI log. `workflow_dispatch`
+      # carries no branch restriction either, so it was dispatchable from any ref.
+      #
+      # `migrate deploy` applies committed migration files in order and applies nothing
+      # else. A schema change is now a reviewable diff in the pull request, a destructive
+      # one is visible as SQL before it runs, and the sequence that reached production is
+      # recorded in _prisma_migrations rather than inferred.
+      #
+      # It also fails closed: a migration that errors stops the step, so the new image is
+      # never deployed against a half-migrated database.
+      - name: Apply database migrations
         if: ${{ env.HAS_DB_URL == 'true' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           npm install --no-save prisma@6.19.3 >/dev/null 2>&1
-          npx prisma db push --skip-generate --accept-data-loss
+          npx prisma migrate deploy
       - name: Check for DATABASE_URL secret
         if: ${{ always() }}
         run: |
