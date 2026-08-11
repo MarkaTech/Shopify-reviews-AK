@@ -12,7 +12,20 @@
 import crypto from 'crypto';
 
 const SESSION_COOKIE_NAME = 'reviewmaster_session';
-const SESSION_SECRET = process.env.NEXTAUTH_SECRET || 'dev_secret_min_32_chars_long_for_testing';
+/**
+ * No fallback. This used to be `|| 'dev_secret_min_32_chars_long_for_testing'`.
+ *
+ * This value signs the merchant session cookie, which `withAuth` accepts as a full
+ * authentication path. crypto.ts accepts TOKEN_ENCRYPTION_KEY *or* NEXTAUTH_SECRET, so an
+ * environment with the former set and the latter missing booted and served normally while
+ * every session cookie was signed with a string published in this repository. The payload
+ * is only base64url — anyone who saw one cookie could read a storeId out of it and mint a
+ * valid 30-day session for that shop.
+ *
+ * Empty means every signature comparison below fails, so the cookie path stops working
+ * loudly rather than accepting forgeries quietly.
+ */
+const SESSION_SECRET = process.env.NEXTAUTH_SECRET || '';
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days, matches the cookie Max-Age
 
 interface SessionData {
@@ -29,16 +42,39 @@ function constantTimeEquals(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+/**
+ * An empty secret is a hard refusal, not a weak key.
+ *
+ * Worth spelling out, because "no fallback" alone would have made this worse rather than
+ * better: `createHmac('sha256', '')` is perfectly valid and deterministic, so signing and
+ * verifying with an empty secret both succeed — and an attacker can compute the same
+ * digest. Dropping the hardcoded default without this check would have turned a shared
+ * known secret into no secret at all.
+ */
+function requireSecret(): string {
+  if (!SESSION_SECRET) {
+    throw new Error('NEXTAUTH_SECRET is not configured — refusing to sign or verify sessions');
+  }
+  return SESSION_SECRET;
+}
+
 function encodeSession(data: SessionData): string {
+  const secret = requireSecret();
   const payload = Buffer.from(JSON.stringify(data)).toString('base64url');
   const signature = crypto
-    .createHmac('sha256', SESSION_SECRET)
+    .createHmac('sha256', secret)
     .update(payload)
     .digest('hex');
   return `${payload}.${signature}`;
 }
 
 function decodeSession(cookieValue: string): SessionData | null {
+  if (!SESSION_SECRET) {
+    // Reject every cookie rather than validating against a known-empty key.
+    console.error('[session] NEXTAUTH_SECRET is not configured — rejecting all cookie sessions');
+    return null;
+  }
+
   const parts = cookieValue.split('.');
   if (parts.length !== 2) return null;
 

@@ -54,6 +54,45 @@ class UnauthorizedError extends Error {
   }
 }
 
+/** Requests that never carry side effects, so cross-site reads of them change nothing. */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Refuse cookie-authenticated state changes that originated on another site.
+ *
+ * Only applies to the cookie path. A session-token request is immune by construction —
+ * the token travels in an Authorization header that cross-site page script cannot set on
+ * the merchant's behalf, and App Bridge mints it per request.
+ */
+function requireSameSiteForCookieAuth(request: Request): void {
+  if (SAFE_METHODS.has(request.method.toUpperCase())) return;
+
+  const site = request.headers.get('sec-fetch-site');
+  if (site) {
+    // `same-origin` is the app calling itself. `none` is a direct navigation, which
+    // cannot be a scripted cross-site POST. `cross-site` and `same-site` are both
+    // refused: a sibling subdomain is not this app.
+    if (site === 'same-origin' || site === 'none') return;
+    throw new UnauthorizedError('Unauthorized: cross-site request rejected.');
+  }
+
+  // No Sec-Fetch-Site. Fall back to Origin, which every browser sends on a cross-origin
+  // POST — including the form-submission cases that skip preflight.
+  const origin = request.headers.get('origin');
+  if (!origin) return;
+
+  let requestOrigin: string;
+  try {
+    requestOrigin = new URL(request.url).origin;
+  } catch {
+    return;
+  }
+
+  if (origin !== requestOrigin) {
+    throw new UnauthorizedError('Unauthorized: cross-site request rejected.');
+  }
+}
+
 /**
  * Authenticate a request and return session context.
  *
@@ -124,6 +163,26 @@ export async function withAuth(request: Request): Promise<AuthContext> {
   }
 
   // ── 2. Cookie fallback ──
+  //
+  // Guarded against cross-site use before anything else, because this is the only
+  // ambiently-authenticated path in the app.
+  //
+  // The cookie has to be `SameSite=None` — an embedded Shopify app runs in a
+  // cross-site iframe and the browser would not send it otherwise. That is exactly the
+  // condition CSRF needs: any page on the internet could POST here and the browser would
+  // attach the merchant's credentials. There was no Origin, Referer or Sec-Fetch check
+  // anywhere in the app, and the routes reachable that way include `/api/bulk-upload`
+  // (multipart, so no preflight — publishes attacker-authored reviews to the storefront)
+  // and `/api/billing` (`request.json()` accepts `text/plain`, so a form post downgrades
+  // the plan).
+  //
+  // `Sec-Fetch-Site` is the right control here rather than an anti-CSRF token: it is set
+  // by the browser and cannot be forged by page script, it needs no per-form plumbing,
+  // and it is understood by every browser Shopify admin supports. Requests with no
+  // Origin and no Sec-Fetch-Site — server-to-server, curl, older clients — are allowed
+  // through, since those carry no ambient cookie to abuse in the first place.
+  requireSameSiteForCookieAuth(request);
+
   const session = getShopifySession(request);
   if (!session) throw new UnauthorizedError();
 

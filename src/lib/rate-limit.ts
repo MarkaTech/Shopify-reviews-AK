@@ -42,21 +42,49 @@ const buckets = new Map<string, Bucket>();
  * Bound on distinct keys held at once.
  *
  * Without it, an attacker rotating addresses grows this map until the process runs out of
- * memory — a rate limiter that becomes the outage it was added to prevent. On overflow the
- * whole map is dropped: crude, but it fails open on throttling rather than falling over,
- * and the alternative (LRU bookkeeping) is more machinery than this warrants.
+ * memory — a rate limiter that becomes the outage it was added to prevent.
  */
 const MAX_KEYS = 20_000;
+
+/**
+ * Overflow used to call `buckets.clear()`. That was the limiter's own off switch.
+ *
+ * The key space is attacker-controlled and cheap to fill: `checkSubmitRateLimit` runs
+ * *before* the store lookup in the storefront submit route, so a POST with an invented
+ * `shop` value mints two brand-new keys and only then 404s. Around ten thousand junk
+ * requests overflowed the map, and clearing it reset every real counter in the process —
+ * including the victim shop's 120-per-hour ceiling and the attacker's own per-IP bucket.
+ * Loop that and a store can be review-bombed without limit.
+ *
+ * Evicting the oldest entries instead keeps live windows intact under the same pressure.
+ * Expired buckets go first, since they are free; only if that is not enough do we drop
+ * the entries closest to expiry, which are the ones with the least protection left to
+ * give. An attacker can still cost us memory, but can no longer clear anyone's counter.
+ */
+function evictOldest(): void {
+  const now = Date.now();
+
+  for (const [key, bucket] of buckets) {
+    if (now >= bucket.resetAt) buckets.delete(key);
+  }
+  if (buckets.size < MAX_KEYS) return;
+
+  // Still full: shed the soonest-to-expire tenth, so this runs rarely rather than on
+  // every subsequent insert.
+  const target = Math.max(1, Math.floor(MAX_KEYS / 10));
+  const byExpiry = [...buckets.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
+  for (let i = 0; i < target && i < byExpiry.length; i++) {
+    buckets.delete(byExpiry[i][0]);
+  }
+  console.warn(`[rate-limit] key space full — evicted ${target} soonest-to-expire buckets`);
+}
 
 function hit(key: string, limit: number, windowMs: number): boolean {
   const now = Date.now();
   const existing = buckets.get(key);
 
   if (!existing || now >= existing.resetAt) {
-    if (buckets.size >= MAX_KEYS) {
-      console.warn('[rate-limit] key space full, clearing all buckets');
-      buckets.clear();
-    }
+    if (buckets.size >= MAX_KEYS) evictOldest();
     buckets.set(key, { count: 1, resetAt: now + windowMs });
     return true;
   }

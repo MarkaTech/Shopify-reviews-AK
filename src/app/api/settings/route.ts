@@ -25,6 +25,17 @@ const RESERVED_PREFIXES = [
   'auth.',        // session-mechanism telemetry
   'webhooks.',    // registration markers
   'onboarding.',  // written via its own endpoint
+  // Storefront config. It shares this table but has its own endpoint, and that endpoint
+  // is where the validation lives: hex-colour checks, a layout-type allow-list, length
+  // caps, `<>` stripping on merchant copy, and the CSS sanitiser. Writing `sf.*` through
+  // here bypassed every one of them — `sf.customCss` reached the storefront with one
+  // sanitisation pass instead of two, and `sf.text.*` was stored raw and unbounded.
+  'sf.',
+  // Reconciliation bookkeeping. `plan.reconciledAt` is compared against `Date.now()` to
+  // decide whether to re-derive the plan from Shopify; a timestamp far in the future
+  // makes that check permanently true and freezes reconciliation, which is the only
+  // mechanism that corrects a stale paid tier when a subscription webhook is missed.
+  'plan.',
 ];
 
 function isReserved(key: string): boolean {
