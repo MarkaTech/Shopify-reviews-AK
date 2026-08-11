@@ -61,17 +61,28 @@ const FEATURES = [
   },
 ] as const;
 
-export default function WelcomeScreen({
-  shopInput,
-  onShopInput,
-  onInstall,
-  error,
-}: {
-  shopInput: string;
-  onShopInput: (v: string) => void;
-  onInstall: () => void;
-  error?: string;
-}) {
+/**
+ * Where a merchant installs from.
+ *
+ * This screen used to ask them to type their `.myshopify.com` domain into a box and
+ * built an OAuth URL from it. That is prohibited outright — App Store requirement 2.3.1:
+ * "Your app must not request the manual entry of a myshopify.com URL or a shop's domain
+ * during the installation or configuration flow."
+ *
+ * The reason behind the rule is worth keeping in mind rather than just complying with:
+ * a text box that accepts a shop domain and redirects to an OAuth consent screen is the
+ * exact shape of a phishing flow, and it trains merchants to type their store address
+ * into whatever page asks. Installs begin on Shopify's side, always, so the only correct
+ * control here is a link to the listing.
+ *
+ * It also matters that this screen is reachable by accident: it renders whenever
+ * `/api/store` returns 401, which includes a transient auth failure inside the embedded
+ * iframe. Hence the reload affordance — a merchant who lands here mid-session is one
+ * click from where they were, rather than being asked to re-install.
+ */
+const APP_STORE_LISTING = 'https://apps.shopify.com/reviewmaster';
+
+export default function WelcomeScreen({ error }: { error?: string }) {
   return (
     <div className="aurora min-h-screen bg-background">
       <div className="mx-auto max-w-6xl px-6 py-14 lg:py-20">
@@ -87,9 +98,10 @@ export default function WelcomeScreen({
               </span>
             </div>
 
-            <Pill tone="brand" icon={Sparkles} className="mb-5">
-              Built for Shopify · 2026 API
-            </Pill>
+            {/* No "Built for Shopify" pill here. That is a designation Shopify grants
+                after a certification review and displays itself — an app asserting it in
+                its own UI is claiming a status it has not been given, which reviewers
+                treat as a branding violation. */}
 
             <h1 className="display text-[44px] font-bold text-ink-900 dark:text-white sm:text-[52px]">
               Turn happy customers
@@ -105,28 +117,25 @@ export default function WelcomeScreen({
 
             {/* ── Install ── */}
             <div className="mt-8 max-w-md">
-              <label
-                htmlFor="shop-domain"
-                className="mb-2 block text-[12.5px] font-semibold text-ink-600 dark:text-ink-300"
-              >
-                Your Shopify store
-              </label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Globe className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-400" />
-                  <input
-                    id="shop-domain"
-                    value={shopInput}
-                    onChange={(e) => onShopInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && onInstall()}
-                    placeholder="your-store.myshopify.com"
-                    autoComplete="url"
-                    className="surface ring-focus h-12 w-full rounded-xl pl-10 pr-3 text-[14px] text-ink-900 placeholder:text-ink-400 dark:text-white"
-                  />
-                </div>
-                <ActionButton size="lg" icon={Store} onClick={onInstall} className="h-12 px-6">
-                  Install
-                </ActionButton>
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href={APP_STORE_LISTING}
+                  target="_blank"
+                  rel="noopener"
+                  className="brand-fill ring-focus inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[14.5px] font-semibold"
+                >
+                  <Store className="size-4.5" strokeWidth={2.2} />
+                  Install from the Shopify App Store
+                </a>
+                {/* For the merchant who landed here because their session lapsed, not
+                    because they need to install. Reloading inside the admin re-runs the
+                    session-token handshake and puts them straight back. */}
+                <button
+                  onClick={() => window.location.reload()}
+                  className="ring-focus surface inline-flex h-12 items-center gap-2 rounded-xl px-4 text-[13.5px] font-semibold text-ink-600 transition-colors hover:border-ink-300 hover:text-ink-900 dark:text-ink-300 dark:hover:text-white"
+                >
+                  Already installed? Reload
+                </button>
               </div>
 
               {error && (
@@ -188,19 +197,39 @@ export default function WelcomeScreen({
           </div>
         </div>
 
-        {/* ── Why it converts ── */}
+        {/* ── What you get, and what we do not take ──
+            This block used to read "93% of shoppers read reviews before buying",
+            "2.4x more likely to convert with photo reviews", "5 min from install to your
+            first request". Three confident figures with no source behind any of them —
+            the first two are industry statistics we cannot substantiate, and the third
+            was invented. Unsubstantiated performance claims are a listing violation, and
+            more to the point a merchant who checks one and finds nothing behind it has
+            learned something true about how carefully the rest was written.
+            Replaced with commitments about this app that are verifiable from the code. */}
         <div className="surface-hero mt-20 overflow-hidden rounded-3xl">
           <div className="grid gap-0 md:grid-cols-3">
             {[
-              { stat: '93%', label: 'of shoppers read reviews before buying', tone: 'text-brand-600' },
-              { stat: '2.4×', label: 'more likely to convert with photo reviews', tone: 'text-indigo-600' },
-              { stat: '5 min', label: 'from install to your first request sent', tone: 'text-amber-600' },
+              {
+                stat: 'Your files',
+                label: 'Review photos and video are stored in your own Shopify Files, never ours — and stay with you if you uninstall.',
+                tone: 'text-brand-600',
+              },
+              {
+                stat: 'Every review',
+                label: 'Ratings are never filtered by score. Hiding low ratings breaks Google\u2019s policy and the FTC rule, so the app cannot do it.',
+                tone: 'text-indigo-600',
+              },
+              {
+                stat: 'No card',
+                label: 'The free plan covers 100 review request emails a month and unlimited reviews. Upgrade only when you outgrow it.',
+                tone: 'text-amber-600',
+              },
             ].map((s, i) => (
               <div
-                key={s.label}
+                key={s.stat}
                 className={`px-8 py-9 text-center ${i < 2 ? 'md:border-r md:border-border' : ''}`}
               >
-                <p className={`display text-[40px] font-bold ${s.tone}`}>{s.stat}</p>
+                <p className={`display text-[28px] font-bold ${s.tone}`}>{s.stat}</p>
                 <p className="mt-2 text-[13px] leading-snug text-ink-500">{s.label}</p>
               </div>
             ))}

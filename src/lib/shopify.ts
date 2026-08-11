@@ -28,6 +28,16 @@ const DEFAULT_SCOPES = [
   'read_products',
   'write_products',
   'read_orders',
+  // read_customers stays, and it is NOT an unused scope despite there being no Customer
+  // API call anywhere in this codebase.
+  //
+  // The buyer's name and address reach us only through order webhooks, and Shopify's
+  // position is that webhooks are not a data-export channel: customer fields on an order
+  // payload are redacted for apps below Level 2 protected-customer-data approval. The
+  // scope is a necessary condition for receiving them, not a sufficient one — which is
+  // why review-requests.ts also re-reads the order from the Admin API when the payload
+  // comes back thin. Dropping the scope would guarantee the redaction we are working to
+  // survive, and the review invitation is the whole product.
   'read_customers',
   // Photo and video reviews are stored in Shopify Files rather than our own bucket, so
   // the media lives on the merchant's CDN, costs us nothing to store, and stays with them

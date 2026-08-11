@@ -248,12 +248,13 @@ const webhookHandlers: Record<string, WebhookHandler> = {
   // and the cron sweep sends it, because "immediately on fulfilment" means before the
   // parcel arrives, and an inline send that failed was lost forever. See
   // src/lib/request-sender.ts for the whole argument.
-  'orders-fulfilled': async (data, storeId) => {
+  'orders-fulfilled': async (data, storeId, shop) => {
     const { createRequestForOrder } = await import('@/lib/review-requests');
     const { getRequestSettings } = await import('@/lib/request-settings');
 
     const settings = await getRequestSettings(storeId);
-    const created = await createRequestForOrder(storeId, data as never, settings.delayDays);
+    // `shop` is passed so a redacted payload can be recovered from the Admin API.
+    const created = await createRequestForOrder(storeId, data as never, settings.delayDays, shop);
     if (!created) return; // no email, no tracked products, or already requested
 
     console.log(
