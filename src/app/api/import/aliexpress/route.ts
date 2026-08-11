@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { db } from '@/lib/db';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { assertFeature, assertReviewCapacity, planLimitResponse, getStorePlan, PLANS } from '@/lib/plans';
@@ -81,45 +82,59 @@ export async function POST(request: NextRequest) {
 
     const { reviews, listingTotal } = await fetchAliExpressReviews(aliProductId, budget);
 
-    // Dedup against previous runs of the same listing. Author + body is the identity a
-    // re-fetched review keeps; ids from their side are not stable enough to trust.
-    const existing = await db.review.findMany({
-      where: { storeId, productId: body.productId, source: 'aliexpress' },
-      select: { reviewerName: true, body: true },
-    });
-    const seen = new Set(existing.map((r) => `${r.reviewerName} ${r.body}`));
-
+    // Deduplication is the database's job now, not a snapshot's.
+    //
+    // This used to build a Set from one SELECT and check against it in memory. Two
+    // problems. The set cannot see a concurrent import, so two overlapping runs wrote
+    // every review twice. And the key was `${author} ${body}`, which collides on real
+    // data: AliExpress anonymises names to forms like "A***v" and short bodies repeat
+    // constantly, so two different reviewers who both wrote "Good" were one key — and the
+    // space delimiter made ("A B","C") and ("A","B C") the same string too. Legitimate
+    // reviews were silently dropped as duplicates.
+    //
+    // The key is now a hash over the fields that identify a review, and the unique index
+    // on (storeId, source, sourceReviewKey) enforces it across concurrent runs.
     let imported = 0;
     let skipped = 0;
     for (const r of reviews) {
-      const key = `${r.author} ${r.body}`;
-      if (seen.has(key)) {
-        skipped++;
-        continue;
-      }
-      seen.add(key);
+      const sourceReviewKey = crypto
+        .createHash('sha256')
+        .update([aliProductId, r.author, r.rating, r.body, r.date?.toISOString() ?? ''].join('\u0000'))
+        .digest('base64url')
+        .slice(0, 32);
 
-      await db.review.create({
-        data: {
-          storeId,
-          productId: body.productId,
-          reviewerName: r.author,
-          reviewerLocation: r.country,
-          rating: r.rating,
-          body: r.body,
-          images: r.images.length ? JSON.stringify(r.images) : null,
-          source: 'aliexpress',
-          sourceUrl: `https://www.aliexpress.com/item/${aliProductId}.html`,
-          sourceProductId: aliProductId,
-          // Imported means unverifiable, permanently. No order of this merchant's backs
-          // it, and the badge is reserved for reviews one does.
-          verificationStatus: 'unverified',
-          verifiedPurchase: false,
-          isPublished: true,
-          ...(r.date ? { reviewDate: r.date } : {}),
-        },
-      });
-      imported++;
+      try {
+        await db.review.create({
+          data: {
+            storeId,
+            productId: body.productId,
+            reviewerName: r.author,
+            reviewerLocation: r.country,
+            rating: r.rating,
+            body: r.body,
+            images: r.images.length ? JSON.stringify(r.images) : null,
+            source: 'aliexpress',
+            sourceUrl: `https://www.aliexpress.com/item/${aliProductId}.html`,
+            sourceProductId: aliProductId,
+            sourceReviewKey,
+            // Imported means unverifiable, permanently. No order of this merchant's backs
+            // it, and the badge is reserved for reviews one does.
+            verificationStatus: 'unverified',
+            verifiedPurchase: false,
+            isPublished: true,
+            ...(r.date ? { reviewDate: r.date } : {}),
+          },
+        });
+        imported++;
+      } catch (error) {
+        // P2002 is the constraint doing its job — this review is already imported, by an
+        // earlier run or a concurrent one. Anything else is a real failure.
+        if ((error as { code?: string }).code === 'P2002') {
+          skipped++;
+          continue;
+        }
+        throw error;
+      }
     }
 
     // The full sync, not just the local aggregate. The storefront widget's header is

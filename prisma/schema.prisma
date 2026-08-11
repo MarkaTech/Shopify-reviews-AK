@@ -114,6 +114,21 @@ model Review {
   source          String   @default("direct") // direct, amazon, ebay, etsy, alibaba, shopify
   sourceUrl       String?
   sourceProductId String?
+  // Stable per-review identity from the source platform, for imports only.
+  //
+  // Deduplication used to be a set built in memory from one SELECT at the start of an
+  // import, which cannot see a concurrent run: the daily Etsy cron overlapping a manual
+  // "Sync now" imported every review twice, permanently. A snapshot cannot deduplicate
+  // against writes taken after it, so the constraint has to be in the database.
+  //
+  // Etsy supplies a transaction id. AliExpress supplies nothing stable, so the importer
+  // hashes the review's own content — which is better than the previous key of
+  // `author + body`, where anonymised names ("A***v") and short bodies ("Good") collided
+  // constantly and dropped legitimate new reviews as duplicates.
+  //
+  // Null for everything else — storefront submissions, CSV, manual entry — and Postgres
+  // treats NULLs as distinct, so the unique below constrains imports only.
+  sourceReviewKey String?
   sentiment       String?  // positive, neutral, negative (auto-calculated)
   isFeatured      Boolean  @default(false)
   isPublished     Boolean  @default(true)
@@ -195,6 +210,9 @@ model Review {
   // which on a large store means scanning that store's entire review history to answer
   // a question about the last month.
   @@index([storeId, reviewDate])
+  // Scoped by source as well as store: two platforms must never collide on a key that
+  // only means something within one of them.
+  @@unique([storeId, source, sourceReviewKey])
 }
 
 // Import Jobs
@@ -503,6 +521,16 @@ model IncentiveGrant {
 
   incentive     Incentive @relation(fields: [incentiveId], references: [id], onDelete: Cascade)
 
+  // One discount code per review, enforced here rather than by a findFirst.
+  //
+  // The application guard was a read, then a Shopify API round trip, then a create — a
+  // window wide enough that a double-clicked Approve, or a client retry of a slow PUT,
+  // produced two live single-use codes and two reward emails for one review. A check that
+  // spans a network call is not a guard; the constraint is.
+  //
+  // Nullable, so grants not tied to a review (there are none today, but the column
+  // permits it) are unaffected — Postgres treats NULLs as distinct in a unique index.
+  @@unique([reviewId])
   @@index([incentiveId])
   @@index([customerEmail])
 }

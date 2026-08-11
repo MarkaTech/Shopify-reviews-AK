@@ -4,6 +4,7 @@ import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { assertReviewCapacity, assertFeature, planLimitResponse } from '@/lib/plans';
 import { resolvePendingMedia } from '@/lib/media-resolve';
+import { updateProductRating } from '@/lib/ratings';
 
 export async function GET(request: NextRequest) {
   try {
@@ -124,7 +125,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { storeId } = await withAuth(request);
+    const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
 
     // Enforce the plan's review cap before writing anything.
     await assertReviewCapacity(storeId, 1);
@@ -175,6 +176,23 @@ export async function POST(request: NextRequest) {
       },
       include: { product: { select: { id: true, title: true, image: true } } },
     });
+
+    // Recompute the aggregate, exactly as every other write path does.
+    //
+    // This one did not, so a review added by hand — which defaults to isPublished:true —
+    // was invisible in the star rating, the widget header, the theme metafield and the
+    // Google feed until something unrelated happened to touch that product. The merchant
+    // adds a review, sees it in the list, and the product still says "no reviews".
+    //
+    // Best-effort: the review is already saved and a failed aggregate must not turn a
+    // successful create into a 500. updateProductRating never throws on the metafield leg.
+    if (review.productId) {
+      try {
+        await updateProductRating(storeId, review.productId, { shop, accessToken, onUnauthorized });
+      } catch (error) {
+        console.error(`[reviews] rating recompute failed for product ${review.productId}:`, error);
+      }
+    }
 
     return NextResponse.json(review, { status: 201 });
   } catch (error: unknown) {

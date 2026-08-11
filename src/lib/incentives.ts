@@ -196,16 +196,37 @@ export async function grantIncentive(
       return null;
     }
 
-    await db.incentiveGrant.create({
-      data: {
-        incentiveId: incentive.id,
-        reviewId: opts.reviewId,
-        customerEmail: opts.customerEmail,
-        discountCode: code,
-        priceRuleId: data.discountCodeBasicCreate.codeDiscountNode?.id ?? null,
-        expiresAt,
-      },
-    });
+    // The unique on IncentiveGrant.reviewId is what actually enforces one code per
+    // review. The findFirst above is a cheap early exit, but it cannot be the guarantee:
+    // between that read and this write sits a Shopify API round trip, and a double-clicked
+    // Approve or a retried PUT fits inside it comfortably — which produced two live
+    // single-use codes and two reward emails for one review.
+    try {
+      await db.incentiveGrant.create({
+        data: {
+          incentiveId: incentive.id,
+          reviewId: opts.reviewId,
+          customerEmail: opts.customerEmail,
+          discountCode: code,
+          priceRuleId: data.discountCodeBasicCreate.codeDiscountNode?.id ?? null,
+          expiresAt,
+        },
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') {
+        // Lost the race. The other request has already granted this review its code, so
+        // return null and let the caller treat it as "already granted" — which is what
+        // suppresses the duplicate reward email.
+        //
+        // The discount we just created at Shopify is orphaned. Deliberately left alone
+        // rather than deleted: it is unissued and expires on its own, and a delete here
+        // would run against a code we may not have created, on the losing side of a race,
+        // in a catch block. Wasting an unused discount beats risking the live one.
+        console.warn(`[incentives] concurrent grant for review ${opts.reviewId} — keeping the first`);
+        return null;
+      }
+      throw error;
+    }
 
     // Mark the review so every downstream surface discloses it. Set here rather than left
     // to the caller, so the disclosure cannot be separated from the reward.
