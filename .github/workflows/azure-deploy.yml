@@ -98,7 +98,18 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           npm install --no-save prisma@6.19.3 >/dev/null 2>&1
-          npx prisma migrate deploy
+          # First run against a database that predates migration history fails with
+          # P3005 ("schema is not empty"): the tables exist from the db-push era but
+          # _prisma_migrations does not, and migrate deploy refuses to guess. The
+          # documented baseline flow: run the (idempotent - every statement is
+          # IF NOT EXISTS) migration SQL directly, then record it as applied. That
+          # creates the history table; every later run takes the normal path above.
+          if ! npx prisma migrate deploy; then
+            echo "migrate deploy failed - attempting one-time baseline (P3005 path)"
+            npx prisma db execute --file prisma/migrations/20260810120000_import_key_and_grant_uniqueness/migration.sql
+            npx prisma migrate resolve --applied 20260810120000_import_key_and_grant_uniqueness
+            npx prisma migrate deploy
+          fi
       - name: Check for DATABASE_URL secret
         if: ${{ always() }}
         run: |
