@@ -71,6 +71,28 @@ export async function GET(
   };
 
   const note = settings.find((s) => s.key === 'admin.note')?.value ?? '';
+  const get = (k: string) => settings.find((s) => s.key === k)?.value ?? null;
+
+  /**
+   * The integrations, decoded. These all lived in the raw settings dump, which meant an
+   * operator had to know the key names to answer "why is this merchant getting no review
+   * requests". Webhooks especially: a store with no registration marker never receives
+   * orders/fulfilled, so no invitation is ever created for them — total, silent, and
+   * per-merchant.
+   */
+  const integrations = {
+    webhooksRegisteredAt: get('webhooks.registeredAt'),
+    planReconciledAt: get('plan.reconciledAt'),
+    authLastVia: get('auth.lastVia'),
+    etsy: { shopId: get('etsy.shopId'), lastSyncAt: get('etsy.lastSyncAt'), connected: Boolean(get('etsy.shopId')) },
+    googleFeedTokenIssued: Boolean(get('google_feed_token')),
+    syndicationEnabled: get('syndication_enabled') === 'true',
+    weeklySummaryOptIn: get('notify.weeklySummary') === 'true',
+    onboardingDismissedAt: get('onboarding.dismissedAt'),
+    requestSettings: Object.fromEntries(
+      settings.filter((s) => s.key.startsWith('requests.')).map((s) => [s.key.slice('requests.'.length), s.value])
+    ),
+  };
   const handle = store.shopifyDomain?.replace('.myshopify.com', '') ?? null;
 
   return NextResponse.json({
@@ -78,6 +100,7 @@ export async function GET(
     usage,
     settings,
     note,
+    integrations,
     links: handle
       ? {
           shopifyAdmin: `https://admin.shopify.com/store/${handle}`,
@@ -117,7 +140,7 @@ export async function PATCH(
 
   let body: {
     action?: string; plan?: string; amount?: unknown;
-    note?: unknown; reviewId?: unknown; publish?: unknown;
+    note?: unknown; reviewId?: unknown; publish?: unknown; requestId?: unknown;
   } = {};
   try {
     body = await request.json();
@@ -259,6 +282,40 @@ export async function PATCH(
       });
       console.warn(`[admin] granted ${amount} request credits to ${store.shopifyDomain}: counter ${used} -> ${next}`);
       return NextResponse.json({ ok: true, note: `Credited ${Math.round(amount)} sends — this month's counter is now ${next}.` });
+    }
+
+    case 'reregister-webhooks': {
+      // A store with no registration marker never receives orders/fulfilled, which means
+      // no review request is ever created for them. It fails silently and completely, and
+      // the self-healing path only retries on a fresh process. This forces it now.
+      try {
+        if (!store.shopifyDomain) return NextResponse.json({ error: 'Store has no domain' }, { status: 400 });
+        const { registerWebhooks } = await import('@/lib/shopify');
+        const { markWebhooksRegistered, clearWebhookRegistration } = await import('@/lib/webhook-health');
+        const { getFreshAccessTokenByStoreId } = await import('@/lib/shopify-token');
+        await clearWebhookRegistration(id);
+        const token = await getFreshAccessTokenByStoreId(id);
+        await registerWebhooks(store.shopifyDomain, token);
+        await markWebhooksRegistered(id);
+        return NextResponse.json({ ok: true, note: 'Webhooks re-registered with Shopify.' });
+      } catch (error) {
+        console.error('[admin] webhook re-registration failed', error);
+        return NextResponse.json({ error: 'Re-registration failed — token may need re-auth' }, { status: 502 });
+      }
+    }
+
+    case 'cancel-request': {
+      // Stop a queued invitation from ever sending. Used when a merchant asks on a
+      // customer's behalf, or when a bad address is looping. Clears nextSendAt rather
+      // than deleting the row, so the audit trail of what was created survives.
+      const requestId = typeof body.requestId === 'string' ? body.requestId : '';
+      if (!requestId) return NextResponse.json({ error: 'requestId required' }, { status: 400 });
+      const result = await db.reviewRequest.updateMany({
+        where: { id: requestId, storeId: id },
+        data: { nextSendAt: null },
+      });
+      if (result.count === 0) return NextResponse.json({ error: 'Request not found on this store' }, { status: 404 });
+      return NextResponse.json({ ok: true, note: 'Request cancelled — it will not be sent.' });
     }
 
     case 'set-note': {

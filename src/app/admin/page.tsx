@@ -14,6 +14,7 @@ import {
   Star, Search, RefreshCw, LogOut, PauseCircle, PlayCircle, X, Loader2,
   ShieldCheck, Inbox, ChevronRight, ExternalLink, MailX, Eye, EyeOff, Boxes,
   Calculator, RotateCcw, Gift, StickyNote, Trash2, Send, Download, SlidersHorizontal,
+  Clock, AlertTriangle, Webhook, Ban,
 } from 'lucide-react';
 
 /* ────────────────────────── types ────────────────────────── */
@@ -61,15 +62,45 @@ interface StoreDetail {
   sendingPaused: boolean;
   note: string;
   links: { shopifyAdmin: string; appInAdmin: string; storefront: string } | null;
+  integrations: {
+    webhooksRegisteredAt: string | null; planReconciledAt: string | null; authLastVia: string | null;
+    etsy: { shopId: string | null; lastSyncAt: string | null; connected: boolean };
+    googleFeedTokenIssued: boolean; syndicationEnabled: boolean; weeklySummaryOptIn: boolean;
+    onboardingDismissedAt: string | null;
+    requestSettings: Record<string, string>;
+  };
 }
 
 interface Suppression { email: string; reason: string; detail: string | null; createdAt: string }
+
+interface JobRow {
+  job: string; label: string; critical: boolean; everyMinutes: number;
+  lastRunAt: string | null; ageMinutes: number | null; ok: boolean | null;
+  unfinished: boolean; summary: string | null; error: string | null; stale: boolean;
+}
+interface JobsPayload {
+  jobs: JobRow[];
+  staleCritical: number;
+  recentFailures: Array<{ job: string; startedAt: string; error: string | null; shop: string | null }>;
+  complianceReceipts: Array<{ topic: string; startedAt: string; ok: boolean | null; shop: string | null; summary: string | null }>;
+}
 
 /* ────────────────────────── small pieces ────────────────────────── */
 
 function fmtDate(v: string | null | undefined): string {
   if (!v) return '—';
   return new Date(v).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** "14 minutes ago" — an age is what you read on a job, not a timestamp. */
+function ago(minutes: number | null): string {
+  if (minutes == null) return 'never';
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const h = Math.floor(minutes / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
 }
 
 const money = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: n % 1 === 0 ? 0 : 2 })}`;
@@ -460,6 +491,51 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
               </div>
             )}
 
+            {/* Integrations — the answers to "why is this merchant getting nothing" */}
+            <div className="surface mt-5 rounded-2xl p-4">
+              <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">Integrations</p>
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {[
+                  {
+                    label: 'Shopify webhooks',
+                    ok: Boolean(detail.integrations.webhooksRegisteredAt),
+                    value: detail.integrations.webhooksRegisteredAt
+                      ? `registered ${fmtDate(detail.integrations.webhooksRegisteredAt)}`
+                      : 'NOT REGISTERED — no review requests will ever be created',
+                    critical: true,
+                  },
+                  { label: 'Google feed token', ok: detail.integrations.googleFeedTokenIssued, value: detail.integrations.googleFeedTokenIssued ? 'issued' : 'not issued' },
+                  { label: 'Shop app syndication', ok: detail.integrations.syndicationEnabled, value: detail.integrations.syndicationEnabled ? 'on' : 'off' },
+                  {
+                    label: 'Etsy',
+                    ok: detail.integrations.etsy.connected,
+                    value: detail.integrations.etsy.connected
+                      ? `connected · last sync ${detail.integrations.etsy.lastSyncAt ? fmtDate(detail.integrations.etsy.lastSyncAt) : 'never'}`
+                      : 'not connected',
+                  },
+                  { label: 'Billing reconciled', ok: Boolean(detail.integrations.planReconciledAt), value: detail.integrations.planReconciledAt ? fmtDate(detail.integrations.planReconciledAt) : 'never' },
+                  { label: 'Weekly digest', ok: detail.integrations.weeklySummaryOptIn, value: detail.integrations.weeklySummaryOptIn ? 'opted in' : 'off' },
+                ].map((row) => (
+                  <li key={row.label} className="flex items-start gap-2 text-[11.5px]">
+                    <span className={`mt-1 size-1.5 shrink-0 rounded-full ${
+                      row.ok ? 'bg-brand-500' : row.critical ? 'bg-red-500' : 'bg-ink-300 dark:bg-ink-600'}`} />
+                    <span className="min-w-0">
+                      <span className="font-semibold text-ink-700 dark:text-ink-200">{row.label}</span>
+                      <span className={`block ${!row.ok && row.critical ? 'font-semibold text-red-600 dark:text-red-400' : 'text-ink-400'}`}>
+                        {row.value}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {Object.keys(detail.integrations.requestSettings).length > 0 && (
+                <p className="mt-3 border-t border-border pt-2.5 text-[11.5px] text-ink-400">
+                  <span className="font-semibold text-ink-600 dark:text-ink-300">Request timing:</span>{' '}
+                  {Object.entries(detail.integrations.requestSettings).map(([k, v]) => `${k} ${v}`).join(' · ')}
+                </p>
+              )}
+            </div>
+
             {/* Operations */}
             <div className="surface mt-5 rounded-2xl p-4">
               <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">Operations</p>
@@ -510,6 +586,9 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                   onClick={() => op('recompute-ratings')}>Recompute star ratings</OpButton>
                 <OpButton busy={opBusy} action="clear-stuck-imports" icon={Trash2}
                   onClick={() => op('clear-stuck-imports')}>Clear stalled imports</OpButton>
+                <OpButton busy={opBusy} action="reregister-webhooks" icon={Webhook}
+                  primary={!detail.integrations.webhooksRegisteredAt}
+                  onClick={() => op('reregister-webhooks')}>Re-register webhooks</OpButton>
               </div>
 
               <p className="mt-4 text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Operator note</p>
@@ -578,7 +657,8 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                     <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-ink-400">
                       <th className="px-4 py-1.5">Order</th><th className="px-2 py-1.5">Customer</th>
                       <th className="px-2 py-1.5">Sent</th><th className="px-2 py-1.5">Submitted</th>
-                      <th className="px-4 py-1.5 text-right">Failures</th>
+                      <th className="px-2 py-1.5 text-right">Failures</th>
+                      <th className="px-4 py-1.5" />
                     </tr>
                   </thead>
                   <tbody>
@@ -588,7 +668,21 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                         <td className="px-2 py-2 text-ink-400">{r.customerEmail}</td>
                         <td className="tnum px-2 py-2 text-ink-400">{fmtDate(r.sentAt)}</td>
                         <td className="tnum px-2 py-2 text-ink-400">{r.submittedAt ? fmtDate(r.submittedAt) : '—'}</td>
-                        <td className={`tnum px-4 py-2 text-right ${r.sendFailures > 0 ? 'font-semibold text-amber-600' : 'text-ink-400'}`}>{r.sendFailures}</td>
+                        <td className={`tnum px-2 py-2 text-right ${r.sendFailures > 0 ? 'font-semibold text-amber-600' : 'text-ink-400'}`}>{r.sendFailures}</td>
+                        <td className="px-4 py-2 text-right">
+                          {/* Only a request still scheduled can be cancelled. */}
+                          {r.nextSendAt && !r.submittedAt && (
+                            <button
+                              onClick={() => op('cancel-request', { requestId: r.id })}
+                              disabled={!!opBusy}
+                              title="Cancel — this invitation will not be sent"
+                              aria-label="Cancel this review request"
+                              className="ring-focus rounded-lg p-1 text-ink-400 hover:text-red-600 disabled:opacity-40"
+                            >
+                              <Ban className="size-3.5" />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -727,6 +821,126 @@ const SuppressionPanel = React.forwardRef<HTMLDivElement, {
   );
 });
 
+/**
+ * Are the background jobs running?
+ *
+ * The most important block on this page and the least interesting to look at, which is
+ * the point: it should read "all running" and be ignorable until the day it doesn't.
+ */
+function JobsPanel({ data }: { data: JobsPayload | null }) {
+  const [showFailures, setShowFailures] = useState(false);
+  if (!data) return null;
+  const stale = data.jobs.filter((j) => j.stale);
+  return (
+    <div className="surface mt-4 rounded-2xl p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-[12px] font-semibold text-ink-700 dark:text-ink-200">
+          <Clock className="size-4 text-ink-400" /> Background jobs
+        </p>
+        {stale.length === 0 ? (
+          <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-brand-600 dark:text-brand-400">
+            <ShieldCheck className="size-3.5" /> All running
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-red-600 dark:text-red-400">
+            <AlertTriangle className="size-3.5" /> {stale.length} stale
+          </span>
+        )}
+      </div>
+
+      <ul className="mt-3 space-y-2">
+        {data.jobs.map((j) => (
+          <li key={j.job} className="flex items-start justify-between gap-3">
+            <span className="min-w-0 text-[12px]">
+              <span className="font-semibold text-ink-800 dark:text-ink-100">{j.label}</span>
+              <span className="text-ink-400">
+                {' '}— every {j.everyMinutes >= 1440 ? `${Math.round(j.everyMinutes / 1440)}d` : `${j.everyMinutes}m`}
+              </span>
+              {j.summary && !j.stale && (
+                <span className="block truncate text-[11px] text-ink-400" title={j.summary}>{j.summary}</span>
+              )}
+              {j.error && (
+                <span className="block truncate text-[11px] text-red-600 dark:text-red-400" title={j.error}>{j.error}</span>
+              )}
+              {j.unfinished && (
+                <span className="block text-[11px] text-amber-600 dark:text-amber-400">
+                  started and never finished — the process was killed mid-run
+                </span>
+              )}
+            </span>
+            <span className={`shrink-0 text-[11.5px] font-semibold ${
+              j.stale ? (j.critical ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')
+                      : 'text-ink-400'}`}>
+              {ago(j.ageMinutes)}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {stale.some((j) => j.critical) && (
+        <p className="mt-3 rounded-lg bg-red-50 px-2.5 py-2 text-[11.5px] leading-relaxed text-red-800 dark:bg-red-500/10 dark:text-red-200">
+          The review-request sweep has not run recently. Review invitations are not going out.
+          Check the scheduled workflow is enabled and its secret is still valid — then use
+          <span className="font-semibold"> Run sweep</span> above to drain the backlog.
+        </p>
+      )}
+
+      {(data.recentFailures.length > 0 || data.complianceReceipts.length > 0) && (
+        <button
+          onClick={() => setShowFailures((v) => !v)}
+          className="ring-focus mt-3 text-[11.5px] font-semibold text-brand-600 dark:text-brand-400"
+        >
+          {showFailures ? 'Hide' : 'Show'} recent failures and GDPR receipts
+        </button>
+      )}
+      {showFailures && (
+        <div className="mt-2 space-y-3 border-t border-border pt-3">
+          {data.recentFailures.length > 0 && (
+            <div>
+              <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Failures (7d)</p>
+              <ul className="mt-1.5 space-y-1">
+                {data.recentFailures.map((f, i) => (
+                  <li key={i} className="text-[11.5px] text-ink-500">
+                    <span className="font-mono text-ink-700 dark:text-ink-200">{f.job}</span>{' '}
+                    <span className="text-ink-400">{fmtDate(f.startedAt)}</span>
+                    {f.error && <span className="block truncate text-red-600 dark:text-red-400" title={f.error}>{f.error}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div>
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">
+              GDPR webhook receipts (30d)
+            </p>
+            {data.complianceReceipts.length === 0 ? (
+              <p className="mt-1.5 text-[11.5px] text-ink-400">
+                None received. Expected — Shopify only sends these on a data request, a
+                customer redaction, or 48 hours after an uninstall.
+              </p>
+            ) : (
+              <ul className="mt-1.5 space-y-1">
+                {data.complianceReceipts.map((c, i) => (
+                  <li key={i} className="flex items-center gap-2 text-[11.5px]">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                      c.ok ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300'
+                           : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'}`}>
+                      {c.ok ? 'ok' : 'failed'}
+                    </span>
+                    <span className="font-mono text-ink-700 dark:text-ink-200">{c.topic}</span>
+                    <span className="text-ink-400">{c.shop}</span>
+                    <span className="ml-auto text-ink-400">{fmtDate(c.startedAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ────────────────────────── main ────────────────────────── */
 
 /** Which health condition the merchant table is narrowed to, if any. */
@@ -741,6 +955,7 @@ export default function AdminPortal() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [storeTotal, setStoreTotal] = useState<{ total: number; showing: number; truncated: boolean } | null>(null);
+  const [jobs, setJobs] = useState<JobsPayload | null>(null);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('createdAt');
   const [openStore, setOpenStore] = useState<string | null>(null);
@@ -772,12 +987,14 @@ export default function AdminPortal() {
 
   const loadAll = useCallback(async () => {
     setRefreshing(true);
-    const [ov, st] = await Promise.all([
+    const [ov, st, jb] = await Promise.all([
       fetch('/api/admin/overview').then((r) => (r.ok ? r.json() : null)),
       fetch(`/api/admin/stores${q ? `?q=${encodeURIComponent(q)}` : ''}`).then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/admin/jobs').then((r) => (r.ok ? r.json() : null)),
     ]);
     if (ov) setOverview(ov);
     if (st) { setStores(st.stores); setStoreTotal({ total: st.total, showing: st.showing, truncated: st.truncated }); }
+    if (jb) setJobs(jb);
     setRefreshing(false);
   }, [q]);
 
@@ -976,6 +1193,7 @@ export default function AdminPortal() {
                   { label: 'Unanswered questions', n: overview.health.questionsUnanswered, hint: 'shoppers waiting on a merchant reply', filter: 'unansweredQuestions' },
                   { label: 'Reviews awaiting moderation', n: overview.reviews.pendingModeration, hint: 'sitting unpublished across all stores', filter: 'pending' },
                   { label: 'Installs that never started', n: overview.activation.cold, hint: 'no products synced — they installed and stopped', filter: 'cold' },
+                  { label: 'Scheduled jobs not running', n: jobs?.staleCritical ?? 0, hint: 'the review-request sweep has stalled — invitations are not going out', severe: true },
                 ]}
               />
             )}
@@ -1005,6 +1223,8 @@ export default function AdminPortal() {
             )}
           </div>
         </div>
+
+        <JobsPanel data={jobs} />
 
         {/* ── Volume ── */}
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
