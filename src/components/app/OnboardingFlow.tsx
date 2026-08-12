@@ -364,7 +364,10 @@ function ResultPreview({
   return (
     <div className="relative">
       <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-ink-400">
-        What your product page gets
+        What your product page gets{' '}
+        <span className="ml-1 rounded bg-ink-100 px-1 py-px text-[9px] font-bold tracking-normal text-ink-500 dark:bg-ink-700 dark:text-ink-300">
+          EXAMPLE
+        </span>
       </p>
 
       <div className="surface-float relative overflow-hidden rounded-2xl">

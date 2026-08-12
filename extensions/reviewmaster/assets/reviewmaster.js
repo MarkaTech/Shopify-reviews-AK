@@ -925,12 +925,16 @@
     }
 
     var chosen = 0;
+    var formStatus = form.querySelector('[data-rm-form-status]');
     var rateWrap = form.querySelector('[data-rm-rating-input]');
     if (rateWrap) {
       rateWrap.addEventListener('click', function (e) {
         var t = e.target.closest('[data-rm-rate]');
         if (!t) return;
         chosen = parseInt(t.dataset.rmRate, 10);
+        // "Please choose a star rating" stayed on screen after a rating was chosen,
+        // through a fully valid submission. Clear it the moment the correction is made.
+        if (formStatus && chosen > 0) formStatus.textContent = '';
         Array.prototype.forEach.call(rateWrap.children, function (c, i) {
           var on = i < chosen;
           c.classList.toggle('is-on', on);

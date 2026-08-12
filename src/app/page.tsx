@@ -3,15 +3,45 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import TopNav, { type PageId } from '@/components/app/TopNav';
 import { ConfirmProvider } from '@/components/app/confirm';
+import dynamic from 'next/dynamic';
 import DashboardPage from '@/components/app/DashboardPage';
-import ReviewsPage from '@/components/app/ReviewsPage';
-import BulkUploadPage from '@/components/app/BulkUploadPage';
-import WidgetsPage from '@/components/app/WidgetsPage';
-import SettingsPage from '@/components/app/SettingsPage';
-import ProductsPage from '@/components/app/ProductsPage';
-import QuestionsPage from '@/components/app/QuestionsPage';
-import IncentivesPage from '@/components/app/IncentivesPage';
 import WelcomeScreen from '@/components/app/WelcomeScreen';
+
+/**
+ * Every screen except the dashboard is loaded on demand.
+ *
+ * All eight screens used to be static imports, which put ~1.4 MB of decoded JavaScript
+ * (~8,000 lines of components) into the initial bundle. Inside Shopify's iframe on a cold
+ * cache that meant 20-30 seconds of blank white frame before hydration - measured against
+ * a 405 ms TTFB, so the server was never the problem. Only the dashboard, the default
+ * screen, earns a place in the first paint; the rest arrive when navigated to, behind a
+ * skeleton so the frame is never empty.
+ *
+ * `ssr: false` because these are client components driven entirely by authenticated
+ * fetches - there is nothing useful to render on the server, and skipping it keeps
+ * hydration cheap.
+ */
+function PageSkeleton() {
+  return (
+    <div className="animate-pulse space-y-4" aria-busy="true" aria-label="Loading">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="surface h-28 rounded-2xl" />
+        ))}
+      </div>
+      <div className="surface h-14 rounded-2xl" />
+      <div className="surface h-72 rounded-2xl" />
+    </div>
+  );
+}
+const loading = () => <PageSkeleton />;
+const ReviewsPage = dynamic(() => import('@/components/app/ReviewsPage'), { ssr: false, loading });
+const BulkUploadPage = dynamic(() => import('@/components/app/BulkUploadPage'), { ssr: false, loading });
+const WidgetsPage = dynamic(() => import('@/components/app/WidgetsPage'), { ssr: false, loading });
+const SettingsPage = dynamic(() => import('@/components/app/SettingsPage'), { ssr: false, loading });
+const ProductsPage = dynamic(() => import('@/components/app/ProductsPage'), { ssr: false, loading });
+const QuestionsPage = dynamic(() => import('@/components/app/QuestionsPage'), { ssr: false, loading });
+const IncentivesPage = dynamic(() => import('@/components/app/IncentivesPage'), { ssr: false, loading });
 import { Toaster } from 'sonner';
 import { Star, ExternalLink, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
@@ -65,9 +95,13 @@ export default function Home() {
   const [storePlan, setStorePlan] = useState('free');
   // Usage for the top bar's plan meter. Kept here rather than inside TopNav so a
   // single fetch serves both it and anything else the shell needs.
-  const [usage, setUsage] = useState<{ requests: number; cap: number | null; pending: number }>({
+  // `cap` starts undefined, not null. Null means "no cap - unlimited", which is a plan
+  // entitlement; undefined means "not fetched yet". Collapsing the two painted an
+  // "Unlimited" badge on the Free plan for the first seconds of every load, which is a
+  // pricing claim, not a loading state. TopNav shows a shimmer for undefined.
+  const [usage, setUsage] = useState<{ requests: number; cap: number | null | undefined; pending: number }>({
     requests: 0,
-    cap: null,
+    cap: undefined,
     pending: 0,
   });
 
@@ -83,6 +117,15 @@ export default function Home() {
     return '';
   };
   const [authError, setAuthError] = useState(getInitialError);
+
+  // Whether we are inside Shopify's admin iframe. Defaults to true so the server render
+  // and the first client paint agree; corrected after mount. Outside the iframe there is
+  // no App Bridge and no session token, and `ui-nav-menu` degrades to a row of bare
+  // links - that surface is not meant to exist, so we don't render it.
+  const [isEmbedded, setIsEmbedded] = useState(true);
+  useEffect(() => {
+    setIsEmbedded(window.self !== window.top);
+  }, []);
   const pageInfo = PAGE_TITLES[currentPage];
 
   // Check existing session on mount
@@ -239,12 +282,43 @@ export default function Home() {
       case 'bulk-upload': return <BulkUploadPage />;
       case 'questions': return <QuestionsPage />;
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
-      case 'widgets': return <WidgetsPage />;
+      case 'widgets': return <WidgetsPage storeDomain={storeDomain} />;
       case 'incentives': return <IncentivesPage />;
       case 'settings': return <SettingsPage onNavigate={navigate} storeDomain={storeDomain} />;
       default: return <DashboardPage onNavigate={navigate} storeName={storeName} />;
     }
   };
+
+  // -- Authenticated, but not inside Shopify's admin --
+  // A session cookie in a plain tab used to render the entire admin here, unstyled nav
+  // and all, for whichever store the cookie happened to point at. Point at the real
+  // surface instead.
+  if (!isEmbedded) {
+    const handle = storeDomain.replace('.myshopify.com', '');
+    return (
+      <div className="aurora flex min-h-screen items-center justify-center bg-background p-6">
+        <div className="surface w-full max-w-md rounded-2xl p-8 text-center">
+          <span className="tile tile-brand mx-auto mb-4 flex size-12 items-center justify-center">
+            <Star className="size-6" fill="currentColor" strokeWidth={0} />
+          </span>
+          <h1 className="text-[16px] font-bold text-ink-900 dark:text-white">ReviewMaster runs inside Shopify</h1>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-500">
+            This page only works embedded in your Shopify admin, where it can talk to your
+            store securely.
+          </p>
+          {handle && (
+            <a
+              href={`https://admin.shopify.com/store/${handle}/apps/reviewmaster-reviews`}
+              className="mt-5 inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-brand-600 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700"
+            >
+              Open in Shopify admin
+              <ExternalLink className="size-3.5" />
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const storefrontUrl = storeDomain ? `https://${storeDomain}` : null;
 
