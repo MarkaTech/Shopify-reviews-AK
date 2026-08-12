@@ -44,6 +44,8 @@ interface StoreRow {
   requestsSentThisMonth: number; failingRequests: number; sendingPaused: boolean;
   mrr: number; quotaUsed: number; quotaCap: number | null; quotaPct: number | null;
   productCount: number; needsReauth: boolean; activation: 'active' | 'synced' | 'cold';
+  tokenExpiringSoon: boolean; failedImports30: number; stuckImports: number;
+  unansweredQuestions: number;
 }
 
 interface StoreDetail {
@@ -103,9 +105,10 @@ function Hero({ label, value, sub, delta }: {
  * Health items. Quiet at zero, loud otherwise - an operator should be able to glance at
  * this block and look away, which only works if a green row is visually silent.
  */
-function Attention({ items, onPick, active }: {
-  items: Array<{ label: string; n: number; hint: string; severe?: boolean; filter?: HealthFilter }>;
+function Attention({ items, onPick, onOpenPanel, active }: {
+  items: Array<{ label: string; n: number; hint: string; severe?: boolean; filter?: HealthFilter; panel?: 'suppressions' }>;
   onPick: (f: HealthFilter | null) => void;
+  onOpenPanel: (p: 'suppressions') => void;
   active: HealthFilter | null;
 }) {
   const live = items.filter((i) => i.n > 0);
@@ -126,7 +129,9 @@ function Attention({ items, onPick, active }: {
       ) : (
         <ul className="mt-2 -mx-1.5">
           {live.map((i) => {
-            const clickable = Boolean(i.filter);
+            // Every row leads somewhere. A row that names a problem and does nothing when
+            // you click it reads as broken, however principled the reason.
+            const clickable = Boolean(i.filter || i.panel);
             const isActive = i.filter != null && i.filter === active;
             // An alert that names a problem and leaves you to find the merchant yourself
             // is half a feature. Clicking a row filters the table below to exactly the
@@ -136,7 +141,10 @@ function Attention({ items, onPick, active }: {
                 <button
                   type="button"
                   disabled={!clickable}
-                  onClick={() => onPick(isActive ? null : i.filter ?? null)}
+                  onClick={() => {
+                    if (i.panel) { onOpenPanel(i.panel); return; }
+                    onPick(isActive ? null : i.filter ?? null);
+                  }}
                   aria-pressed={isActive}
                   className={`ring-focus flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition-colors ${
                     clickable ? 'cursor-pointer hover:bg-ink-50 dark:hover:bg-white/[0.04]' : 'cursor-default'
@@ -153,7 +161,7 @@ function Attention({ items, onPick, active }: {
                   </span>
                   {clickable && (
                     <span className="mt-px shrink-0 text-[11px] font-medium text-brand-600 dark:text-brand-400">
-                      {isActive ? 'clear' : 'show'}
+                      {isActive ? 'clear' : i.panel ? 'open' : 'show'}
                     </span>
                   )}
                 </button>
@@ -618,11 +626,12 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
  * silently and permanently — a full mailbox and a provider blip both land here looking
  * exactly like a real hard bounce. So it has to be visible, searchable, and reversible.
  */
-function SuppressionPanel() {
+const SuppressionPanel = React.forwardRef<HTMLDivElement, {
+  open: boolean; setOpen: (v: boolean) => void;
+}>(function SuppressionPanel({ open, setOpen }, ref) {
   const [rows, setRows] = useState<Suppression[]>([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState('');
 
   const load = useCallback(async () => {
@@ -647,9 +656,9 @@ function SuppressionPanel() {
   };
 
   return (
-    <div className="surface mt-4 overflow-hidden rounded-2xl">
+    <div ref={ref} className="surface mt-4 scroll-mt-20 overflow-hidden rounded-2xl">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         className="ring-focus flex w-full items-center justify-between px-4 py-3 text-left"
         aria-expanded={open}
       >
@@ -716,12 +725,14 @@ function SuppressionPanel() {
       )}
     </div>
   );
-}
+});
 
 /* ────────────────────────── main ────────────────────────── */
 
 /** Which health condition the merchant table is narrowed to, if any. */
-type HealthFilter = 'needsReauth' | 'atQuota' | 'nearQuota' | 'failingSends' | 'pending' | 'cold';
+type HealthFilter =
+  | 'needsReauth' | 'tokenExpiringSoon' | 'atQuota' | 'nearQuota' | 'failingSends'
+  | 'pending' | 'cold' | 'failedImports' | 'stuckImports' | 'unansweredQuestions';
 
 type SortKey = 'createdAt' | 'reviewCount' | 'pendingReviews' | 'requestsSentThisMonth' | 'failingRequests' | 'mrr' | 'quotaUsed';
 
@@ -736,6 +747,15 @@ export default function AdminPortal() {
   const [refreshing, setRefreshing] = useState(false);
   const [health, setHealth] = useState<HealthFilter | null>(null);
   const tableRef = React.useRef<HTMLDivElement | null>(null);
+  const suppressionRef = React.useRef<HTMLDivElement | null>(null);
+  const [suppressionsOpen, setSuppressionsOpen] = useState(false);
+  /** Bounce and suppression alerts have no per-merchant answer — they belong to the
+   *  address, not the store — so they open the suppression list instead of filtering. */
+  const openPanel = useCallback((panel: 'suppressions') => {
+    if (panel !== 'suppressions') return;
+    setSuppressionsOpen(true);
+    requestAnimationFrame(() => suppressionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, []);
   /**
    * Picking a health filter scrolls the table into view.
    *
@@ -778,6 +798,10 @@ export default function AdminPortal() {
     failingSends: (s) => s.failingRequests > 0,
     pending: (s) => s.pendingReviews > 0,
     cold: (s) => s.activation === 'cold',
+    tokenExpiringSoon: (s) => s.tokenExpiringSoon,
+    failedImports: (s) => s.failedImports30 > 0,
+    stuckImports: (s) => s.stuckImports > 0,
+    unansweredQuestions: (s) => s.unansweredQuestions > 0,
   };
   const HEALTH_LABEL: Record<HealthFilter, string> = {
     needsReauth: 'needing re-auth',
@@ -786,6 +810,10 @@ export default function AdminPortal() {
     failingSends: 'with failing sends',
     pending: 'with reviews awaiting moderation',
     cold: 'that never started',
+    tokenExpiringSoon: 'whose token expires within 7 days',
+    failedImports: 'with failed imports',
+    stuckImports: 'with stalled imports',
+    unansweredQuestions: 'with unanswered questions',
   };
 
   const sorted = useMemo(() => {
@@ -934,17 +962,18 @@ export default function AdminPortal() {
               <Attention
                 active={health}
                 onPick={pickHealth}
+                onOpenPanel={openPanel}
                 items={[
                   { label: `${overview.health.needsReauth} store${overview.health.needsReauth === 1 ? '' : 's'} need re-auth`, n: overview.health.needsReauth, hint: 'refresh token expired — the app cannot call Shopify for them at all', severe: true, filter: 'needsReauth' },
-                  { label: 'Tokens expiring within 7 days', n: overview.health.tokenExpiringSoon, hint: 'will break silently unless refreshed' },
+                  { label: 'Tokens expiring within 7 days', n: overview.health.tokenExpiringSoon, hint: 'will break silently unless refreshed', filter: 'tokenExpiringSoon' },
                   { label: 'At their monthly send cap', n: overview.health.atQuota, hint: 'review requests are being deferred — support risk and upgrade signal', severe: true, filter: 'atQuota' },
                   { label: 'Near their cap (80%+)', n: overview.health.nearQuota, hint: 'about to be blocked this month', filter: 'nearQuota' },
                   { label: 'Failing review-request sends', n: overview.health.queueFailing, hint: 'retrying with backoff; check the provider if this climbs', filter: 'failingSends' },
-                  { label: 'Imports stuck in processing', n: overview.health.importsStuck, hint: 'claimed over an hour ago and never finished' },
-                  { label: 'Imports failed (30d)', n: overview.health.importsFailed30, hint: 'merchant-visible failure' },
-                  { label: 'Hard bounces / complaints', n: overview.health.hardBounces, hint: 'suppressed addresses — deliverability risk; clear them in the suppression list below', severe: true },
-                  { label: 'Suppressed addresses (total)', n: overview.health.emailSuppressed, hint: Object.entries(overview.health.suppressionByReason).map(([r, n]) => `${n} ${r}`).join(', ') || 'bounce, complaint, unsubscribe' },
-                  { label: 'Unanswered questions', n: overview.health.questionsUnanswered, hint: 'shoppers waiting on a merchant reply' },
+                  { label: 'Imports stuck in processing', n: overview.health.importsStuck, hint: 'claimed over an hour ago and never finished', filter: 'stuckImports' },
+                  { label: 'Imports failed (30d)', n: overview.health.importsFailed30, hint: 'merchant-visible failure', filter: 'failedImports' },
+                  { label: 'Hard bounces / complaints', n: overview.health.hardBounces, hint: 'suppressed addresses — deliverability risk', severe: true, panel: 'suppressions' },
+                  { label: 'Suppressed addresses (total)', n: overview.health.emailSuppressed, hint: Object.entries(overview.health.suppressionByReason).map(([r, n]) => `${n} ${r}`).join(', ') || 'bounce, complaint, unsubscribe', panel: 'suppressions' },
+                  { label: 'Unanswered questions', n: overview.health.questionsUnanswered, hint: 'shoppers waiting on a merchant reply', filter: 'unansweredQuestions' },
                   { label: 'Reviews awaiting moderation', n: overview.reviews.pendingModeration, hint: 'sitting unpublished across all stores', filter: 'pending' },
                   { label: 'Installs that never started', n: overview.activation.cold, hint: 'no products synced — they installed and stopped', filter: 'cold' },
                 ]}
@@ -1137,7 +1166,7 @@ export default function AdminPortal() {
           )}
         </div>
 
-        <SuppressionPanel />
+        <SuppressionPanel ref={suppressionRef} open={suppressionsOpen} setOpen={setSuppressionsOpen} />
 
         <p className="mt-6 flex items-center gap-1.5 text-[11px] text-ink-400">
           <ShieldCheck className="size-3.5" />

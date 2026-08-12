@@ -71,12 +71,21 @@ export async function GET(request: NextRequest) {
   // who is ready to be upgraded) without a per-store round trip.
   const now = new Date();
   const monthKey = `usage.requests.${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-  const [usageRows, productAgg] = await Promise.all([
+  const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const stuckCutoff = new Date(now.getTime() - 60 * 60 * 1000);
+  const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const [usageRows, productAgg, failedImportAgg, stuckImportAgg, questionAgg] = await Promise.all([
     db.storeSetting.findMany({ where: { storeId: { in: ids }, key: monthKey }, select: { storeId: true, value: true } }),
     db.product.groupBy({ by: ['storeId'], where: { storeId: { in: ids } }, _count: { _all: true } }),
+    db.importJob.groupBy({ by: ['storeId'], where: { storeId: { in: ids }, status: 'failed', createdAt: { gte: d30 } }, _count: { _all: true } }),
+    db.importJob.groupBy({ by: ['storeId'], where: { storeId: { in: ids }, status: 'processing', updatedAt: { lt: stuckCutoff } }, _count: { _all: true } }),
+    db.question.groupBy({ by: ['storeId'], where: { storeId: { in: ids }, isPublished: false }, _count: { _all: true } }),
   ]);
   const usageByStore = new Map(usageRows.map((r) => [r.storeId, Number(r.value) || 0]));
   const productsByStore = new Map(productAgg.map((r) => [r.storeId, r._count?._all ?? 0]));
+  const failedByStore = new Map(failedImportAgg.map((r) => [r.storeId, r._count?._all ?? 0]));
+  const stuckByStore = new Map(stuckImportAgg.map((r) => [r.storeId, r._count?._all ?? 0]));
+  const questionsByStore = new Map(questionAgg.map((r) => [r.storeId, r._count?._all ?? 0]));
 
   const by = <T extends { storeId: string }>(rows: T[]) => new Map(rows.map((r) => [r.storeId, r]));
   const countAll = (r: { _count: { _all: number } | null } | undefined) => r?._count?._all ?? 0;
@@ -104,6 +113,10 @@ export async function GET(request: NextRequest) {
       quotaPct: cap == null ? null : Math.min(100, Math.round((used / cap) * 100)),
       productCount: products,
       needsReauth: Boolean(s.refreshTokenExpiresAt && s.refreshTokenExpiresAt < now),
+      tokenExpiringSoon: Boolean(s.refreshTokenExpiresAt && s.refreshTokenExpiresAt >= now && s.refreshTokenExpiresAt < soon),
+      failedImports30: failedByStore.get(s.id) ?? 0,
+      stuckImports: stuckByStore.get(s.id) ?? 0,
+      unansweredQuestions: questionsByStore.get(s.id) ?? 0,
       // Three states an operator can act on: collecting reviews, set up but silent,
       // or never got past install.
       activation: reviewCount > 0 ? 'active' : products > 0 ? 'synced' : 'cold',
