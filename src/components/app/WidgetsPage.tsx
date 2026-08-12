@@ -290,7 +290,15 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function WidgetsPage() {
+/**
+ * The theme app extension's UUID, assigned by Shopify when the extension is deployed.
+ * It is the same for every store the app is installed on; it only changes if the
+ * extension is deleted and re-created, so it can be overridden without a rebuild.
+ */
+const THEME_EXT_UUID =
+  process.env.NEXT_PUBLIC_THEME_EXT_UUID || '019fa7a3-4150-7e81-85fa-1980189ff629';
+
+export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = {}) {
   const confirm = useConfirm();
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [loading, setLoading] = useState(true);
@@ -849,6 +857,30 @@ export default function WidgetsPage() {
               tone="cyan"
             />
             <div className="px-5 pb-5">
+              {/*
+                The one-click path. This deep link opens the theme editor with the
+                Product reviews block already added to the product template - the merchant
+                only has to press Save. Without it, "install, see nothing change on the
+                storefront, uninstall" is the most common way a reviews app loses a
+                merchant: the widget lives in an app block and nothing else in the app put
+                it there.
+              */}
+              {storeDomain && (
+                <a
+                  href={`https://admin.shopify.com/store/${storeDomain.replace('.myshopify.com', '')}/themes/current/editor?template=product&addAppBlockId=${THEME_EXT_UUID}/review-list&target=mainSection`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ring-focus mb-4 inline-flex h-10 items-center gap-2 rounded-xl bg-brand-600 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700"
+                >
+                  <Blocks className="size-4" />
+                  Add to my product page
+                </a>
+              )}
+              <p className="mb-3 text-[12px] text-ink-400">
+                {storeDomain
+                  ? 'That button adds the block for you - just press Save in the editor. Or do it by hand:'
+                  : 'Three steps in your theme editor:'}
+              </p>
               <ol className="space-y-3">
                 <li className="flex gap-2.5">
                   <span className="tnum mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-bold text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20">1</span>

@@ -138,7 +138,14 @@ export default function TopNav({
             >
               {planMeta.short}
             </span>
-            {requestsCap ? (
+            {requestsCap === undefined ? (
+              /* Usage not fetched yet. A shimmer, never "Unlimited" - that is a plan
+                 entitlement the Free plan does not have, and it was on screen for the
+                 first seconds of every load. */
+              <span className="hidden w-24 lg:block" aria-hidden="true">
+                <span className="block h-2 w-16 animate-pulse rounded bg-ink-200/70 dark:bg-ink-700/60" />
+              </span>
+            ) : requestsCap ? (
               <span className="hidden lg:block">
                 <span className="tnum block text-[11px] font-semibold whitespace-nowrap text-ink-800 dark:text-ink-100">
                   {requestsUsed.toLocaleString()}
