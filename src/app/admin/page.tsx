@@ -11,8 +11,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Star, Search, RefreshCw, LogOut, Store as StoreIcon, MessagesSquare, Send,
-  AlertTriangle, PauseCircle, PlayCircle, X, Loader2, ShieldCheck, Inbox, ChevronRight,
+  Star, Search, RefreshCw, LogOut, PauseCircle, PlayCircle, X, Loader2,
+  ShieldCheck, Inbox, ChevronRight, ExternalLink, MailX, Eye, EyeOff, Boxes,
+  Calculator, RotateCcw, Gift, StickyNote, Trash2,
 } from 'lucide-react';
 
 /* ────────────────────────── types ────────────────────────── */
@@ -56,7 +57,11 @@ interface StoreDetail {
   recentReviews: Array<{ id: string; rating: number; title: string | null; isPublished: boolean; reviewerName: string | null; source: string; createdAt: string }>;
   recentRequests: Array<{ id: string; orderNumber: string | null; customerEmail: string; sentAt: string | null; openedAt: string | null; submittedAt: string | null; nextSendAt: string | null; sendCount: number; sendFailures: number; createdAt: string }>;
   sendingPaused: boolean;
+  note: string;
+  links: { shopifyAdmin: string; appInAdmin: string; storefront: string } | null;
 }
+
+interface Suppression { email: string; reason: string; detail: string | null; createdAt: string }
 
 /* ────────────────────────── small pieces ────────────────────────── */
 
@@ -239,6 +244,29 @@ function PlanChip({ plan }: { plan: string }) {
   );
 }
 
+/** One operation control. Shows its own busy state so an operator can see which of the
+ *  several buttons on this panel is the one currently working. */
+function OpButton({ busy, action, onClick, children, icon: Icon, primary, disabled }: {
+  busy: string; action: string; onClick: () => void; children: React.ReactNode;
+  icon?: typeof RefreshCw; primary?: boolean; disabled?: boolean;
+}) {
+  const isBusy = busy === action;
+  return (
+    <button
+      onClick={onClick}
+      disabled={!!busy || disabled}
+      className={
+        primary
+          ? 'ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl bg-brand-600 px-3 text-[12.5px] font-semibold text-white hover:bg-brand-700 disabled:opacity-40'
+          : 'ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-700 hover:border-ink-300 disabled:opacity-40 dark:text-ink-200'
+      }
+    >
+      {isBusy ? <Loader2 className="size-4 animate-spin" /> : Icon ? <Icon className="size-4" /> : null}
+      {children}
+    </button>
+  );
+}
+
 /* ────────────────────────── login ────────────────────────── */
 
 function Login({ onDone }: { onDone: () => void }) {
@@ -295,6 +323,8 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
   const [opBusy, setOpBusy] = useState('');
   const [opNote, setOpNote] = useState('');
   const [planDraft, setPlanDraft] = useState('');
+  const [quotaDraft, setQuotaDraft] = useState('100');
+  const [noteDraft, setNoteDraft] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -303,7 +333,10 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
     const d: StoreDetail = await res.json();
     setDetail(d);
     setPlanDraft(d.store.plan);
+    setNoteDraft(d.note ?? '');
   }, [storeId]);
+  /* eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch on mount; the
+     setState is inside an awaited callback, not a synchronous cascade. */
   useEffect(() => { load(); }, [load]);
 
   const op = async (action: string, extra: Record<string, unknown> = {}) => {
@@ -350,6 +383,11 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                   )}
                   <span className="text-[11.5px] text-ink-400">installed {fmtDate(detail.store.installedAt)}</span>
                 </div>
+                {detail.note && (
+                  <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11.5px] leading-relaxed text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+                    <StickyNote className="mr-1 inline size-3" />{detail.note}
+                  </p>
+                )}
               </div>
               <button onClick={onClose} className="ring-focus rounded-lg p-1.5 text-ink-400 hover:text-ink-700" aria-label="Close">
                 <X className="size-5" />
@@ -372,10 +410,28 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
               <StatTile label="Q&A / widgets" value={`${detail.counts.questions} / ${detail.counts.widgets}`} />
             </div>
 
+            {/* Links */}
+            {detail.links && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {[
+                  { href: detail.links.appInAdmin, label: 'Open their app' },
+                  { href: detail.links.shopifyAdmin, label: 'Their Shopify admin' },
+                  { href: detail.links.storefront, label: 'Storefront' },
+                ].map((l) => (
+                  <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
+                    className="ring-focus inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-[11.5px] font-medium text-ink-600 hover:border-ink-300 dark:text-ink-300">
+                    {l.label} <ExternalLink className="size-3" />
+                  </a>
+                ))}
+              </div>
+            )}
+
             {/* Operations */}
             <div className="surface mt-5 rounded-2xl p-4">
               <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">Operations</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+
+              <p className="mt-3 text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Plan &amp; billing</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <select
                   value={planDraft}
                   onChange={(e) => setPlanDraft(e.target.value)}
@@ -385,33 +441,59 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                   <option value="growth">growth</option>
                   <option value="scale">scale</option>
                 </select>
-                <button
-                  onClick={() => op('set-plan', { plan: planDraft })}
-                  disabled={!!opBusy || planDraft === detail.store.plan}
-                  className="ring-focus h-9 rounded-xl bg-brand-600 px-3 text-[12.5px] font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
-                >
-                  {opBusy === 'set-plan' ? 'Applying…' : 'Set plan'}
-                </button>
-                <button
-                  onClick={() => op(detail.sendingPaused ? 'resume-sending' : 'pause-sending')}
-                  disabled={!!opBusy}
-                  className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-700 hover:border-ink-300 dark:text-ink-200"
-                >
-                  {detail.sendingPaused ? <PlayCircle className="size-4" /> : <PauseCircle className="size-4" />}
-                  {detail.sendingPaused ? 'Resume emails' : 'Pause emails'}
-                </button>
-                <button
-                  onClick={() => op('reconcile-billing')}
-                  disabled={!!opBusy}
-                  className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-700 hover:border-ink-300 dark:text-ink-200"
-                >
-                  <RefreshCw className={`size-4 ${opBusy === 'reconcile-billing' ? 'animate-spin' : ''}`} />
-                  Reconcile with Shopify billing
-                </button>
+                <OpButton busy={opBusy} action="set-plan" disabled={planDraft === detail.store.plan} primary
+                  onClick={() => op('set-plan', { plan: planDraft })}>Set plan</OpButton>
+                <OpButton busy={opBusy} action="reconcile-billing" icon={RefreshCw}
+                  onClick={() => op('reconcile-billing')}>Reconcile with Shopify billing</OpButton>
               </div>
-              {opNote && <p className="mt-2.5 text-[12px] text-ink-500">{opNote}</p>}
+
+              <p className="mt-4 text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Review request emails</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <OpButton busy={opBusy} action={detail.sendingPaused ? 'resume-sending' : 'pause-sending'}
+                  icon={detail.sendingPaused ? PlayCircle : PauseCircle}
+                  onClick={() => op(detail.sendingPaused ? 'resume-sending' : 'pause-sending')}>
+                  {detail.sendingPaused ? 'Resume emails' : 'Pause emails'}
+                </OpButton>
+                <OpButton busy={opBusy} action="retry-failed-sends" icon={RotateCcw}
+                  onClick={() => op('retry-failed-sends')}>Retry failed sends now</OpButton>
+                <span className="inline-flex items-center gap-1.5">
+                  <input
+                    type="number" min={1} max={10000} value={quotaDraft}
+                    onChange={(e) => setQuotaDraft(e.target.value)}
+                    aria-label="Sends to credit"
+                    className="ring-focus h-9 w-20 rounded-xl border border-border bg-transparent px-2 text-[12.5px] text-ink-800 dark:text-ink-100"
+                  />
+                  <OpButton busy={opBusy} action="grant-quota" icon={Gift}
+                    onClick={() => op('grant-quota', { amount: Number(quotaDraft) })}>Credit sends</OpButton>
+                </span>
+              </div>
+
+              <p className="mt-4 text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Data &amp; sync</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <OpButton busy={opBusy} action="resync-products" icon={Boxes}
+                  onClick={() => op('resync-products')}>Resync products from Shopify</OpButton>
+                <OpButton busy={opBusy} action="recompute-ratings" icon={Calculator}
+                  onClick={() => op('recompute-ratings')}>Recompute star ratings</OpButton>
+                <OpButton busy={opBusy} action="clear-stuck-imports" icon={Trash2}
+                  onClick={() => op('clear-stuck-imports')}>Clear stalled imports</OpButton>
+              </div>
+
+              <p className="mt-4 text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Operator note</p>
+              <div className="mt-2 flex items-start gap-2">
+                <textarea
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  rows={2}
+                  placeholder="Context for whoever picks this up next — what you emailed them, what they asked for."
+                  className="ring-focus min-h-16 flex-1 rounded-xl border border-border bg-transparent p-2 text-[12.5px] text-ink-800 dark:text-ink-100"
+                />
+                <OpButton busy={opBusy} action="set-note" icon={StickyNote}
+                  onClick={() => op('set-note', { note: noteDraft })}>Save</OpButton>
+              </div>
+
+              {opNote && <p className="mt-3 rounded-lg bg-ink-50 px-2.5 py-1.5 text-[12px] text-ink-600 dark:bg-white/[0.04] dark:text-ink-300">{opNote}</p>}
               <p className="mt-2.5 text-[11px] leading-relaxed text-ink-400">
-                No deletion here by design — data erasure goes through the GDPR path, which is audited and irreversible-with-guarantees.
+                Nothing here deletes a merchant&rsquo;s data. Erasure goes through the GDPR path, which is audited and has guarantees a button does not.
               </p>
             </div>
 
@@ -429,7 +511,21 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                         <td className="max-w-0 truncate px-2 py-2 text-ink-700 dark:text-ink-200">{r.title || '(no title)'}</td>
                         <td className="px-2 py-2 text-ink-400">{r.reviewerName || '—'}</td>
                         <td className="px-2 py-2"><span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-500 dark:bg-ink-700/60 dark:text-ink-300">{r.isPublished ? 'published' : 'pending'}</span></td>
-                        <td className="tnum px-4 py-2 text-right text-ink-400">{fmtDate(r.createdAt)}</td>
+                        <td className="tnum px-2 py-2 text-right text-ink-400">{fmtDate(r.createdAt)}</td>
+                        <td className="px-4 py-2 text-right">
+                          {/* Moderation on the merchant's behalf, for what they cannot
+                              handle themselves: a takedown, a review carrying someone's
+                              personal data, abuse. Reversible either way. */}
+                          <button
+                            onClick={() => op('set-review-published', { reviewId: r.id, publish: !r.isPublished })}
+                            disabled={!!opBusy}
+                            title={r.isPublished ? 'Unpublish this review' : 'Publish this review'}
+                            aria-label={r.isPublished ? 'Unpublish this review' : 'Publish this review'}
+                            className="ring-focus rounded-lg p-1 text-ink-400 hover:text-ink-800 disabled:opacity-40 dark:hover:text-white"
+                          >
+                            {r.isPublished ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -489,6 +585,113 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
   );
 }
 
+/**
+ * The suppression list, with the undo.
+ *
+ * A wrongly-suppressed address is a customer who will never be asked for a review again,
+ * silently and permanently — a full mailbox and a provider blip both land here looking
+ * exactly like a real hard bounce. So it has to be visible, searchable, and reversible.
+ */
+function SuppressionPanel() {
+  const [rows, setRows] = useState<Suppression[]>([]);
+  const [total, setTotal] = useState(0);
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState('');
+
+  const load = useCallback(async () => {
+    const r = await fetch(`/api/admin/suppressions${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+    if (!r.ok) return;
+    const j = await r.json();
+    setRows(j.suppressions);
+    setTotal(j.total);
+  }, [q]);
+  /* eslint-disable-next-line react-hooks/set-state-in-effect -- lazy fetch when the panel opens. */
+  useEffect(() => { if (open) load(); }, [open, load]);
+
+  const remove = async (email: string) => {
+    setBusy(email);
+    await fetch('/api/admin/suppressions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setBusy('');
+    load();
+  };
+
+  return (
+    <div className="surface mt-4 overflow-hidden rounded-2xl">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="ring-focus flex w-full items-center justify-between px-4 py-3 text-left"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2 text-[13px] font-bold text-ink-900 dark:text-white">
+          <MailX className="size-4 text-ink-400" /> Email suppression list
+        </span>
+        <span className="flex items-center gap-2 text-[11.5px] text-ink-400">
+          {total > 0 && <span className="tnum">{total.toLocaleString()} address{total === 1 ? '' : 'es'}</span>}
+          <ChevronRight className={`size-4 transition-transform ${open ? 'rotate-90' : ''}`} />
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-border px-4 pb-4 pt-3">
+          <div className="relative w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-300" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search an address…"
+              className="ring-focus h-9 w-full rounded-xl border border-border bg-transparent pl-8 pr-3 text-[12.5px] text-ink-800 dark:text-ink-100"
+            />
+          </div>
+          {rows.length === 0 ? (
+            <p className="mt-3 text-[12.5px] text-ink-400">
+              {total === 0 ? 'Nothing suppressed — every address is mailable.' : 'No address matches.'}
+            </p>
+          ) : (
+            <table className="mt-3 w-full text-[12px]">
+              <thead>
+                <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-ink-400">
+                  <th className="py-1.5">Address</th><th className="py-1.5">Reason</th>
+                  <th className="py-1.5">Detail</th><th className="py-1.5">When</th><th className="py-1.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s) => (
+                  <tr key={s.email} className="border-t border-border">
+                    <td className="py-2 font-mono text-ink-700 dark:text-ink-200">{s.email}</td>
+                    <td className="py-2">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                        s.reason === 'bounce' || s.reason === 'complaint'
+                          ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
+                          : 'bg-ink-100 text-ink-500 dark:bg-ink-700/60 dark:text-ink-300'}`}>
+                        {s.reason}
+                      </span>
+                    </td>
+                    <td className="max-w-0 truncate py-2 text-ink-400" title={s.detail ?? ''}>{s.detail || '—'}</td>
+                    <td className="tnum py-2 text-ink-400">{fmtDate(s.createdAt)}</td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => remove(s.email)}
+                        disabled={busy === s.email}
+                        className="ring-focus rounded-lg px-2 py-1 text-[11.5px] font-semibold text-ink-500 hover:text-ink-900 disabled:opacity-40 dark:hover:text-white"
+                      >
+                        {busy === s.email ? '…' : 'Allow again'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ────────────────────────── main ────────────────────────── */
 
 type SortKey = 'createdAt' | 'reviewCount' | 'pendingReviews' | 'requestsSentThisMonth' | 'failingRequests' | 'mrr' | 'quotaUsed';
@@ -497,6 +700,7 @@ export default function AdminPortal() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [stores, setStores] = useState<StoreRow[]>([]);
+  const [storeTotal, setStoreTotal] = useState<{ total: number; showing: number; truncated: boolean } | null>(null);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('createdAt');
   const [openStore, setOpenStore] = useState<string | null>(null);
@@ -509,16 +713,19 @@ export default function AdminPortal() {
       fetch(`/api/admin/stores${q ? `?q=${encodeURIComponent(q)}` : ''}`).then((r) => (r.ok ? r.json() : null)),
     ]);
     if (ov) setOverview(ov);
-    if (st) setStores(st.stores);
+    if (st) { setStores(st.stores); setStoreTotal({ total: st.total, showing: st.showing, truncated: st.truncated }); }
     setRefreshing(false);
   }, [q]);
 
   useEffect(() => {
     fetch('/api/admin/login').then((r) => setAuthed(r.ok));
   }, []);
+  /* eslint-disable react-hooks/set-state-in-effect -- refetch when auth or the search
+     term changes; every setState is behind an await, not a synchronous cascade. */
   useEffect(() => {
     if (authed) loadAll();
   }, [authed, loadAll]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const sorted = useMemo(() => {
     const copy = [...stores];
@@ -657,7 +864,16 @@ export default function AdminPortal() {
         {/* Merchants table */}
         <div className="surface mt-6 overflow-hidden rounded-2xl">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
-            <p className="text-[13px] font-bold text-ink-900 dark:text-white">Merchants</p>
+            <p className="text-[13px] font-bold text-ink-900 dark:text-white">
+              Merchants
+              {storeTotal && (
+                <span className="ml-2 text-[11.5px] font-normal text-ink-400">
+                  {storeTotal.truncated
+                    ? `showing ${storeTotal.showing} of ${storeTotal.total} — narrow the search to see the rest`
+                    : `${storeTotal.total}`}
+                </span>
+              )}
+            </p>
             <div className="flex items-center gap-2">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-300" />
@@ -764,6 +980,8 @@ export default function AdminPortal() {
             </div>
           )}
         </div>
+
+        <SuppressionPanel />
 
         <p className="mt-6 flex items-center gap-1.5 text-[11px] text-ink-400">
           <ShieldCheck className="size-3.5" />

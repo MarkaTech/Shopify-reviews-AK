@@ -45,6 +45,18 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: 'desc' },
     take: 500,
   });
+  // Reported, never silent. A hidden top-N reads as "this is everyone" when it is not.
+  const totalMatching = await db.store.count({
+    where: q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { shopifyDomain: { contains: q, mode: 'insensitive' } },
+            { email: { contains: q, mode: 'insensitive' } },
+          ],
+        }
+      : undefined,
+  });
 
   const ids = stores.map((s) => s.id);
   const [reviewAgg, pendingAgg, sentAgg, failAgg, settingRows] = await Promise.all([
@@ -75,6 +87,9 @@ export async function GET(request: NextRequest) {
   const paused = new Set(settingRows.filter((r) => r.value === '1').map((r) => r.storeId));
 
   return NextResponse.json({
+    total: totalMatching,
+    showing: stores.length,
+    truncated: totalMatching > stores.length,
     stores: stores.map((s) => {
       const plan = normalisePlan(s.plan) as PlanId;
       const cap = PLANS[plan].maxRequestsPerMonth;
