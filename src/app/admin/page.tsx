@@ -18,10 +18,21 @@ import {
 /* ────────────────────────── types ────────────────────────── */
 
 interface Overview {
-  stores: { total: number; active: number; installs30: number; byPlan: Record<string, number> };
-  reviews: { total: number; last30: number; pendingModeration: number };
-  requests: { sent30: number; submitted30: number; conversion30: number | null; queueDue: number; queueFailing: number };
-  questions: { unanswered: number };
+  business: {
+    mrr: number; arpu: number; revenueByPlan: Record<string, number>;
+    paidCount: number; paidShare: number; installs30: number; installsPrev30: number;
+    uninstalled30: number; netChange30: number; churnRate30: number;
+  };
+  stores: { total: number; active: number; byPlan: Record<string, number> };
+  activation: { activated: number; syncedOnly: number; cold: number; rate: number };
+  reviews: { total: number; last30: number; pendingModeration: number; avgRating: number | null; bySource: Record<string, number> };
+  requests: { sent30: number; opened30: number; submitted30: number; conversion30: number | null; queueDue: number; queueFailing: number };
+  health: {
+    needsReauth: number; tokenExpiringSoon: number; atQuota: number; nearQuota: number;
+    importsStuck: number; importsFailed30: number; emailSuppressed: number; hardBounces: number;
+    suppressionByReason: Record<string, number>; questionsUnanswered: number; queueFailing: number;
+  };
+  incentives: { issued: number; redeemed: number; redemptionRate: number | null };
   series: Record<'reviews' | 'installs' | 'requests', Array<{ day: string; n: number }>>;
 }
 
@@ -30,6 +41,8 @@ interface StoreRow {
   plan: string; isActive: boolean; installedAt: string | null; createdAt: string;
   reviewCount: number; lastReviewAt: string | null; pendingReviews: number;
   requestsSentThisMonth: number; failingRequests: number; sendingPaused: boolean;
+  mrr: number; quotaUsed: number; quotaCap: number | null; quotaPct: number | null;
+  productCount: number; needsReauth: boolean; activation: 'active' | 'synced' | 'cold';
 }
 
 interface StoreDetail {
@@ -50,6 +63,112 @@ interface StoreDetail {
 function fmtDate(v: string | null | undefined): string {
   if (!v) return '—';
   return new Date(v).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+const money = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: n % 1 === 0 ? 0 : 2 })}`;
+const pct = (n: number | null | undefined, digits = 0) =>
+  n == null ? '—' : `${(n * 100).toFixed(digits)}%`;
+
+/**
+ * The number the dashboard leads with. A hero figure, not a one-bar chart - it is a
+ * single current value, and the delta beside it is the only comparison that matters.
+ */
+function Hero({ label, value, sub, delta }: {
+  label: string; value: string; sub?: string; delta?: { n: number; label: string };
+}) {
+  return (
+    <div className="surface rounded-2xl p-5">
+      <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-ink-400">{label}</p>
+      <div className="mt-2 flex items-baseline gap-2.5">
+        {/* Proportional figures, same sans as everything else - tabular-nums makes a
+            display-size number read loose, and a serif would read as decoration. */}
+        <span className="display text-[40px] font-bold leading-none text-ink-900 dark:text-white">{value}</span>
+        {delta && (
+          <span className={`text-[12.5px] font-semibold ${delta.n > 0 ? 'text-brand-600 dark:text-brand-400' : delta.n < 0 ? 'text-red-600' : 'text-ink-400'}`}>
+            {delta.n > 0 ? '+' : ''}{delta.n} {delta.label}
+          </span>
+        )}
+      </div>
+      {sub && <p className="mt-2 text-[12px] text-ink-400">{sub}</p>}
+    </div>
+  );
+}
+
+/**
+ * Health items. Quiet at zero, loud otherwise - an operator should be able to glance at
+ * this block and look away, which only works if a green row is visually silent.
+ */
+function Attention({ items }: { items: Array<{ label: string; n: number; hint: string; severe?: boolean }> }) {
+  const live = items.filter((i) => i.n > 0);
+  return (
+    <div className="surface rounded-2xl p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">Needs attention</p>
+        {live.length === 0 && (
+          <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-brand-600 dark:text-brand-400">
+            <ShieldCheck className="size-3.5" /> All clear
+          </span>
+        )}
+      </div>
+      {live.length === 0 ? (
+        <p className="mt-2 text-[12px] text-ink-400">
+          No dead tokens, blocked quotas, stuck imports or bouncing email.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {live.map((i) => (
+            <li key={i.label} className="flex items-start gap-2.5">
+              <span className={`tnum mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1.5 text-[11px] font-bold ${
+                i.severe ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
+                         : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>
+                {i.n}
+              </span>
+              <span className="text-[12px] leading-snug">
+                <span className="font-semibold text-ink-800 dark:text-ink-100">{i.label}</span>
+                <span className="text-ink-400"> — {i.hint}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where reviews come from. Nominal categories, so one hue for every bar - a darker-where-
+ * bigger ramp would double-encode the length the bar already shows and spend the only
+ * free channel on nothing. Labels sit outside the bars so short ones stay readable.
+ */
+function SourceBars({ bySource }: { bySource: Record<string, number> }) {
+  const rows = Object.entries(bySource).sort((a, b) => b[1] - a[1]);
+  const total = rows.reduce((a, [, n]) => a + n, 0);
+  const max = Math.max(1, ...rows.map(([, n]) => n));
+  return (
+    <div className="surface rounded-2xl p-4">
+      <div className="flex items-baseline justify-between">
+        <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">Reviews by source</p>
+        <p className="tnum text-[11.5px] text-ink-400">{total.toLocaleString()} total</p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="mt-3 text-[12px] text-ink-400">No reviews yet.</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {rows.map(([source, n]) => (
+            <li key={source} className="flex items-center gap-2.5">
+              <span className="w-20 shrink-0 truncate text-[11.5px] text-ink-500" title={source}>{source}</span>
+              <span className="h-2 flex-1 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-700/50">
+                <span className="block h-full rounded-full bg-brand-500" style={{ width: `${(n / max) * 100}%` }} />
+              </span>
+              <span className="tnum w-14 shrink-0 text-right text-[11.5px] font-semibold text-ink-700 dark:text-ink-200">
+                {n.toLocaleString()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function StatTile({ label, value, sub, tone = 'default' }: {
@@ -372,7 +491,7 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
 
 /* ────────────────────────── main ────────────────────────── */
 
-type SortKey = 'createdAt' | 'reviewCount' | 'pendingReviews' | 'requestsSentThisMonth' | 'failingRequests';
+type SortKey = 'createdAt' | 'reviewCount' | 'pendingReviews' | 'requestsSentThisMonth' | 'failingRequests' | 'mrr' | 'quotaUsed';
 
 export default function AdminPortal() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -446,34 +565,94 @@ export default function AdminPortal() {
       </header>
 
       <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6">
-        {/* KPI row */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-          <StatTile label="Merchants" value={overview ? overview.stores.total.toLocaleString() : '…'} sub={overview ? `${overview.stores.active} active · ${overview.stores.installs30} new in 30d` : undefined} />
-          <StatTile label="Reviews" value={overview ? overview.reviews.total.toLocaleString() : '…'} sub={overview ? `${overview.reviews.last30.toLocaleString()} in 30d` : undefined} />
-          <StatTile label="Pending moderation" value={overview ? overview.reviews.pendingModeration.toLocaleString() : '…'} tone={overview && overview.reviews.pendingModeration > 0 ? 'warn' : 'default'} />
-          <StatTile label="Requests sent (30d)" value={overview ? overview.requests.sent30.toLocaleString() : '…'} sub={conv != null ? `${(conv * 100).toFixed(1)}% led to a review` : undefined} />
-          <StatTile label="Send queue" value={overview ? overview.requests.queueDue.toLocaleString() : '…'} sub="due right now" />
-          <StatTile label="Failing sends" value={overview ? overview.requests.queueFailing.toLocaleString() : '…'} tone={overview && overview.requests.queueFailing > 0 ? 'warn' : 'default'} sub={overview ? `${overview.questions.unanswered} unanswered questions` : undefined} />
+        {/* ── Business: the four numbers you check first ── */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Hero
+            label="MRR"
+            value={overview ? money(overview.business.mrr) : '…'}
+            sub={overview ? `${overview.business.paidCount} paying of ${overview.stores.active} active · ${pct(overview.business.paidShare)} paid · ${money(overview.business.arpu)} ARPU` : undefined}
+          />
+          <Hero
+            label="Active merchants"
+            value={overview ? overview.stores.active.toLocaleString() : '…'}
+            delta={overview ? { n: overview.business.netChange30, label: 'net 30d' } : undefined}
+            sub={overview ? `${overview.business.installs30} installed, ${overview.business.uninstalled30} left · prior 30d: ${overview.business.installsPrev30} installs` : undefined}
+          />
+          <Hero
+            label="Activated"
+            value={overview ? pct(overview.activation.rate) : '…'}
+            sub={overview ? `${overview.activation.activated} collecting reviews · ${overview.activation.syncedOnly} set up but silent · ${overview.activation.cold} never started` : undefined}
+          />
+          <Hero
+            label="Churn (30d)"
+            value={overview ? pct(overview.business.churnRate30, 1) : '…'}
+            sub={overview ? `${overview.business.uninstalled30} uninstalled in the last 30 days` : undefined}
+          />
         </div>
 
-        {/* Trends */}
+        {/* ── Health + plan mix ── */}
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            {overview && (
+              <Attention
+                items={[
+                  { label: `${overview.health.needsReauth} store${overview.health.needsReauth === 1 ? '' : 's'} need re-auth`, n: overview.health.needsReauth, hint: 'refresh token expired — the app cannot call Shopify for them at all', severe: true },
+                  { label: 'Tokens expiring within 7 days', n: overview.health.tokenExpiringSoon, hint: 'will break silently unless refreshed' },
+                  { label: 'At their monthly send cap', n: overview.health.atQuota, hint: 'review requests are being deferred — support risk and upgrade signal', severe: true },
+                  { label: 'Near their cap (80%+)', n: overview.health.nearQuota, hint: 'about to be blocked this month' },
+                  { label: 'Failing review-request sends', n: overview.health.queueFailing, hint: 'retrying with backoff; check the provider if this climbs' },
+                  { label: 'Imports stuck in processing', n: overview.health.importsStuck, hint: 'claimed over an hour ago and never finished' },
+                  { label: 'Imports failed (30d)', n: overview.health.importsFailed30, hint: 'merchant-visible failure' },
+                  { label: 'Hard bounces / complaints', n: overview.health.hardBounces, hint: 'suppressed addresses — deliverability risk', severe: true },
+                  { label: 'Suppressed addresses (total)', n: overview.health.emailSuppressed, hint: Object.entries(overview.health.suppressionByReason).map(([r, n]) => `${n} ${r}`).join(', ') || 'bounce, complaint, unsubscribe' },
+                  { label: 'Unanswered questions', n: overview.health.questionsUnanswered, hint: 'shoppers waiting on a merchant reply' },
+                  { label: 'Reviews awaiting moderation', n: overview.reviews.pendingModeration, hint: 'sitting unpublished across all stores' },
+                ]}
+              />
+            )}
+          </div>
+          <div className="surface rounded-2xl p-4">
+            <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">Plan mix</p>
+            {overview && (
+              <ul className="mt-3 space-y-2.5">
+                {(['free', 'growth', 'scale'] as const).map((plan) => {
+                  const n = overview.stores.byPlan[plan] ?? 0;
+                  const rev = overview.business.revenueByPlan[plan] ?? 0;
+                  return (
+                    <li key={plan} className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2"><PlanChip plan={plan} /><span className="tnum text-[12.5px] text-ink-700 dark:text-ink-200">{n}</span></span>
+                      <span className="tnum text-[12px] text-ink-400">{money(rev)}/mo</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {overview && (
+              <div className="mt-4 border-t border-border pt-3 text-[11.5px] text-ink-400">
+                <p className="flex justify-between"><span>Avg rating</span><span className="tnum font-semibold text-ink-700 dark:text-ink-200">{overview.reviews.avgRating != null ? overview.reviews.avgRating.toFixed(2) : '—'}</span></p>
+                <p className="mt-1.5 flex justify-between"><span>Discount codes issued</span><span className="tnum font-semibold text-ink-700 dark:text-ink-200">{overview.incentives.issued.toLocaleString()}</span></p>
+                <p className="mt-1.5 flex justify-between"><span>…redeemed</span><span className="tnum font-semibold text-ink-700 dark:text-ink-200">{overview.incentives.redeemed.toLocaleString()}{overview.incentives.redemptionRate != null ? ` (${pct(overview.incentives.redemptionRate)})` : ''}</span></p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Volume ── */}
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          <StatTile label="Reviews" value={overview ? overview.reviews.total.toLocaleString() : '…'} sub={overview ? `${overview.reviews.last30.toLocaleString()} in 30d` : undefined} />
+          <StatTile label="Requests sent (30d)" value={overview ? overview.requests.sent30.toLocaleString() : '…'} sub={overview ? `${overview.requests.opened30} clicked through` : undefined} />
+          <StatTile label="Request → review" value={conv != null ? pct(conv, 1) : '…'} sub={overview ? `${overview.requests.submitted30} reviews from requests` : undefined} />
+          <StatTile label="Send queue" value={overview ? overview.requests.queueDue.toLocaleString() : '…'} sub="due right now" />
+          <StatTile label="Pending moderation" value={overview ? overview.reviews.pendingModeration.toLocaleString() : '…'} tone={overview && overview.reviews.pendingModeration > 0 ? 'warn' : 'default'} sub="across all stores" />
+        </div>
+
+        {/* ── Trends ── */}
+        <div className="mt-4 grid gap-3 lg:grid-cols-4">
           {overview && <TrendBars series={overview.series.installs} label="New installs" />}
           {overview && <TrendBars series={overview.series.reviews} label="Reviews collected" />}
           {overview && <TrendBars series={overview.series.requests} label="Request emails sent" />}
+          {overview && <SourceBars bySource={overview.reviews.bySource} />}
         </div>
-
-        {/* Plans strip */}
-        {overview && (
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-ink-500">
-            <span className="font-semibold text-ink-700 dark:text-ink-200">Plans:</span>
-            {Object.entries(overview.stores.byPlan).map(([plan, n]) => (
-              <span key={plan} className="inline-flex items-center gap-1.5">
-                <PlanChip plan={plan} /> <span className="tnum">{n}</span>
-              </span>
-            ))}
-          </div>
-        )}
 
         {/* Merchants table */}
         <div className="surface mt-6 overflow-hidden rounded-2xl">
@@ -501,6 +680,8 @@ export default function AdminPortal() {
                 <option value="pendingReviews">Most pending</option>
                 <option value="requestsSentThisMonth">Most emails this month</option>
                 <option value="failingRequests">Failing sends</option>
+                <option value="mrr">Highest MRR</option>
+                <option value="quotaUsed">Closest to cap</option>
               </select>
             </div>
           </div>
@@ -512,14 +693,15 @@ export default function AdminPortal() {
             </div>
           ) : (
             <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[900px] text-[12.5px]">
+              <table className="w-full min-w-[1040px] text-[12.5px]">
                 <thead>
                   <tr className="border-b border-border text-left text-[10.5px] font-bold uppercase tracking-wide text-ink-400">
                     <th className="px-4 py-2">Store</th>
                     <th className="px-2 py-2">Plan</th>
+                    <th className="px-2 py-2 text-right">MRR</th>
                     <th className="px-2 py-2 text-right">Reviews</th>
                     <th className="px-2 py-2 text-right">Pending</th>
-                    <th className="px-2 py-2 text-right">Emails / mo</th>
+                    <th className="px-2 py-2">Quota</th>
                     <th className="px-2 py-2 text-right">Failing</th>
                     <th className="px-2 py-2">Installed</th>
                     <th className="px-2 py-2">Status</th>
@@ -536,20 +718,42 @@ export default function AdminPortal() {
                       <td className="max-w-0 truncate px-4 py-2.5">
                         <span className="font-semibold text-ink-800 dark:text-ink-100">{s.name}</span>
                         <span className="ml-2 text-ink-400">{s.shopifyDomain}</span>
+                        {s.productCount === 0 && <span className="ml-2 text-[10px] font-semibold uppercase text-ink-300">no products</span>}
                       </td>
                       <td className="px-2 py-2.5"><PlanChip plan={s.plan} /></td>
+                      <td className="tnum px-2 py-2.5 text-right text-ink-700 dark:text-ink-200">{s.mrr > 0 ? money(s.mrr) : '—'}</td>
                       <td className="tnum px-2 py-2.5 text-right text-ink-700 dark:text-ink-200">{s.reviewCount.toLocaleString()}</td>
                       <td className={`tnum px-2 py-2.5 text-right ${s.pendingReviews > 0 ? 'font-semibold text-amber-600' : 'text-ink-400'}`}>{s.pendingReviews}</td>
-                      <td className="tnum px-2 py-2.5 text-right text-ink-700 dark:text-ink-200">{s.requestsSentThisMonth}</td>
+                      <td className="px-2 py-2.5">
+                        {s.quotaCap == null ? (
+                          <span className="text-[11px] text-ink-400">no cap</span>
+                        ) : (
+                          <span className="flex items-center gap-1.5">
+                            <span className="tnum text-[11.5px] text-ink-600 dark:text-ink-300">{s.quotaUsed}/{s.quotaCap}</span>
+                            <span className="h-1.5 w-10 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-700/50">
+                              <span
+                                className={`block h-full rounded-full ${(s.quotaPct ?? 0) >= 100 ? 'bg-red-500' : (s.quotaPct ?? 0) >= 80 ? 'bg-amber-500' : 'bg-brand-500'}`}
+                                style={{ width: `${s.quotaPct ?? 0}%` }}
+                              />
+                            </span>
+                          </span>
+                        )}
+                      </td>
                       <td className={`tnum px-2 py-2.5 text-right ${s.failingRequests > 0 ? 'font-semibold text-red-600' : 'text-ink-400'}`}>{s.failingRequests}</td>
                       <td className="tnum px-2 py-2.5 text-ink-400">{fmtDate(s.installedAt)}</td>
                       <td className="px-2 py-2.5">
                         {!s.isActive ? (
                           <span className="text-[11px] font-semibold text-red-600">uninstalled</span>
+                        ) : s.needsReauth ? (
+                          <span className="text-[11px] font-semibold text-red-600">needs re-auth</span>
                         ) : s.sendingPaused ? (
                           <span className="text-[11px] font-semibold text-amber-600">paused</span>
+                        ) : s.activation === 'cold' ? (
+                          <span className="text-[11px] text-ink-400">never started</span>
+                        ) : s.activation === 'synced' ? (
+                          <span className="text-[11px] text-ink-400">no reviews yet</span>
                         ) : (
-                          <span className="text-[11px] text-ink-400">active</span>
+                          <span className="text-[11px] font-medium text-brand-600 dark:text-brand-400">collecting</span>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right"><ChevronRight className="ml-auto size-4 text-ink-300" /></td>

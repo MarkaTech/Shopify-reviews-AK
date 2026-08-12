@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { isAdminRequest } from '@/lib/admin-auth';
+import { PLANS, normalisePlan, type PlanId } from '@/lib/plans';
 
 /**
  * Every merchant, with the numbers an operator actually scans for: plan, activity,
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
       installedAt: true,
       createdAt: true,
       updatedAt: true,
+      refreshTokenExpiresAt: true,
     },
     orderBy: { createdAt: 'desc' },
     take: 500,
@@ -53,6 +55,17 @@ export async function GET(request: NextRequest) {
     db.storeSetting.findMany({ where: { storeId: { in: ids }, key: 'admin.sendingPaused' }, select: { storeId: true, value: true } }),
   ]);
 
+  // This month's quota counter, so the table can show who is about to be blocked (and
+  // who is ready to be upgraded) without a per-store round trip.
+  const now = new Date();
+  const monthKey = `usage.requests.${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  const [usageRows, productAgg] = await Promise.all([
+    db.storeSetting.findMany({ where: { storeId: { in: ids }, key: monthKey }, select: { storeId: true, value: true } }),
+    db.product.groupBy({ by: ['storeId'], where: { storeId: { in: ids } }, _count: { _all: true } }),
+  ]);
+  const usageByStore = new Map(usageRows.map((r) => [r.storeId, Number(r.value) || 0]));
+  const productsByStore = new Map(productAgg.map((r) => [r.storeId, r._count?._all ?? 0]));
+
   const by = <T extends { storeId: string }>(rows: T[]) => new Map(rows.map((r) => [r.storeId, r]));
   const countAll = (r: { _count: { _all: number } | null } | undefined) => r?._count?._all ?? 0;
   const reviews = by(reviewAgg);
@@ -62,14 +75,30 @@ export async function GET(request: NextRequest) {
   const paused = new Set(settingRows.filter((r) => r.value === '1').map((r) => r.storeId));
 
   return NextResponse.json({
-    stores: stores.map((s) => ({
+    stores: stores.map((s) => {
+      const plan = normalisePlan(s.plan) as PlanId;
+      const cap = PLANS[plan].maxRequestsPerMonth;
+      const used = usageByStore.get(s.id) ?? 0;
+      const products = productsByStore.get(s.id) ?? 0;
+      const reviewCount = countAll(reviews.get(s.id));
+      return {
       ...s,
-      reviewCount: countAll(reviews.get(s.id)),
+      mrr: PLANS[plan].price,
+      quotaUsed: used,
+      quotaCap: cap,
+      quotaPct: cap == null ? null : Math.min(100, Math.round((used / cap) * 100)),
+      productCount: products,
+      needsReauth: Boolean(s.refreshTokenExpiresAt && s.refreshTokenExpiresAt < now),
+      // Three states an operator can act on: collecting reviews, set up but silent,
+      // or never got past install.
+      activation: reviewCount > 0 ? 'active' : products > 0 ? 'synced' : 'cold',
+      reviewCount,
       lastReviewAt: reviews.get(s.id)?._max.createdAt ?? null,
       pendingReviews: countAll(pending.get(s.id)),
       requestsSentThisMonth: countAll(sent.get(s.id)),
       failingRequests: countAll(failing.get(s.id)),
       sendingPaused: paused.has(s.id),
-    })),
+      };
+    }),
   });
 }
