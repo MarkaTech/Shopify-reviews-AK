@@ -13,7 +13,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Star, Search, RefreshCw, LogOut, PauseCircle, PlayCircle, X, Loader2,
   ShieldCheck, Inbox, ChevronRight, ExternalLink, MailX, Eye, EyeOff, Boxes,
-  Calculator, RotateCcw, Gift, StickyNote, Trash2,
+  Calculator, RotateCcw, Gift, StickyNote, Trash2, Send, Download, SlidersHorizontal,
 } from 'lucide-react';
 
 /* ────────────────────────── types ────────────────────────── */
@@ -103,7 +103,11 @@ function Hero({ label, value, sub, delta }: {
  * Health items. Quiet at zero, loud otherwise - an operator should be able to glance at
  * this block and look away, which only works if a green row is visually silent.
  */
-function Attention({ items }: { items: Array<{ label: string; n: number; hint: string; severe?: boolean }> }) {
+function Attention({ items, onPick, active }: {
+  items: Array<{ label: string; n: number; hint: string; severe?: boolean; filter?: HealthFilter }>;
+  onPick: (f: HealthFilter | null) => void;
+  active: HealthFilter | null;
+}) {
   const live = items.filter((i) => i.n > 0);
   return (
     <div className="surface rounded-2xl p-4">
@@ -120,20 +124,42 @@ function Attention({ items }: { items: Array<{ label: string; n: number; hint: s
           No dead tokens, blocked quotas, stuck imports or bouncing email.
         </p>
       ) : (
-        <ul className="mt-3 space-y-2">
-          {live.map((i) => (
-            <li key={i.label} className="flex items-start gap-2.5">
-              <span className={`tnum mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1.5 text-[11px] font-bold ${
-                i.severe ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
-                         : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>
-                {i.n}
-              </span>
-              <span className="text-[12px] leading-snug">
-                <span className="font-semibold text-ink-800 dark:text-ink-100">{i.label}</span>
-                <span className="text-ink-400"> — {i.hint}</span>
-              </span>
-            </li>
-          ))}
+        <ul className="mt-2 -mx-1.5">
+          {live.map((i) => {
+            const clickable = Boolean(i.filter);
+            const isActive = i.filter != null && i.filter === active;
+            // An alert that names a problem and leaves you to find the merchant yourself
+            // is half a feature. Clicking a row filters the table below to exactly the
+            // stores it is about.
+            return (
+              <li key={i.label}>
+                <button
+                  type="button"
+                  disabled={!clickable}
+                  onClick={() => onPick(isActive ? null : i.filter ?? null)}
+                  aria-pressed={isActive}
+                  className={`ring-focus flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition-colors ${
+                    clickable ? 'cursor-pointer hover:bg-ink-50 dark:hover:bg-white/[0.04]' : 'cursor-default'
+                  } ${isActive ? 'bg-ink-100 dark:bg-white/[0.07]' : ''}`}
+                >
+                  <span className={`tnum mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1.5 text-[11px] font-bold ${
+                    i.severe ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
+                             : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}`}>
+                    {i.n}
+                  </span>
+                  <span className="flex-1 text-[12px] leading-snug">
+                    <span className="font-semibold text-ink-800 dark:text-ink-100">{i.label}</span>
+                    <span className="text-ink-400"> — {i.hint}</span>
+                  </span>
+                  {clickable && (
+                    <span className="mt-px shrink-0 text-[11px] font-medium text-brand-600 dark:text-brand-400">
+                      {isActive ? 'clear' : 'show'}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -694,6 +720,9 @@ function SuppressionPanel() {
 
 /* ────────────────────────── main ────────────────────────── */
 
+/** Which health condition the merchant table is narrowed to, if any. */
+type HealthFilter = 'needsReauth' | 'atQuota' | 'nearQuota' | 'failingSends' | 'pending' | 'cold';
+
 type SortKey = 'createdAt' | 'reviewCount' | 'pendingReviews' | 'requestsSentThisMonth' | 'failingRequests' | 'mrr' | 'quotaUsed';
 
 export default function AdminPortal() {
@@ -705,6 +734,9 @@ export default function AdminPortal() {
   const [sort, setSort] = useState<SortKey>('createdAt');
   const [openStore, setOpenStore] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [health, setHealth] = useState<HealthFilter | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+  const [sweepNote, setSweepNote] = useState('');
 
   const loadAll = useCallback(async () => {
     setRefreshing(true);
@@ -727,14 +759,79 @@ export default function AdminPortal() {
   }, [authed, loadAll]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  const HEALTH_TEST: Record<HealthFilter, (s: StoreRow) => boolean> = {
+    needsReauth: (s) => s.needsReauth,
+    atQuota: (s) => s.quotaPct != null && s.quotaPct >= 100,
+    nearQuota: (s) => s.quotaPct != null && s.quotaPct >= 80 && s.quotaPct < 100,
+    failingSends: (s) => s.failingRequests > 0,
+    pending: (s) => s.pendingReviews > 0,
+    cold: (s) => s.activation === 'cold',
+  };
+  const HEALTH_LABEL: Record<HealthFilter, string> = {
+    needsReauth: 'needing re-auth',
+    atQuota: 'at their send cap',
+    nearQuota: 'near their send cap',
+    failingSends: 'with failing sends',
+    pending: 'with reviews awaiting moderation',
+    cold: 'that never started',
+  };
+
   const sorted = useMemo(() => {
-    const copy = [...stores];
+    const copy = health ? stores.filter(HEALTH_TEST[health]) : [...stores];
     copy.sort((a, b) => {
       if (sort === 'createdAt') return +new Date(b.createdAt) - +new Date(a.createdAt);
       return (b[sort] as number) - (a[sort] as number);
     });
     return copy;
-  }, [stores, sort]);
+  }, [stores, sort, health]);
+
+  /** The merchant list as it stands, for a spreadsheet. Built from what is already
+   *  loaded — no second endpoint, and it honours the current filter and sort. */
+  const exportCsv = () => {
+    const cols: Array<[string, (s: StoreRow) => string | number]> = [
+      ['Store', (s) => s.name],
+      ['Domain', (s) => s.shopifyDomain ?? ''],
+      ['Email', (s) => s.email ?? ''],
+      ['Plan', (s) => s.plan],
+      ['MRR', (s) => s.mrr],
+      ['Reviews', (s) => s.reviewCount],
+      ['Pending', (s) => s.pendingReviews],
+      ['Products', (s) => s.productCount],
+      ['Sends this month', (s) => s.quotaUsed],
+      ['Send cap', (s) => s.quotaCap ?? 'unlimited'],
+      ['Failing sends', (s) => s.failingRequests],
+      ['Activation', (s) => s.activation],
+      ['Needs re-auth', (s) => (s.needsReauth ? 'yes' : 'no')],
+      ['Sending paused', (s) => (s.sendingPaused ? 'yes' : 'no')],
+      ['Active', (s) => (s.isActive ? 'yes' : 'no')],
+      ['Installed', (s) => s.installedAt ?? ''],
+      ['Last review', (s) => s.lastReviewAt ?? ''],
+    ];
+    const esc = (v: string | number) => {
+      const t = String(v);
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const csv = [cols.map(([h]) => h).join(','), ...sorted.map((s) => cols.map(([, f]) => esc(f(s))).join(','))].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reviewmaster-merchants-${sorted.length}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const runSweep = async () => {
+    setSweeping(true);
+    setSweepNote('');
+    const r = await fetch('/api/admin/sweep', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    setSweeping(false);
+    if (!r.ok) { setSweepNote(j.error || 'Sweep failed'); return; }
+    const c = j.counts || {};
+    const parts = Object.entries(c).filter(([, n]) => (n as number) > 0).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`);
+    setSweepNote(parts.length ? parts.join(', ') : 'Nothing was due.');
+    loadAll();
+  };
 
   if (authed === null) {
     return <div className="flex min-h-screen items-center justify-center"><Loader2 className="size-5 animate-spin text-ink-400" /></div>;
@@ -756,6 +853,20 @@ export default function AdminPortal() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={runSweep}
+              disabled={sweeping}
+              title="Run the review-request sweep now instead of waiting for the hourly cron"
+              className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-600 hover:border-ink-300 disabled:opacity-50 dark:text-ink-300"
+            >
+              {sweeping ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Run sweep
+            </button>
+            <button
+              onClick={exportCsv}
+              className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-600 hover:border-ink-300 dark:text-ink-300"
+            >
+              <Download className="size-3.5" /> Export CSV
+            </button>
+            <button
               onClick={loadAll}
               className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-600 hover:border-ink-300 dark:text-ink-300"
             >
@@ -772,6 +883,13 @@ export default function AdminPortal() {
       </header>
 
       <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6">
+        {sweepNote && (
+          <div className="surface mb-4 flex items-center justify-between gap-3 rounded-xl px-4 py-2.5">
+            <p className="text-[12.5px] text-ink-600 dark:text-ink-300"><span className="font-semibold text-ink-800 dark:text-ink-100">Sweep run:</span> {sweepNote}</p>
+            <button onClick={() => setSweepNote('')} className="ring-focus rounded p-1 text-ink-400 hover:text-ink-700" aria-label="Dismiss"><X className="size-4" /></button>
+          </div>
+        )}
+
         {/* ── Business: the four numbers you check first ── */}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Hero
@@ -802,18 +920,21 @@ export default function AdminPortal() {
           <div className="lg:col-span-2">
             {overview && (
               <Attention
+                active={health}
+                onPick={setHealth}
                 items={[
-                  { label: `${overview.health.needsReauth} store${overview.health.needsReauth === 1 ? '' : 's'} need re-auth`, n: overview.health.needsReauth, hint: 'refresh token expired — the app cannot call Shopify for them at all', severe: true },
+                  { label: `${overview.health.needsReauth} store${overview.health.needsReauth === 1 ? '' : 's'} need re-auth`, n: overview.health.needsReauth, hint: 'refresh token expired — the app cannot call Shopify for them at all', severe: true, filter: 'needsReauth' },
                   { label: 'Tokens expiring within 7 days', n: overview.health.tokenExpiringSoon, hint: 'will break silently unless refreshed' },
-                  { label: 'At their monthly send cap', n: overview.health.atQuota, hint: 'review requests are being deferred — support risk and upgrade signal', severe: true },
-                  { label: 'Near their cap (80%+)', n: overview.health.nearQuota, hint: 'about to be blocked this month' },
-                  { label: 'Failing review-request sends', n: overview.health.queueFailing, hint: 'retrying with backoff; check the provider if this climbs' },
+                  { label: 'At their monthly send cap', n: overview.health.atQuota, hint: 'review requests are being deferred — support risk and upgrade signal', severe: true, filter: 'atQuota' },
+                  { label: 'Near their cap (80%+)', n: overview.health.nearQuota, hint: 'about to be blocked this month', filter: 'nearQuota' },
+                  { label: 'Failing review-request sends', n: overview.health.queueFailing, hint: 'retrying with backoff; check the provider if this climbs', filter: 'failingSends' },
                   { label: 'Imports stuck in processing', n: overview.health.importsStuck, hint: 'claimed over an hour ago and never finished' },
                   { label: 'Imports failed (30d)', n: overview.health.importsFailed30, hint: 'merchant-visible failure' },
-                  { label: 'Hard bounces / complaints', n: overview.health.hardBounces, hint: 'suppressed addresses — deliverability risk', severe: true },
+                  { label: 'Hard bounces / complaints', n: overview.health.hardBounces, hint: 'suppressed addresses — deliverability risk; clear them in the suppression list below', severe: true },
                   { label: 'Suppressed addresses (total)', n: overview.health.emailSuppressed, hint: Object.entries(overview.health.suppressionByReason).map(([r, n]) => `${n} ${r}`).join(', ') || 'bounce, complaint, unsubscribe' },
                   { label: 'Unanswered questions', n: overview.health.questionsUnanswered, hint: 'shoppers waiting on a merchant reply' },
-                  { label: 'Reviews awaiting moderation', n: overview.reviews.pendingModeration, hint: 'sitting unpublished across all stores' },
+                  { label: 'Reviews awaiting moderation', n: overview.reviews.pendingModeration, hint: 'sitting unpublished across all stores', filter: 'pending' },
+                  { label: 'Installs that never started', n: overview.activation.cold, hint: 'no products synced — they installed and stopped', filter: 'cold' },
                 ]}
               />
             )}
@@ -864,14 +985,24 @@ export default function AdminPortal() {
         {/* Merchants table */}
         <div className="surface mt-6 overflow-hidden rounded-2xl">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
-            <p className="text-[13px] font-bold text-ink-900 dark:text-white">
+            <p className="flex flex-wrap items-center gap-2 text-[13px] font-bold text-ink-900 dark:text-white">
               Merchants
-              {storeTotal && (
-                <span className="ml-2 text-[11.5px] font-normal text-ink-400">
-                  {storeTotal.truncated
-                    ? `showing ${storeTotal.showing} of ${storeTotal.total} — narrow the search to see the rest`
-                    : `${storeTotal.total}`}
+              {health ? (
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-ink-100 px-2 py-0.5 text-[11.5px] font-semibold text-ink-700 dark:bg-white/[0.07] dark:text-ink-200">
+                  <SlidersHorizontal className="size-3" />
+                  {sorted.length} {HEALTH_LABEL[health]}
+                  <button onClick={() => setHealth(null)} className="ring-focus rounded" aria-label="Clear filter">
+                    <X className="size-3" />
+                  </button>
                 </span>
+              ) : (
+                storeTotal && (
+                  <span className="text-[11.5px] font-normal text-ink-400">
+                    {storeTotal.truncated
+                      ? `showing ${storeTotal.showing} of ${storeTotal.total} — narrow the search to see the rest`
+                      : `${storeTotal.total}`}
+                  </span>
+                )
               )}
             </p>
             <div className="flex items-center gap-2">
@@ -905,7 +1036,14 @@ export default function AdminPortal() {
           {sorted.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-14 text-ink-400">
               <Inbox className="size-6" />
-              <p className="text-[12.5px]">No merchants match.</p>
+              <p className="text-[12.5px]">
+                {health ? `No merchants ${HEALTH_LABEL[health]}.` : 'No merchants match.'}
+              </p>
+              {health && (
+                <button onClick={() => setHealth(null)} className="ring-focus text-[12px] font-semibold text-brand-600 dark:text-brand-400">
+                  Clear filter
+                </button>
+              )}
             </div>
           ) : (
             <div className="mt-3 overflow-x-auto">
@@ -921,7 +1059,7 @@ export default function AdminPortal() {
                     <th className="px-2 py-2 text-right">Failing</th>
                     <th className="px-2 py-2">Installed</th>
                     <th className="px-2 py-2">Status</th>
-                    <th className="px-4 py-2" />
+                    <th className="px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -972,7 +1110,13 @@ export default function AdminPortal() {
                           <span className="text-[11px] font-medium text-brand-600 dark:text-brand-400">collecting</span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-right"><ChevronRight className="ml-auto size-4 text-ink-300" /></td>
+                      {/* A row that opens a control panel has to say so. A bare chevron
+                          reads as decoration, and the operations behind it went unfound. */}
+                      <td className="px-4 py-2.5 text-right">
+                        <span className="inline-flex items-center gap-0.5 text-[11.5px] font-semibold text-brand-600 dark:text-brand-400">
+                          Manage <ChevronRight className="size-3.5" />
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
