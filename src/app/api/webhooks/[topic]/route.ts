@@ -4,6 +4,7 @@ import { clearWebhookRegistration } from '@/lib/webhook-health';
 import { db } from '@/lib/db';
 import { recomputeProductRating } from '@/lib/ratings';
 import { handleComplianceTopic } from '@/lib/compliance';
+import { recordJobRun } from '@/lib/job-run';
 
 export async function POST(
   request: NextRequest,
@@ -28,7 +29,18 @@ export async function POST(
     // permanently failing in the Partner Dashboard.
     // Compliance topics are handled before the store lookup: shop/redact arrives after
     // the store may already be gone. Shared with /api/webhooks/compliance.
-    if (await handleComplianceTopic(topic, data, shopDomain)) {
+    // Compliance receipts are recorded, not just logged. Shopify mandates a 2xx on all
+    // three GDPR topics and can delist an app that fails them; "did we actually receive
+    // and handle that redaction" needs an answer better than grep over a log nobody reads.
+    const isCompliance = /^customers[/-](data_request|redact)$|^shop[/-]redact$/.test(topic);
+    if (isCompliance) {
+      const handled = await recordJobRun(
+        `webhook:${topic}`,
+        () => handleComplianceTopic(topic, data, shopDomain),
+        { shop: shopDomain }
+      );
+      if (handled) return NextResponse.json({ received: true });
+    } else if (await handleComplianceTopic(topic, data, shopDomain)) {
       return NextResponse.json({ received: true });
     }
 

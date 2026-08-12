@@ -73,6 +73,7 @@ export interface RetentionResult {
   eventsRedacted: number;
   eventsDeleted: number;
   noncesDeleted: number;
+  jobRunsDeleted: number;
 }
 
 function daysAgo(days: number): Date {
@@ -125,12 +126,19 @@ export async function runRetention(): Promise<RetentionResult> {
     where: { expiresAt: { lt: new Date(now) } },
   });
 
+  // ── Job run history ──
+  // Kept for 90 days: long enough to answer "when did this stop working" and to evidence
+  // GDPR webhook receipts, short enough that an hourly job does not accumulate forever.
+  const jobRunsDeleted = await db.$executeRaw`
+    DELETE FROM "JobRun" WHERE "startedAt" < NOW() - INTERVAL '90 days'`;
+
   return {
     requestsRedacted: requestsRedacted.count,
     requestsDeleted: requestsDeleted.count,
     eventsRedacted: eventsRedacted.count,
     eventsDeleted: eventsDeleted.count,
     noncesDeleted: noncesDeleted.count,
+    jobRunsDeleted,
   };
 }
 

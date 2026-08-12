@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runRetention } from '@/lib/retention';
+import { recordJobRun } from '@/lib/job-run';
 
 /**
  * Scheduled enforcement of the retention policy.
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await runRetention();
+    const result = await recordJobRun('retention', () => runRetention());
     // Logged as well as returned, so the run leaves a trace even when nobody reads the
     // response. This log is the evidence that the policy is actually enforced.
     console.log('[cron/retention]', JSON.stringify(result));

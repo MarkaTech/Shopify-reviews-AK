@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sweepDueRequests } from '@/lib/request-sender';
+import { recordJobRun } from '@/lib/job-run';
 
 /**
  * Hourly sweep of due review-request emails (initial sends and reminders).
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const counts = await sweepDueRequests(200);
+    const counts = await recordJobRun('review-requests', () => sweepDueRequests(200));
     console.log('[cron/review-requests]', JSON.stringify(counts));
     return NextResponse.json({ ok: true, ...counts });
   } catch (error) {

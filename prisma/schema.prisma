@@ -566,6 +566,39 @@ model ReviewTranslation {
 // let the same address be re-mailed by the next merchant and put the shared
 // reputation back at risk.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Background job runs.
+//
+// Nothing recorded whether the scheduled jobs had run. The hourly review-request
+// sweep IS the product's core loop: if GitHub Actions stops firing it — a disabled
+// workflow, a failed billing state, an expired secret — review invitations silently
+// stop going out and the only symptom is a number that gradually stops moving. This
+// is not hypothetical; three consecutive deploys failed unnoticed on 11-12 Aug 2026
+// for exactly this reason, no alert anywhere.
+//
+// Compliance webhook receipts land here too, under job names like
+// "webhook:customers/redact". Shopify mandates a 2xx on all three GDPR topics and can
+// delist an app that fails them, so "did we actually receive and handle it" needs an
+// answer that is not a log line nobody reads.
+// ─────────────────────────────────────────────────────────────────────────────
+model JobRun {
+  id         String    @id @default(cuid())
+  /** "review-requests", "etsy-sync", "retention", "weekly-summary", "webhook:<topic>" */
+  job        String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  /** null = still running (or the process died mid-run, which is itself the signal). */
+  ok         Boolean?
+  /** JSON summary — outcome counts for a sweep, rows touched for a redaction. */
+  summary    String?
+  error      String?
+  /** Set for per-shop work such as a compliance webhook. */
+  shop       String?
+
+  @@index([job, startedAt])
+  @@index([startedAt])
+}
+
 model EmailSuppression {
   id        String   @id @default(cuid())
   email     String   @unique

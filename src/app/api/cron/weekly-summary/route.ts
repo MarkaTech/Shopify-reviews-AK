@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sendWeeklySummary } from '@/lib/notifications';
+import { recordJobRun } from '@/lib/job-run';
 
 /**
  * Weekly digest fan-out.
@@ -35,28 +36,31 @@ export async function POST(request: NextRequest) {
 
   // Only stores that switched the digest on. Selecting every active store and filtering in
   // memory would work today and stop working at scale; the settings table already knows.
-  const optedIn = await db.storeSetting.findMany({
-    where: { key: 'notify.weeklySummary', value: 'true' },
-    select: { storeId: true },
-  });
-
-  const results = { considered: optedIn.length, sent: 0, skipped: 0, failed: 0 };
-
-  for (const { storeId } of optedIn) {
-    const store = await db.store.findUnique({
-      where: { id: storeId },
-      select: { isActive: true },
+  const results = await recordJobRun('weekly-summary', async () => {
+    const optedIn = await db.storeSetting.findMany({
+      where: { key: 'notify.weeklySummary', value: 'true' },
+      select: { storeId: true },
     });
-    if (!store?.isActive) {
-      results.skipped++;
-      continue;
-    }
 
-    const result = await sendWeeklySummary(storeId, since);
-    if (result.sent) results.sent++;
-    else if (result.reason === 'failed') results.failed++;
-    else results.skipped++;
-  }
+    const counts = { considered: optedIn.length, sent: 0, skipped: 0, failed: 0 };
+
+    for (const { storeId } of optedIn) {
+      const store = await db.store.findUnique({
+        where: { id: storeId },
+        select: { isActive: true },
+      });
+      if (!store?.isActive) {
+        counts.skipped++;
+        continue;
+      }
+
+      const result = await sendWeeklySummary(storeId, since);
+      if (result.sent) counts.sent++;
+      else if (result.reason === 'failed') counts.failed++;
+      else counts.skipped++;
+    }
+    return counts;
+  });
 
   console.log('[cron/weekly-summary]', results);
   return NextResponse.json({ success: true, ...results });
