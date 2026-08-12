@@ -735,6 +735,18 @@ export default function AdminPortal() {
   const [openStore, setOpenStore] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [health, setHealth] = useState<HealthFilter | null>(null);
+  const tableRef = React.useRef<HTMLDivElement | null>(null);
+  /**
+   * Picking a health filter scrolls the table into view.
+   *
+   * Without this the feature reads as broken: the merchant table sits two screens below
+   * the alert you clicked, so the only feedback is a chip you cannot see - and when the
+   * filtered set happens to equal the full set, there is no change to notice either.
+   */
+  const pickHealth = useCallback((f: HealthFilter | null) => {
+    setHealth(f);
+    if (f) requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, []);
   const [sweeping, setSweeping] = useState(false);
   const [sweepNote, setSweepNote] = useState('');
 
@@ -921,7 +933,7 @@ export default function AdminPortal() {
             {overview && (
               <Attention
                 active={health}
-                onPick={setHealth}
+                onPick={pickHealth}
                 items={[
                   { label: `${overview.health.needsReauth} store${overview.health.needsReauth === 1 ? '' : 's'} need re-auth`, n: overview.health.needsReauth, hint: 'refresh token expired — the app cannot call Shopify for them at all', severe: true, filter: 'needsReauth' },
                   { label: 'Tokens expiring within 7 days', n: overview.health.tokenExpiringSoon, hint: 'will break silently unless refreshed' },
@@ -983,7 +995,7 @@ export default function AdminPortal() {
         </div>
 
         {/* Merchants table */}
-        <div className="surface mt-6 overflow-hidden rounded-2xl">
+        <div ref={tableRef} className="surface mt-6 scroll-mt-20 overflow-hidden rounded-2xl">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
             <p className="flex flex-wrap items-center gap-2 text-[13px] font-bold text-ink-900 dark:text-white">
               Merchants
@@ -1067,7 +1079,7 @@ export default function AdminPortal() {
                     <tr
                       key={s.id}
                       onClick={() => setOpenStore(s.id)}
-                      className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-ink-50/60 dark:hover:bg-white/[0.03]"
+                      className={`cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-ink-50/60 dark:hover:bg-white/[0.03] ${health ? 'bg-amber-50/40 dark:bg-amber-500/[0.04]' : ''}`}
                     >
                       <td className="max-w-0 truncate px-4 py-2.5">
                         <span className="font-semibold text-ink-800 dark:text-ink-100">{s.name}</span>
