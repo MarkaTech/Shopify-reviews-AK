@@ -347,6 +347,15 @@ export async function sweepDueRequests(limit = 200): Promise<Record<SendOutcome,
     take: MAX_STORES_PER_SWEEP,
   });
 
+  // Stores an operator has paused from the admin portal. A pause is a hold, not a
+  // failure: their requests keep their nextSendAt and are simply not visited this sweep,
+  // so resuming picks up exactly where sending stopped.
+  const pausedRows = await db.storeSetting.findMany({
+    where: { key: 'admin.sendingPaused', value: '1' },
+    select: { storeId: true },
+  });
+  const pausedStores = new Set(pausedRows.map((r) => r.storeId));
+
   const counts: Record<SendOutcome, number> = {
     sent: 0,
     reminder_sent: 0,
@@ -369,6 +378,7 @@ export async function sweepDueRequests(limit = 200): Promise<Record<SendOutcome,
   for (let i = 0; i < storesWithWork.length; i++) {
     if (slots >= limit) break;
     const { storeId } = storesWithWork[i];
+    if (pausedStores.has(storeId)) continue;
 
     // Recomputed each time, over what is actually left and how many stores are left to
     // serve. So the share falls out of how many stores are competing — one store with

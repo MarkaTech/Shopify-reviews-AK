@@ -34,6 +34,16 @@ export function middleware(request: NextRequest) {
       ? `https://${shop} https://admin.shopify.com`
       : 'https://admin.shopify.com';
 
+  // The operator portal is never framed by anyone — not even Shopify — and must not
+  // appear in a search index.
+  if (request.nextUrl.pathname.startsWith('/admin') || request.nextUrl.pathname.startsWith('/api/admin')) {
+    response.headers.set('Content-Security-Policy', "frame-ancestors 'none';");
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    return response;
+  }
+
   response.headers.set('Content-Security-Policy', `frame-ancestors ${ancestors};`);
 
   // Cheap hardening that costs nothing and is expected of a merchant-facing app.
