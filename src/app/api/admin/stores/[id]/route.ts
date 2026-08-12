@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { isAdminRequest } from '@/lib/admin-auth';
-import { getRequestUsage, normalisePlan, PLANS, type PlanId } from '@/lib/plans';
+import { getRequestUsage, normalisePlan, PLANS } from '@/lib/plans';
 
 /**
  * One merchant in detail, and the operations an operator can perform on them.
@@ -70,10 +70,21 @@ export async function GET(
     return `${user.slice(0, 2)}***@${domain}`;
   };
 
+  const note = settings.find((s) => s.key === 'admin.note')?.value ?? '';
+  const handle = store.shopifyDomain?.replace('.myshopify.com', '') ?? null;
+
   return NextResponse.json({
     store,
     usage,
     settings,
+    note,
+    links: handle
+      ? {
+          shopifyAdmin: `https://admin.shopify.com/store/${handle}`,
+          appInAdmin: `https://admin.shopify.com/store/${handle}/apps/reviewmaster-reviews`,
+          storefront: `https://${store.shopifyDomain}`,
+        }
+      : null,
     counts: {
       products: productCount,
       questions: questionCount,
@@ -104,7 +115,10 @@ export async function PATCH(
   const store = await db.store.findUnique({ where: { id }, select: { id: true, shopifyDomain: true, plan: true } });
   if (!store) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  let body: { action?: string; plan?: string } = {};
+  let body: {
+    action?: string; plan?: string; amount?: unknown;
+    note?: unknown; reviewId?: unknown; publish?: unknown;
+  } = {};
   try {
     body = await request.json();
   } catch {
@@ -154,6 +168,132 @@ export async function PATCH(
         return NextResponse.json({ error: 'Reconcile failed — token may need re-auth' }, { status: 502 });
       }
     }
+    case 'resync-products': {
+      // "My products aren't showing" is the single most common support message a
+      // catalogue-backed app gets, and until now the only answer was to ask the merchant
+      // to press a button inside their own admin.
+      try {
+        if (!store.shopifyDomain) return NextResponse.json({ error: 'Store has no domain' }, { status: 400 });
+        const { syncProducts } = await import('@/lib/product-sync');
+        const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
+        const token = await getFreshAccessTokenByStoreId(id);
+        const result = await syncProducts(store.shopifyDomain, store.shopifyDomain, token, tokenRefresherFor(id));
+        return NextResponse.json({ ok: true, note: `Synced: ${result.created} new, ${result.alreadyPresent} already held, ${result.fetched} fetched${result.truncated ? ' (truncated)' : ''}.` });
+      } catch (error) {
+        console.error('[admin] resync failed', error);
+        return NextResponse.json({ error: 'Sync failed — token may need re-auth' }, { status: 502 });
+      }
+    }
+
+    case 'recompute-ratings': {
+      // The local aggregate and the Shopify metafield can drift apart independently, and
+      // when they do the widget and the theme's own stars disagree in front of shoppers.
+      // This rebuilds both from the reviews, which are the only source of truth.
+      try {
+        const { rebuildStoreRatings } = await import('@/lib/ratings');
+        const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
+        let ctx: { shop: string; accessToken: string; onUnauthorized?: () => Promise<string | null> } | undefined;
+        if (store.shopifyDomain) {
+          try {
+            ctx = {
+              shop: store.shopifyDomain,
+              accessToken: await getFreshAccessTokenByStoreId(id),
+              onUnauthorized: tokenRefresherFor(id),
+            };
+          } catch {
+            // Recompute the local aggregates anyway; the metafield push just won't happen.
+            ctx = undefined;
+          }
+        }
+        const result = await rebuildStoreRatings(id, ctx);
+        return NextResponse.json({
+          ok: true,
+          note: `Recomputed ${result.products} product${result.products === 1 ? '' : 's'}${result.failed ? `, ${result.failed} failed` : ''}${ctx ? '' : ' (local only — no valid token, Shopify metafields not updated)'}.`,
+        });
+      } catch (error) {
+        console.error('[admin] recompute failed', error);
+        return NextResponse.json({ error: 'Recompute failed' }, { status: 500 });
+      }
+    }
+
+    case 'retry-failed-sends': {
+      // Clears the backoff for this store: failures back to zero and everything due now.
+      // Correct after the cause was external and is fixed - a rotated provider key, an
+      // outage - where the alternative is waiting out an exponential backoff.
+      const result = await db.reviewRequest.updateMany({
+        where: { storeId: id, sendFailures: { gt: 0 }, nextSendAt: { not: null }, submittedAt: null },
+        data: { sendFailures: 0, nextSendAt: new Date() },
+      });
+      console.warn(`[admin] requeued ${result.count} failed sends for ${store.shopifyDomain} by operator`);
+      return NextResponse.json({ ok: true, note: `${result.count} request${result.count === 1 ? '' : 's'} requeued for the next sweep.` });
+    }
+
+    case 'clear-stuck-imports': {
+      // A job claimed and never finished blocks the merchant from starting another.
+      // Marking it failed is honest and lets them retry; it invents no rows.
+      const cutoff = new Date(Date.now() - 60 * 60 * 1000);
+      const result = await db.importJob.updateMany({
+        where: { storeId: id, status: 'processing', updatedAt: { lt: cutoff } },
+        data: { status: 'failed', errorMessage: 'Cleared by operator — job stalled and never completed.', completedAt: new Date() },
+      });
+      return NextResponse.json({ ok: true, note: `${result.count} stalled import${result.count === 1 ? '' : 's'} cleared.` });
+    }
+
+    case 'grant-quota': {
+      // Comp a merchant extra sends this month without charging them, by crediting the
+      // counter the quota check reads. Upgrading their plan was the only lever before,
+      // and that bills them for our goodwill.
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000) {
+        return NextResponse.json({ error: 'Amount must be between 1 and 10000' }, { status: 400 });
+      }
+      const now = new Date();
+      const key = `usage.requests.${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+      const row = await db.storeSetting.findUnique({ where: { storeId_key: { storeId: id, key } }, select: { value: true } });
+      const used = Number(row?.value ?? 0) || 0;
+      const next = Math.max(0, used - Math.round(amount));
+      await db.storeSetting.upsert({
+        where: { storeId_key: { storeId: id, key } },
+        create: { storeId: id, key, value: String(next) },
+        update: { value: String(next) },
+      });
+      console.warn(`[admin] granted ${amount} request credits to ${store.shopifyDomain}: counter ${used} -> ${next}`);
+      return NextResponse.json({ ok: true, note: `Credited ${Math.round(amount)} sends — this month's counter is now ${next}.` });
+    }
+
+    case 'set-note': {
+      const text = typeof body.note === 'string' ? body.note.slice(0, 2000) : '';
+      await db.storeSetting.upsert({
+        where: { storeId_key: { storeId: id, key: 'admin.note' } },
+        create: { storeId: id, key: 'admin.note', value: text },
+        update: { value: text },
+      });
+      return NextResponse.json({ ok: true, note: 'Note saved.' });
+    }
+
+    case 'set-review-published': {
+      // Moderation on a merchant's behalf, for the cases they cannot handle themselves:
+      // a legal takedown, a review carrying someone's personal data, abuse. Unpublishing
+      // hides it everywhere and is fully reversible - nothing here deletes.
+      const reviewId = typeof body.reviewId === 'string' ? body.reviewId : '';
+      const publish = Boolean(body.publish);
+      if (!reviewId) return NextResponse.json({ error: 'reviewId required' }, { status: 400 });
+      const owned = await db.review.findFirst({ where: { id: reviewId, storeId: id }, select: { id: true, productId: true } });
+      if (!owned) return NextResponse.json({ error: 'Review not found on this store' }, { status: 404 });
+      await db.review.update({ where: { id: reviewId }, data: { isPublished: publish } });
+      // The aggregate counts published reviews only, so it has to follow.
+      if (owned.productId) {
+        try {
+          const { updateProductRating } = await import('@/lib/ratings');
+          await updateProductRating(id, owned.productId);
+        } catch (error) {
+          console.error('[admin] rating update after moderation failed', error);
+        }
+      }
+      console.warn(`[admin] review ${reviewId} ${publish ? 'published' : 'unpublished'} on ${store.shopifyDomain} by operator`);
+      return NextResponse.json({ ok: true, note: `Review ${publish ? 'published' : 'unpublished'}.` });
+    }
+
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
