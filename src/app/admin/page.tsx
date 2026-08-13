@@ -82,6 +82,7 @@ interface JobsPayload {
   jobs: JobRow[];
   staleCritical: number;
   recentFailures: Array<{ job: string; startedAt: string; error: string | null; shop: string | null }>;
+  manualRuns: Array<{ job: string; startedAt: string; ok: boolean | null; summary: string | null }>;
   complianceReceipts: Array<{ topic: string; startedAt: string; ok: boolean | null; shop: string | null; summary: string | null }>;
 }
 
@@ -876,6 +877,18 @@ function JobsPanel({ data }: { data: JobsPayload | null }) {
           </li>
         ))}
       </ul>
+
+      {data.manualRuns.length > 0 && (
+        <p className="mt-3 border-t border-border pt-2.5 text-[11px] text-ink-400">
+          <span className="font-semibold text-ink-600 dark:text-ink-300">Last manual run:</span>{' '}
+          {data.manualRuns[0].job} · {fmtDate(data.manualRuns[0].startedAt)}
+          {data.manualRuns[0].summary ? ` · ${data.manualRuns[0].summary}` : ''}
+          <span className="block">
+            Manual runs are logged separately and deliberately do not reset the staleness
+            clock — pressing the button proves the sweep works, not that the scheduler is firing.
+          </span>
+        </p>
+      )}
 
       {stale.some((j) => j.critical) && (
         <p className="mt-3 rounded-lg bg-red-50 px-2.5 py-2 text-[11.5px] leading-relaxed text-red-800 dark:bg-red-500/10 dark:text-red-200">

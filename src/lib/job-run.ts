@@ -77,11 +77,12 @@ export async function jobHealth(): Promise<{
   latest: JobRunRow[];
   recentFailures: JobRunRow[];
   complianceReceipts: JobRunRow[];
+  manualRuns: JobRunRow[];
 }> {
-  const [latest, recentFailures, complianceReceipts] = await Promise.all([
+  const [latest, recentFailures, complianceReceipts, manualRuns] = await Promise.all([
     db.$queryRaw<JobRunRow[]>`
       SELECT DISTINCT ON ("job") "job", "startedAt", "finishedAt", "ok", "summary", "error", "shop"
-      FROM "JobRun" WHERE "job" NOT LIKE 'webhook:%'
+      FROM "JobRun" WHERE "job" NOT LIKE 'webhook:%' AND "job" NOT LIKE '%:manual'
       ORDER BY "job", "startedAt" DESC`,
     db.$queryRaw<JobRunRow[]>`
       SELECT "job", "startedAt", "finishedAt", "ok", "summary", "error", "shop"
@@ -91,8 +92,12 @@ export async function jobHealth(): Promise<{
       SELECT "job", "startedAt", "finishedAt", "ok", "summary", "error", "shop"
       FROM "JobRun" WHERE "job" LIKE 'webhook:%' AND "startedAt" > NOW() - INTERVAL '30 days'
       ORDER BY "startedAt" DESC LIMIT 20`,
+    db.$queryRaw<JobRunRow[]>`
+      SELECT "job", "startedAt", "finishedAt", "ok", "summary", "error", "shop"
+      FROM "JobRun" WHERE "job" LIKE '%:manual'
+      ORDER BY "startedAt" DESC LIMIT 5`,
   ]);
-  return { latest, recentFailures, complianceReceipts };
+  return { latest, recentFailures, complianceReceipts, manualRuns };
 }
 
 /**

@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { latest, recentFailures, complianceReceipts } = await jobHealth();
+  const { latest, recentFailures, complianceReceipts, manualRuns } = await jobHealth();
   const byJob = new Map(latest.map((r) => [r.job, r]));
   const now = Date.now();
 
@@ -45,6 +45,9 @@ export async function GET(request: NextRequest) {
     staleCritical: jobs.filter((j) => j.critical && j.stale).length,
     recentFailures: recentFailures.map((r) => ({
       job: r.job, startedAt: r.startedAt, error: r.error, shop: r.shop,
+    })),
+    manualRuns: manualRuns.map((r) => ({
+      job: r.job.replace(/:manual$/, ''), startedAt: r.startedAt, ok: r.ok, summary: r.summary,
     })),
     complianceReceipts: complianceReceipts.map((r) => ({
       topic: r.job.replace(/^webhook:/, ''), startedAt: r.startedAt, ok: r.ok, shop: r.shop, summary: r.summary,
