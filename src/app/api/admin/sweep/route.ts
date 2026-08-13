@@ -17,7 +17,15 @@ export async function POST(request: NextRequest) {
   }
   try {
     const { sweepDueRequests } = await import('@/lib/request-sender');
-    const counts = await sweepDueRequests();
+    const { recordJobRun } = await import('@/lib/job-run');
+    // Recorded as ':manual', not as the scheduled job.
+    //
+    // An operator pressing this proves the sweep *works*; it proves nothing about whether
+    // the *scheduler* is firing. If a manual run cleared the staleness alarm it would mask
+    // exactly the failure the alarm exists to catch — you would drain the queue by hand,
+    // see green, and never learn the cron had stopped. So it lands in the history as its
+    // own entry and leaves the scheduled job's clock alone.
+    const counts = await recordJobRun('review-requests:manual', () => sweepDueRequests());
     console.warn('[admin] review-request sweep run on demand by operator', counts);
     return NextResponse.json({ ok: true, counts });
   } catch (error) {
