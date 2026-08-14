@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { jobHealth, JOB_SCHEDULE } from '@/lib/job-run';
+import { emailProvider } from '@/lib/email';
 
 /**
  * Are the background jobs actually running?
@@ -40,7 +41,35 @@ export async function GET(request: NextRequest) {
     };
   });
 
+  /**
+   * Email delivery configuration.
+   *
+   * Added because "sent: 1, failures: 0, and the email never arrived" is otherwise
+   * unanswerable from inside the app. Both common causes look like success at the API:
+   * Resend's shared `onboarding@resend.dev` sender only delivers to the Resend account
+   * owner's own address and silently drops everything else, and an unverified sending
+   * domain behaves the same way. Neither produces a bounce, because the message never
+   * entered the mail system.
+   *
+   * The provider name and the From address are configuration, not secrets. No key,
+   * token or credential is returned here or anywhere in this API.
+   */
+  const provider = emailProvider();
+  const from = process.env.EMAIL_FROM?.trim() || '';
+  const usingSharedTestSender = !from || /@resend\.dev>?$/i.test(from);
+
   return NextResponse.json({
+    email: {
+      provider,
+      from: from || 'ReviewMaster <onboarding@resend.dev>  (default — not configured)',
+      configured: Boolean(provider),
+      usingSharedTestSender,
+      warning: !provider
+        ? 'No email provider configured — review requests cannot be sent at all.'
+        : usingSharedTestSender
+          ? "Sending from Resend's shared test address. It only delivers to the Resend account owner's own email; every other recipient is accepted and silently dropped. Verify a domain and set EMAIL_FROM to it."
+          : null,
+    },
     jobs,
     staleCritical: jobs.filter((j) => j.critical && j.stale).length,
     recentFailures: recentFailures.map((r) => ({
