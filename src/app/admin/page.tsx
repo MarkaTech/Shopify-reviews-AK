@@ -79,6 +79,7 @@ interface JobRow {
   unfinished: boolean; summary: string | null; error: string | null; stale: boolean;
 }
 interface JobsPayload {
+  email: { provider: string | null; from: string; configured: boolean; usingSharedTestSender: boolean; warning: string | null };
   jobs: JobRow[];
   staleCritical: number;
   recentFailures: Array<{ job: string; startedAt: string; error: string | null; shop: string | null }>;
@@ -847,6 +848,17 @@ function JobsPanel({ data }: { data: JobsPayload | null }) {
             <AlertTriangle className="size-3.5" /> {stale.length} stale
           </span>
         )}
+      </div>
+
+      {/* Email delivery. Sits with the jobs because "is mail going out" and "are the
+          jobs running" are the same question asked two ways. */}
+      <div className={`mt-3 rounded-lg px-2.5 py-2 text-[11.5px] ${
+        data.email.warning
+          ? 'bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200'
+          : 'bg-ink-50 text-ink-500 dark:bg-white/[0.04] dark:text-ink-400'}`}>
+        <span className="font-semibold">Email:</span>{' '}
+        {data.email.provider ? data.email.provider : 'not configured'} · {data.email.from}
+        {data.email.warning && <span className="mt-1 block leading-relaxed">{data.email.warning}</span>}
       </div>
 
       <ul className="mt-3 space-y-2">
