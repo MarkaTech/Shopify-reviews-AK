@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Star, Grid, Layers, LayoutList, Columns, MessageSquare, Eye, Sparkles,
   Monitor, Smartphone, Trash2, Save, Loader2, Info, CheckCircle2, Pencil,
-  Check, AlertTriangle, Palette, SlidersHorizontal, ListChecks, Blocks, Lock,
+  Check, AlertTriangle, Palette, SlidersHorizontal, ListChecks, Blocks, Lock, X,
 } from 'lucide-react';
 import { useConfirm } from './confirm';
 import { Input } from '@/components/ui/input';
@@ -283,6 +283,101 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
   );
 }
 
+/** Desktop/mobile switch. Shared so the docked preview cannot drift from the inline one. */
+function DeviceToggle({
+  device,
+  onChange,
+  size = 'md',
+}: {
+  device: 'desktop' | 'mobile';
+  onChange: (d: 'desktop' | 'mobile') => void;
+  size?: 'sm' | 'md';
+}) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-xl bg-ink-100 p-0.5 dark:bg-white/8">
+      {([
+        ['desktop', Monitor, 'Desktop'],
+        ['mobile', Smartphone, 'Mobile'],
+      ] as const).map(([id, Icon, label]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={device === id}
+          onClick={() => onChange(id)}
+          className={cn(
+            'ring-focus inline-flex items-center gap-1.5 rounded-[10px] font-semibold transition-all',
+            size === 'sm' ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-[11.5px]',
+            device === id
+              ? 'bg-card text-ink-900 shadow-[var(--elev-1)] dark:text-white'
+              : 'text-ink-500 hover:text-ink-700 dark:hover:text-ink-200'
+          )}
+        >
+          <Icon className="size-3.5" strokeWidth={2.4} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The preview stage — browser chrome, the rendered widget, and the summary pills.
+ *
+ * Extracted so the panel in the right column and the docked panel render the identical
+ * thing from the identical state. Two copies of this would eventually disagree, and a
+ * preview that disagrees with itself is worse than no preview.
+ */
+function PreviewStage({
+  selectedType,
+  cfg,
+  device,
+  placement,
+}: {
+  selectedType: string;
+  cfg: WidgetConfigShape;
+  device: 'desktop' | 'mobile';
+  placement: string;
+}) {
+  return (
+    <>
+      {/* A stage rather than a plain box: chrome + grid backdrop reads as "your store". */}
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-ink-50/80 dark:bg-white/[0.02]">
+        <div className="grid-lines pointer-events-none absolute inset-0" aria-hidden />
+
+        <div className="relative flex items-center gap-2 border-b border-border bg-card/70 px-3 py-2 backdrop-blur-sm">
+          <span className="flex shrink-0 gap-1.5" aria-hidden>
+            <span className="size-2.5 rounded-full bg-rose-400/80" />
+            <span className="size-2.5 rounded-full bg-amber-400/80" />
+            <span className="size-2.5 rounded-full bg-brand-400/80" />
+          </span>
+          <span className="ml-1 flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-ink-100 px-2.5 py-1 text-[10.5px] text-ink-500 dark:bg-white/8">
+            <Lock className="size-2.5 shrink-0" strokeWidth={2.6} />
+            <span className="truncate">
+              your-store.myshopify.com{placement === 'product_page' ? '/products/…' : placement === 'collection_page' ? '/collections/…' : ''}
+            </span>
+          </span>
+          <span className="tnum hidden shrink-0 rounded-full bg-ink-100 px-2 py-0.5 text-[10.5px] font-semibold text-ink-500 sm:inline-block dark:bg-white/8">
+            {device === 'mobile' ? '375px' : 'Desktop'}
+          </span>
+        </div>
+
+        <div className={cn('relative p-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
+          <Preview type={selectedType} cfg={cfg} device={device} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <Pill tone="indigo">{widgetTypes.find(w => w.id === selectedType)?.name ?? selectedType}</Pill>
+        <Pill tone="cyan">{placements.find(p => p.value === placement)?.label ?? 'Anywhere'}</Pill>
+        <Pill tone="neutral" className="tnum">{cfg.maxReviews} shown</Pill>
+        {USES_COLUMNS.has(selectedType) && (
+          <Pill tone="neutral" className="tnum">{cfg.columns} columns</Pill>
+        )}
+      </div>
+    </>
+  );
+}
+
 /** One label treatment for every field in the builder, so the form reads as one form. */
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -309,6 +404,44 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
   const [placement, setPlacement] = useState('product_page');
   const [cfg, setCfg] = useState<WidgetConfigShape>({ ...DEFAULT_WIDGET_CONFIG });
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
+
+  /**
+   * The preview lives in the right column, which collapses under the form on anything
+   * narrower than a large desktop — and Shopify's embedded frame is narrower than the
+   * browser window, so merchants on a laptop were scrolling past the whole builder to
+   * check a colour. Rather than guess a breakpoint, watch the real element: the moment
+   * the preview leaves the viewport, a tab appears on the right edge that opens a docked
+   * copy of it. When the preview is on screen, neither the tab nor the dock exists.
+   */
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [previewInView, setPreviewInView] = useState(true);
+  const [dockOpen, setDockOpen] = useState(false);
+
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      entries => setPreviewInView(entries[0]?.isIntersecting ?? true),
+      // A third of the stage showing is enough to judge a change by; demanding more would
+      // pop the tab in and out while the merchant scrolls.
+      { threshold: 0.33 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  // Escape closes the dock, as it would any transient surface — even though this one is
+  // deliberately non-modal.
+  useEffect(() => {
+    if (!dockOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDockOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dockOpen]);
+
+  // Derived rather than an effect: scrolling the real preview back into view retires the
+  // dock without ever leaving two previews on screen disagreeing about which is live.
+  const showDock = dockOpen && !previewInView;
 
   // `loading` starts true and is only ever cleared, so this never calls setState
   // synchronously from the effect body. A silent refetch after saving is also the better
@@ -433,7 +566,13 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
   };
 
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+    <>
+    {/*
+      Two columns from 1024px rather than 1280px. Shopify's admin chrome takes roughly
+      250px off the browser window before the app frame starts, so a 1440px laptop was
+      landing in the single-column layout and burying the preview under the entire form.
+    */}
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
       {/* ── Left: type, settings, saved widgets ────────────────────────────────── */}
       <div className="stagger space-y-4">
         <Panel>
@@ -781,66 +920,10 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
               description="Built from the settings on the left."
               icon={Eye}
               tone="brand"
-              action={
-                <div className="flex items-center gap-0.5 rounded-xl bg-ink-100 p-0.5 dark:bg-white/8">
-                  {([
-                    ['desktop', Monitor, 'Desktop'],
-                    ['mobile', Smartphone, 'Mobile'],
-                  ] as const).map(([id, Icon, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-pressed={device === id}
-                      onClick={() => setDevice(id)}
-                      className={cn(
-                        'ring-focus inline-flex items-center gap-1.5 rounded-[10px] px-2.5 py-1.5 text-[11.5px] font-semibold transition-all',
-                        device === id
-                          ? 'bg-card text-ink-900 shadow-[var(--elev-1)] dark:text-white'
-                          : 'text-ink-500 hover:text-ink-700 dark:hover:text-ink-200'
-                      )}
-                    >
-                      <Icon className="size-3.5" strokeWidth={2.4} />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              }
+              action={<DeviceToggle device={device} onChange={setDevice} />}
             />
-            <div className="px-5 pb-5">
-              {/* A stage rather than a plain box: chrome + grid backdrop reads as "your store". */}
-              <div className="relative overflow-hidden rounded-2xl border border-border bg-ink-50/80 dark:bg-white/[0.02]">
-                <div className="grid-lines pointer-events-none absolute inset-0" aria-hidden />
-
-                <div className="relative flex items-center gap-2 border-b border-border bg-card/70 px-3 py-2 backdrop-blur-sm">
-                  <span className="flex shrink-0 gap-1.5" aria-hidden>
-                    <span className="size-2.5 rounded-full bg-rose-400/80" />
-                    <span className="size-2.5 rounded-full bg-amber-400/80" />
-                    <span className="size-2.5 rounded-full bg-brand-400/80" />
-                  </span>
-                  <span className="ml-1 flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-ink-100 px-2.5 py-1 text-[10.5px] text-ink-500 dark:bg-white/8">
-                    <Lock className="size-2.5 shrink-0" strokeWidth={2.6} />
-                    <span className="truncate">
-                      your-store.myshopify.com{placement === 'product_page' ? '/products/…' : placement === 'collection_page' ? '/collections/…' : ''}
-                    </span>
-                  </span>
-                  <span className="tnum hidden shrink-0 rounded-full bg-ink-100 px-2 py-0.5 text-[10.5px] font-semibold text-ink-500 sm:inline-block dark:bg-white/8">
-                    {device === 'mobile' ? '375px' : 'Desktop'}
-                  </span>
-                </div>
-
-                <div className={cn('relative p-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
-                  <Preview type={selectedType} cfg={cfg} device={device} />
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                <Pill tone="indigo">{widgetTypes.find(w => w.id === selectedType)?.name ?? selectedType}</Pill>
-                <Pill tone="cyan">{placements.find(p => p.value === placement)?.label ?? 'Anywhere'}</Pill>
-                <Pill tone="neutral" className="tnum">{cfg.maxReviews} shown</Pill>
-                {USES_COLUMNS.has(selectedType) && (
-                  <Pill tone="neutral" className="tnum">{cfg.columns} columns</Pill>
-                )}
-              </div>
+            <div className="px-5 pb-5" ref={previewRef}>
+              <PreviewStage selectedType={selectedType} cfg={cfg} device={device} placement={placement} />
             </div>
           </Panel>
 
@@ -918,5 +1001,54 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
         </div>
       </div>
     </div>
+
+    {/*
+      The floating preview. Only exists while the real one is off screen, so it never
+      competes with it. Non-modal on purpose — no overlay, no focus trap — because the
+      point is to keep editing the form on the left and watch this update as you type.
+    */}
+    {!previewInView && !showDock && (
+      <button
+        type="button"
+        onClick={() => setDockOpen(true)}
+        aria-label="Show live preview"
+        className="animate-rise ring-focus fixed right-0 top-1/2 z-40 flex -translate-y-1/2 flex-col items-center gap-2 rounded-l-2xl bg-brand-600 px-2.5 py-4 text-white shadow-[var(--elev-3)] transition-colors hover:bg-brand-700"
+      >
+        <Eye className="size-4" strokeWidth={2.4} />
+        <span className="text-[11.5px] font-semibold tracking-wide [writing-mode:vertical-rl]">
+          Preview
+        </span>
+      </button>
+    )}
+
+    {showDock && (
+      <aside
+        role="region"
+        aria-label="Live preview"
+        className="animate-rise fixed bottom-3 right-3 top-24 z-40 flex w-[min(420px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--elev-4)]"
+      >
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20">
+            <Eye className="size-3.5" strokeWidth={2.4} />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink-900 dark:text-white">
+            Live preview
+          </span>
+          <DeviceToggle device={device} onChange={setDevice} size="sm" />
+          <button
+            type="button"
+            onClick={() => setDockOpen(false)}
+            aria-label="Close preview"
+            className="ring-focus inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-800 dark:hover:bg-white/8 dark:hover:text-white"
+          >
+            <X className="size-4" strokeWidth={2.4} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <PreviewStage selectedType={selectedType} cfg={cfg} device={device} placement={placement} />
+        </div>
+      </aside>
+    )}
+    </>
   );
 }
