@@ -144,9 +144,22 @@ export default function Home() {
         const params = new URLSearchParams(window.location.search);
         if (params.get('billing') === 'success') {
           params.delete('billing');
+          const confirmed = await apiFetch<{ activated?: boolean }>('/api/billing/confirm').catch(
+            () => undefined
+          );
+
+          // Land on the Plan tab with the upgrade marked, rather than dropping the
+          // merchant back wherever they happened to be. They have just paid for a named
+          // feature; the next screen should say what they got and where it lives.
+          // Declines resolve to the free plan and get none of this.
+          if (confirmed?.activated) {
+            params.set('page', 'settings');
+            params.set('upgraded', '1');
+            setCurrentPage('settings');
+          }
+
           const rest = params.toString();
           window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
-          await apiFetch('/api/billing/confirm').catch(() => undefined);
         }
       }
 
