@@ -1041,6 +1041,11 @@
           c.classList.toggle('is-on', on);
           c.setAttribute('aria-checked', String(i + 1 === chosen));
         });
+        // Clear "Please choose a star rating." the moment they choose one. Without this
+        // the error stayed on screen through a valid, successful submission, telling the
+        // shopper their review had failed when it had not.
+        var formStatus = form.querySelector('[data-rm-form-status]');
+        if (formStatus && chosen > 0) formStatus.textContent = '';
       });
     }
 

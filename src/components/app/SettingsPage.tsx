@@ -5,6 +5,7 @@ import {
   Settings, Bell, Palette, CheckCircle, CreditCard, Crown, AlertTriangle,
   RotateCcw, Send, Loader2, Check, Sparkles, Mail, Clock, Eye, Code2, Compass,
   ShieldCheck, SlidersHorizontal, Camera, BookOpen, ArrowUpRight, Globe, Copy,
+  Plug, RefreshCw, MessageSquare, Gift, ChevronRight, Video,
 } from 'lucide-react';
 import { useConfirm } from './confirm';
 import { Input } from '@/components/ui/input';
@@ -87,6 +88,8 @@ interface Usage {
   requests: { used: number; limit: number | null; percentUsed: number; resetsAt: string };
   reviews: { used: number; limit: number | null; percentUsed: number };
   widgets: { used: number; limit: number | null; percentUsed: number };
+  /** Mirrors PlanLimits' boolean flags. The server is what enforces them. */
+  features?: Record<string, boolean>;
 }
 
 /**
@@ -232,6 +235,33 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   const [feedCopied, setFeedCopied] = useState(false);
   const [testing, setTesting] = useState(false);
   const [usage, setUsage] = useState<Usage | null>(null);
+
+  /**
+   * Tabs are controlled rather than uncontrolled, for two reasons: the Plan tab links
+   * straight to the features a plan unlocks, and a merchant returning from Shopify's
+   * approval screen is dropped on the Plan tab with `?upgraded=1` so the thing they just
+   * paid for is the first thing they see.
+   */
+  const [tab, setTab] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'general';
+    return new URLSearchParams(window.location.search).get('upgraded') === '1'
+      ? 'subscription'
+      : 'general';
+  });
+  const [justUpgraded, setJustUpgraded] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('upgraded') === '1';
+  });
+
+  // Clear the marker from the URL once it has been read, so a reload or a shared link
+  // does not keep announcing an upgrade that happened days ago.
+  useEffect(() => {
+    if (!justUpgraded || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    params.delete('upgraded');
+    const rest = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+  }, [justUpgraded]);
   const [upgrading, setUpgrading] = useState<string | null>(null);
 
   // Only what the merchant actually changed is sent. Sending the whole config on every
@@ -274,6 +304,24 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   useEffect(load, [load]);
 
   const currentPlan = usage?.plan ?? 'free';
+
+  /**
+   * Entitled features that have somewhere to go, in the order a merchant meets them.
+   *
+   * Driven by `usage.features` — the same flags the server gates on — rather than a
+   * hardcoded per-plan list, so this cannot drift from what the merchant actually has.
+   * Anything without a destination (unlimited reviews, a bigger send quota) is left out:
+   * a row that goes nowhere teaches people the rows are not worth clicking.
+   */
+  const unlocked = (
+    [
+      { key: 'googleFeed', label: 'Google Shopping star ratings', where: 'Settings → Integrations', icon: Globe, tone: 'cyan' as const, go: () => setTab('integrations') },
+      { key: 'questionsAndAnswers', label: 'Questions & answers', where: 'The Questions screen', icon: MessageSquare, tone: 'indigo' as const, go: () => onNavigate?.('questions') },
+      { key: 'incentives', label: 'Review incentives', where: 'The Incentives screen', icon: Gift, tone: 'amber' as const, go: () => onNavigate?.('incentives') },
+      { key: 'videoReviews', label: 'Video reviews', where: 'Settings → General → What shoppers can attach', icon: Video, tone: 'violet' as const, go: () => setTab('general') },
+      { key: 'reminderEmails', label: 'Automatic reminders', where: 'Settings → Notifications → Review request timing', icon: Clock, tone: 'brand' as const, go: () => setTab('notifications') },
+    ] as const
+  ).filter(f => usage?.features?.[f.key]);
 
   // ── Config editing ────────────────────────────────────────────────────────────────
   const setBehaviour = (field: string, value: string | number | boolean) => {
@@ -576,11 +624,12 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
         </ActionButton>
       </div>
 
-      <Tabs defaultValue="general" className="gap-5">
+      <Tabs value={tab} onValueChange={setTab} className="gap-5">
         <TabsList className="no-scrollbar h-auto w-full justify-start gap-0.5 overflow-x-auto rounded-xl bg-ink-100 p-0.5 dark:bg-white/5">
           <TabsTrigger value="general" className={tabTrigger}><Settings className="size-3.5" />General</TabsTrigger>
           <TabsTrigger value="display" className={tabTrigger}><Palette className="size-3.5" />Display</TabsTrigger>
           <TabsTrigger value="notifications" className={tabTrigger}><Bell className="size-3.5" />Notifications</TabsTrigger>
+          <TabsTrigger value="integrations" className={tabTrigger}><Plug className="size-3.5" />Integrations</TabsTrigger>
           <TabsTrigger value="subscription" className={tabTrigger}><CreditCard className="size-3.5" />Plan</TabsTrigger>
         </TabsList>
 
@@ -853,7 +902,16 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
               </div>
             </Panel>
 
-            {/* ── Google Shopping ── */}
+            {/* Google Shopping used to sit here, under Custom CSS. It is not a display
+                setting — it is a place your reviews get published to — and a merchant who
+                had just upgraded for it went looking on the Plan tab and found nothing.
+                It now lives on its own Integrations tab. */}
+          </div>
+        </TabsContent>
+
+        {/* ── Integrations ──────────────────────────────────────────────────────────── */}
+        <TabsContent value="integrations">
+          <div className="space-y-4">
             <Panel>
               <PanelHeader
                 icon={Globe}
@@ -910,13 +968,37 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                       </p>
                     </div>
 
-                    <button
-                      onClick={() => issueFeedUrl(true)}
-                      disabled={feedBusy}
-                      className="ring-focus mt-3 rounded text-[12px] font-semibold text-ink-500 transition-colors hover:text-rose-600 disabled:opacity-50"
-                    >
-                      {feedBusy ? 'Working…' : 'Generate a new URL (the current one stops working)'}
-                    </button>
+                    {/*
+                      Rotation was a bare text link under everything else, which read as
+                      a footnote rather than a control — and this is the only way to
+                      revoke a URL that has leaked into a screenshot, a support ticket or
+                      a shared spreadsheet. It needs to be findable at the moment someone
+                      realises they need it. Still not a primary button: it destroys a
+                      working feed, so it sits behind its own divider and states the
+                      consequence before the click, not after.
+                    */}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-ink-50/70 p-3.5 dark:bg-white/[0.03]">
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">
+                          Replace this URL
+                        </p>
+                        <p className="mt-0.5 max-w-md text-[11.5px] leading-snug text-ink-500">
+                          Use this if the URL has been shared somewhere it should not have
+                          been. The current one stops working immediately, so you will need
+                          to paste the new one into Merchant Center.
+                        </p>
+                      </div>
+                      <ActionButton
+                        size="sm"
+                        variant="outline"
+                        icon={RefreshCw}
+                        onClick={() => issueFeedUrl(true)}
+                        disabled={feedBusy}
+                        className="border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-400/30 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                      >
+                        {feedBusy ? 'Working…' : 'Generate a new URL'}
+                      </ActionButton>
+                    </div>
                   </>
                 ) : feedLoadFailed ? (
                   // Deliberately no "Create feed URL" here. We do not know whether one
@@ -957,6 +1039,48 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                     </ActionButton>
                   </div>
                 )}
+              </div>
+            </Panel>
+
+            {/*
+              The other two places reviews leave this app. Neither is configured here, so
+              these are signposts rather than controls — but "what is ReviewMaster
+              connected to" is a question a merchant asks in Settings, and answering it
+              with silence sends them hunting through every screen.
+            */}
+            <Panel>
+              <PanelHeader
+                icon={Plug}
+                tone="ink"
+                title="Set up elsewhere"
+                description="Two more connections, each configured on its own screen."
+              />
+              <div className="divide-y divide-border border-t border-border">
+                {([
+                  {
+                    page: 'bulk-upload' as PageId,
+                    title: 'Etsy',
+                    body: 'Pull your Etsy reviews in and keep them in sync weekly. Connected from the Import screen.',
+                  },
+                  {
+                    page: 'widgets' as PageId,
+                    title: 'Your storefront',
+                    body: 'The theme block that puts reviews on your product pages, and the one-click link that installs it.',
+                  },
+                ]).map(row => (
+                  <button
+                    key={row.page}
+                    type="button"
+                    onClick={() => onNavigate?.(row.page)}
+                    className="ring-focus flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-ink-50 dark:hover:bg-white/[0.03]"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-semibold text-ink-800 dark:text-white">{row.title}</span>
+                      <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-500">{row.body}</span>
+                    </span>
+                    <ChevronRight className="size-4 shrink-0 text-ink-400" strokeWidth={2.4} />
+                  </button>
+                ))}
               </div>
             </Panel>
           </div>
@@ -1156,6 +1280,43 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                 </div>
               )}
             </Panel>
+
+            {/*
+              Where the thing you just paid for actually lives.
+
+              A merchant upgrades for one named feature, lands back on this tab, and every
+              route to that feature is somewhere else in the app — Google Shopping was two
+              tabs away under Custom CSS. Paying and then not finding it is how a
+              subscription gets cancelled in week one. Only entitled features are listed:
+              this is a map, not a second pricing table.
+            */}
+            {unlocked.length > 0 && (
+              <Panel className={cn(justUpgraded && 'is-selected-strong')}>
+                <PanelHeader
+                  icon={Sparkles}
+                  tone="brand"
+                  title={justUpgraded ? 'You just unlocked these' : `Included in ${usage?.planLabel ?? 'your plan'}`}
+                  description="Everything your plan adds, and where to find it."
+                />
+                <div className="divide-y divide-border border-t border-border">
+                  {unlocked.map(f => (
+                    <button
+                      key={f.key}
+                      type="button"
+                      onClick={f.go}
+                      className="ring-focus flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-ink-50 dark:hover:bg-white/[0.03]"
+                    >
+                      <Tile icon={f.icon} tone={f.tone} size="sm" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12.5px] font-semibold text-ink-800 dark:text-white">{f.label}</span>
+                        <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-500">{f.where}</span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-ink-400" strokeWidth={2.4} />
+                    </button>
+                  ))}
+                </div>
+              </Panel>
+            )}
 
             <div className="grid grid-cols-1 gap-4 pt-3 md:grid-cols-2 xl:grid-cols-4">
               {plans.map(plan => (
