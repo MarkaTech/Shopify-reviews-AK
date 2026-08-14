@@ -155,9 +155,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // decision, the merchant's switches are the rule, and every byte is sniffed before it
     // goes anywhere. Validation is synchronous so a wrong file is rejected before the
     // review is written — the buyer can fix it and resubmit without creating a duplicate.
+    // Fetched once and used twice: media validation below, and the auto-publish decision
+    // when the reviews are written. Both are the same merchant's rules.
+    const rules = await getSubmissionRules(storeId);
+
     const validatedByKey = new Map<string, ValidatedFile[]>();
     if (mediaByKey.size) {
-      const rules = await getSubmissionRules(storeId);
       const allFiles = [...mediaByKey.values()].flat();
       const images = allFiles.filter(f => !f.type.startsWith('video/'));
       const videos = allFiles.filter(f => f.type.startsWith('video/'));
@@ -213,8 +216,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           verificationStatus: 'verified_buyer',
           shopifyOrderId: state.request.shopifyOrderId,
           sentiment: r.rating! >= 4 ? 'positive' : r.rating! <= 2 ? 'negative' : 'neutral',
-          // Merchants moderate before anything appears on the storefront.
-          isPublished: false,
+          // Honours the merchant's auto-publish setting, exactly as the storefront widget
+          // does. This used to be a hardcoded false, which meant a merchant who turned
+          // auto-publish on got it applied to anonymous public submissions and silently
+          // ignored for these — the reviews arriving through a single-use token issued
+          // against a real paid order, which are the most trustworthy ones the product
+          // produces. The safer path was the one being held.
+          isPublished: rules.autoPublish,
           reviewDate: new Date(),
         },
         select: { id: true },
