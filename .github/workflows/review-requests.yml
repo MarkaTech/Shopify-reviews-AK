@@ -1,10 +1,17 @@
 name: Review request sender
 
-# Hourly at :40 — off the hour, away from retention's 03:20, so the two jobs never
-# compete for the same Burstable database credits.
+# The hourly schedule now lives in Azure, not here.
+#
+# GitHub's cron is best-effort and behaved like it: on 14 August this job missed two
+# consecutive ticks, and the two daily workflows both ran about 4h40m late. The sweep is
+# the product's core loop, so it moved to an Azure Logic App, which has since fired at
+# :40:25 three hours running. See infra/README.md.
+#
+# workflow_dispatch stays. Running it by hand is still useful, and the sweep claims rows
+# atomically, so a manual run alongside the Logic App cannot double-send.
 on:
-  schedule:
-    - cron: '40 * * * *'
+  # schedule:
+  #   - cron: '40 * * * *'   # replaced by the Azure Logic App reviewmaster-review-requests
   workflow_dispatch:
 
 jobs:
