@@ -1,0 +1,155 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "comments": [
+      "Hourly trigger for the review-request sweep.",
+      "",
+      "Why this exists: the sweep ran on GitHub Actions cron, which is best-effort and",
+      "documented as such. Observed on 14 August 2026: the hourly job missed two",
+      "consecutive ticks, and both daily jobs ran roughly 4h40m behind schedule. No sends",
+      "are lost when a tick is missed -- the sweep claims every request where nextSendAt",
+      "<= now, so a late run catches up on the whole backlog -- but a merchant's review",
+      "invitations arriving hours late is not something to ship.",
+      "",
+      "A Logic App recurrence is the smallest thing that fixes it: no infrastructure to",
+      "keep alive, its own run history, and it can raise an alert when a run fails.",
+      "",
+      "The daily jobs (retention, etsy-sync, weekly-summary) deliberately stay on GitHub",
+      "Actions. Being a few hours late costs nothing there."
+    ]
+  },
+  "parameters": {
+    "logicAppName": {
+      "type": "string",
+      "defaultValue": "reviewmaster-review-requests",
+      "metadata": { "description": "Name of the Logic App workflow." }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": { "description": "Defaults to the resource group's region." }
+    },
+    "appUrl": {
+      "type": "string",
+      "defaultValue": "https://reviewmaster-app.azurewebsites.net",
+      "metadata": { "description": "Base URL of the app. No trailing slash." }
+    },
+    "cronSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Must match the CRON_SECRET app setting on the Web App, and the CRON_SECRET GitHub secret. Passed as a securestring so it is never written to the template, the repo, or the deployment log."
+      }
+    },
+    "minuteOfHour": {
+      "type": "int",
+      "defaultValue": 40,
+      "minValue": 0,
+      "maxValue": 59,
+      "metadata": {
+        "description": "Minute past each hour to fire. 40 matches the GitHub schedule it replaces, so the handover is invisible in the JobRun history."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[parameters('location')]",
+      "tags": {
+        "app": "reviewmaster",
+        "purpose": "review-request-sweep"
+      },
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "cronSecret": { "type": "securestring" }
+          },
+          "triggers": {
+            "Every_hour": {
+              "type": "Recurrence",
+              "recurrence": {
+                "frequency": "Hour",
+                "interval": 1,
+                "timeZone": "UTC",
+                "schedule": {
+                  "minutes": ["[parameters('minuteOfHour')]"]
+                }
+              }
+            }
+          },
+          "actions": {
+            "Sweep_review_requests": {
+              "type": "Http",
+              "runAfter": {},
+              "inputs": {
+                "method": "POST",
+                "uri": "[concat(parameters('appUrl'), '/api/cron/review-requests')]",
+                "headers": {
+                  "x-cron-secret": "@parameters('cronSecret')"
+                }
+              },
+              "runtimeConfiguration": {
+                "contentTransfer": { "transferMode": "Chunked" }
+              },
+              "operationOptions": "DisableAsyncPattern",
+              "retryPolicy": {
+                "type": "exponential",
+                "count": 4,
+                "interval": "PT20S",
+                "minimumInterval": "PT10S",
+                "maximumInterval": "PT5M"
+              },
+              "limit": { "timeout": "PT5M" }
+            },
+            "Fail_the_run_if_the_sweep_did_not_return_200": {
+              "type": "If",
+              "runAfter": {
+                "Sweep_review_requests": ["Succeeded", "Failed", "TimedOut"]
+              },
+              "expression": {
+                "not": {
+                  "equals": [
+                    "@outputs('Sweep_review_requests')?['statusCode']",
+                    200
+                  ]
+                }
+              },
+              "actions": {
+                "Mark_failed": {
+                  "type": "Terminate",
+                  "inputs": {
+                    "runStatus": "Failed",
+                    "runError": {
+                      "code": "SweepFailed",
+                      "message": "@{concat('Review-request sweep returned ', coalesce(string(outputs('Sweep_review_requests')?['statusCode']), 'no response'))}"
+                    }
+                  }
+                }
+              },
+              "else": { "actions": {} }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "cronSecret": { "value": "[parameters('cronSecret')]" }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "logicAppName": {
+      "type": "string",
+      "value": "[parameters('logicAppName')]"
+    },
+    "nextSteps": {
+      "type": "string",
+      "value": "Run the workflow once by hand, confirm /api/admin/jobs shows a fresh review-requests run, then disable the GitHub Actions schedule in .github/workflows/review-requests.yml."
+    }
+  }
+}
