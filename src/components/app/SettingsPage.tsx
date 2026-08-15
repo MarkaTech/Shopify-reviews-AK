@@ -214,6 +214,16 @@ function UsageBar({
   );
 }
 
+/**
+ * Field names as the merchant sees them, for reporting a clamped value back. Keyed by the
+ * server's field name so the two cannot drift apart silently.
+ */
+const TIMING_LABELS: Record<string, string> = {
+  delayDays: 'Days after fulfilment',
+  reminders: 'Reminders',
+  reminderGapDays: 'Days between sends',
+};
+
 export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?: (page: PageId) => void; storeDomain?: string }) {
   const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
@@ -387,11 +397,23 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
       }
 
       if (Object.keys(dirtyReq).length) {
-        await apiFetch('/api/request-settings', {
+        // The response is used, not discarded. `reminderGapDays` has a floor of one day,
+        // so typing 0 stores 1 — and the old code threw the response away, left the 0 on
+        // screen and said "Saved", which is the app telling the merchant something untrue.
+        const res = await apiFetch<{
+          settings: { delayDays: number; reminders: number; reminderGapDays: number };
+          adjusted?: Array<{ field: string; requested: number; applied: number; min: number; max: number }>;
+        }>('/api/request-settings', {
           method: 'PUT',
           body: JSON.stringify({ updates: dirtyReq }),
         });
+        setReqSettings(res.settings);
         setDirtyReq({});
+        for (const a of res.adjusted ?? []) {
+          toast.warning(`${TIMING_LABELS[a.field] ?? a.field} saved as ${a.applied}, not ${a.requested}`, {
+            description: `Allowed range is ${a.min} to ${a.max}.`,
+          });
+        }
       }
 
       if (Object.keys(dirtyNotif).length) {
@@ -1149,7 +1171,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                 description="The review invitation is sent this many days after an order is fulfilled — give the parcel time to arrive. Reminders only go to customers who haven’t reviewed yet, and an unsubscribe stops everything."
               />
               <div className="divide-y divide-border border-t border-border">
-                <SettingRow htmlFor="delayDays" title="Days after fulfilment">
+                <SettingRow htmlFor="delayDays" title="Days after fulfilment (0–60)">
                   <Input id="delayDays" type="number" min={0} max={60} className="h-9 w-[120px] rounded-xl text-[13px]"
                     value={reqSettings?.delayDays ?? 14}
                     onChange={e => setReqField('delayDays', Number(e.target.value))} />
@@ -1159,7 +1181,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                     value={reqSettings?.reminders ?? 1}
                     onChange={e => setReqField('reminders', Number(e.target.value))} />
                 </SettingRow>
-                <SettingRow htmlFor="reminderGapDays" title="Days between sends">
+                <SettingRow htmlFor="reminderGapDays" title="Days between sends (1–14)">
                   <Input id="reminderGapDays" type="number" min={1} max={14} className="h-9 w-[120px] rounded-xl text-[13px]"
                     value={reqSettings?.reminderGapDays ?? 7}
                     onChange={e => setReqField('reminderGapDays', Number(e.target.value))} />

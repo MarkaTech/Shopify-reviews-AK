@@ -71,11 +71,21 @@ export async function getRequestSettings(storeId: string): Promise<RequestSettin
   return out;
 }
 
+/** A value that was stored, but not the one that was asked for. */
+export interface AdjustedSetting {
+  field: keyof RequestSettings;
+  requested: number;
+  applied: number;
+  min: number;
+  max: number;
+}
+
 export async function saveRequestSettings(
   storeId: string,
   updates: Record<string, string>
-): Promise<{ saved: number; rejected: string[] }> {
+): Promise<{ saved: number; rejected: string[]; adjusted: AdjustedSetting[] }> {
   const rejected: string[] = [];
+  const adjusted: AdjustedSetting[] = [];
   let saved = 0;
 
   for (const [key, rawValue] of Object.entries(updates)) {
@@ -89,6 +99,18 @@ export async function saveRequestSettings(
       rejected.push(key);
       continue;
     }
+
+    // Clamping is the right behaviour — pulling an out-of-range number to the nearest
+    // legal one beats refusing the whole save. Doing it *silently* is not: a merchant who
+    // types 0 into "days between sends" and reads "Saved" walks away believing reminders
+    // go out the same day, when the floor is one. Reported here so the client can say so,
+    // the same way the storefront-config save already reports rejected keys.
+    const requested = Math.round(Number(rawValue));
+    if (Number.isFinite(requested) && requested !== v) {
+      const [min, max] = LIMITS[field];
+      adjusted.push({ field, requested, applied: v, min, max });
+    }
+
     await db.storeSetting.upsert({
       where: { storeId_key: { storeId, key } },
       create: { storeId, key, value: String(v) },
@@ -96,5 +118,5 @@ export async function saveRequestSettings(
     });
     saved++;
   }
-  return { saved, rejected };
+  return { saved, rejected, adjusted };
 }
