@@ -10,15 +10,24 @@ import { suppress } from '@/lib/suppression';
  * invitations will press it. That is a complaint against a sending domain every merchant
  * on this platform shares, and SES suspends above 0.1%.
  *
- * Token, not a raw address
- * ------------------------
- * The link carries an HMAC of the address rather than the address itself, so:
+ * The address is *inside* the token, not beside it
+ * ------------------------------------------------
+ * This used to be `?email=someone@example.com&t=<hmac>`. The HMAC did its job — the URL
+ * could not be edited to unsubscribe somebody else, which would otherwise be a
+ * denial-of-email attack on every merchant's customers at once — but the comment here
+ * claimed the address "does not appear in a URL, so it stays out of proxy logs, referrer
+ * headers and browser history", and it plainly did appear. Azure App Service records full
+ * query strings; so does every proxy and CDN in front of it. A customer's address was
+ * written to access logs on every unsubscribe, and shown in the address bar of whoever
+ * clicked — which is how it ends up in a screenshot.
  *
- *   - The URL cannot be edited to unsubscribe somebody else. A plain `?email=` parameter
- *     would let anyone suppress any address they can guess, which is a denial-of-email
- *     attack on every merchant's customers at once.
- *   - The address does not appear in a URL, so it stays out of proxy logs, referrer
- *     headers and browser history.
+ * The address is now encrypted into the token with AES-256-GCM, so the URL carries no
+ * readable personal data at all. GCM authenticates as well as encrypts, so tampering is
+ * still caught: the same protection the HMAC gave, plus confidentiality.
+ *
+ * There is deliberately no branch for the old `?email=` form. Keeping one would mean
+ * keeping the plaintext path alive, which is the thing being removed, and the app is not
+ * live anywhere yet — no shopper holds an old link that matters.
  *
  * Both GET and POST are handled: POST is what one-click clients send, GET is what a person
  * clicking the link in a mail client gets.
@@ -28,27 +37,55 @@ export const dynamic = 'force-dynamic';
 
 const SECRET = process.env.NEXTAUTH_SECRET || '';
 
-/** Build the token that goes in the unsubscribe URL. */
+const IV_BYTES = 12;
+const TAG_BYTES = 16;
+
+/**
+ * 32 bytes derived from the shared secret.
+ *
+ * An empty secret is refused rather than hashed. `createHash('sha256').update('')` is
+ * valid and deterministic, so without this a misconfigured deployment would encrypt every
+ * address under a key anyone can compute from nothing — and would look like it was
+ * working.
+ */
+function key(): Buffer {
+  if (!SECRET) throw new Error('NEXTAUTH_SECRET is not set; refusing to build unsubscribe links');
+  return crypto.createHash('sha256').update(SECRET).digest();
+}
+
+/** Build the token that goes in the unsubscribe URL. The address is inside it. */
 export function unsubscribeToken(email: string): string {
-  return crypto
-    .createHmac('sha256', SECRET)
-    .update(email.trim().toLowerCase())
-    .digest('base64url');
+  const iv = crypto.randomBytes(IV_BYTES);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key(), iv);
+  const body = Buffer.concat([
+    cipher.update(email.trim().toLowerCase(), 'utf8'),
+    cipher.final(),
+  ]);
+  return Buffer.concat([iv, body, cipher.getAuthTag()]).toString('base64url');
 }
 
 /**
- * Verify a token against an address.
+ * Recover the address from a token, or null if it was altered, truncated or forged.
  *
- * The address travels in the link too, but only as the thing being *claimed* — it is the
- * token that authorises. Compared in constant time so the endpoint does not leak, through
- * timing, how much of a guessed token was correct.
+ * No constant-time comparison here, and none needed: GCM's tag check is the
+ * authentication, and it either passes or throws. A failure reveals nothing beyond
+ * "wrong", which is what the old timing-safe HMAC comparison existed to protect.
  */
-function tokenMatches(email: string, token: string): boolean {
-  if (!SECRET || !email || !token) return false;
-  const expected = Buffer.from(unsubscribeToken(email), 'utf8');
-  const provided = Buffer.from(token, 'utf8');
-  if (expected.length !== provided.length) return false;
-  return crypto.timingSafeEqual(expected, provided);
+function emailFromToken(token: string): string | null {
+  if (!SECRET || !token) return null;
+  const raw = Buffer.from(token, 'base64url');
+  if (raw.length <= IV_BYTES + TAG_BYTES) return null;
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key(), raw.subarray(0, IV_BYTES));
+    decipher.setAuthTag(raw.subarray(raw.length - TAG_BYTES));
+    const email = Buffer.concat([
+      decipher.update(raw.subarray(IV_BYTES, raw.length - TAG_BYTES)),
+      decipher.final(),
+    ]).toString('utf8');
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : null;
+  } catch {
+    return null;
+  }
 }
 
 function page(title: string, message: string, ok: boolean): NextResponse {
@@ -70,10 +107,10 @@ function page(title: string, message: string, ok: boolean): NextResponse {
 
 async function handle(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
-  const email = (searchParams.get('email') || '').trim();
   const token = (searchParams.get('t') || '').trim();
+  const email = emailFromToken(token);
 
-  if (!tokenMatches(email, token)) {
+  if (!email) {
     return page(
       'That link is not valid',
       'It may have been altered or truncated by your email client. Replying to the message and asking to be removed works just as well.',

@@ -141,10 +141,10 @@ export async function sendDueRequest(
   }
 
   const link = reviewRequestUrl(request.token, SHOPIFY_APP_URL);
+  // The address is encrypted inside the token, so nothing identifying goes in the URL.
   const unsubscribeUrl =
     `${SHOPIFY_APP_URL}/api/unsubscribe` +
-    `?email=${encodeURIComponent(request.customerEmail)}` +
-    `&t=${encodeURIComponent(unsubscribeToken(request.customerEmail))}`;
+    `?t=${encodeURIComponent(unsubscribeToken(request.customerEmail))}`;
 
   const isReminder = request.sendCount > 0;
 
