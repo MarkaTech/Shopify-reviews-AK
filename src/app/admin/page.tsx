@@ -31,7 +31,8 @@ interface Overview {
   requests: { sent30: number; opened30: number; submitted30: number; conversion30: number | null; queueDue: number; queueFailing: number };
   health: {
     needsReauth: number; tokenExpiringSoon: number; atQuota: number; nearQuota: number;
-    importsStuck: number; importsFailed30: number; emailSuppressed: number; hardBounces: number;
+    importsStuck: number; importsFailed30: number; importsFailedPlatform30: number;
+    importsFailedListing30: number; emailSuppressed: number; hardBounces: number;
     suppressionByReason: Record<string, number>; questionsUnanswered: number; queueFailing: number;
   };
   incentives: { issued: number; redeemed: number; redemptionRate: number | null };
@@ -59,6 +60,7 @@ interface StoreDetail {
   };
   recentReviews: Array<{ id: string; rating: number; title: string | null; isPublished: boolean; reviewerName: string | null; source: string; createdAt: string }>;
   recentRequests: Array<{ id: string; orderNumber: string | null; customerEmail: string; sentAt: string | null; openedAt: string | null; submittedAt: string | null; nextSendAt: string | null; sendCount: number; sendFailures: number; createdAt: string }>;
+  recentImportFailures: Array<{ id: string; source: string; createdAt: string; kind: 'listing' | 'platform'; error: string }>;
   sendingPaused: boolean;
   note: string;
   links: { shopifyAdmin: string; appInAdmin: string; storefront: string } | null;
@@ -648,6 +650,52 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
               )}
             </div>
 
+            {/*
+              Why imports failed, not just how many.
+
+              This block exists because "Imports failed (30d): 6" took a whole session to
+              explain, and the explanation — a merchant working out which listing URLs the
+              importer accepts, then succeeding minutes later — was only reachable from the
+              database. Each row says whose problem it was.
+            */}
+            {detail.recentImportFailures.length > 0 && (
+              <div className="surface mt-5 overflow-hidden rounded-2xl">
+                <p className="px-4 pt-4 text-[12px] font-semibold text-ink-700 dark:text-ink-200">
+                  Recent failed imports
+                </p>
+                <div className="mt-2 divide-y divide-border">
+                  {detail.recentImportFailures.map((f) => (
+                    <div key={f.id} className="flex gap-3 px-4 py-3">
+                      <span
+                        className={
+                          'mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ' +
+                          (f.kind === 'platform'
+                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
+                            : 'bg-ink-100 text-ink-600 dark:bg-white/8 dark:text-ink-300')
+                        }
+                        title={
+                          f.kind === 'platform'
+                            ? 'The importer failed. This one is ours.'
+                            : 'The listing had nothing to import. The merchant\u2019s URL, not a fault.'
+                        }
+                      >
+                        {f.kind === 'platform' ? 'ours' : 'listing'}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-[12px] font-medium text-ink-800 dark:text-white">{f.source}</span>
+                          <span className="tnum text-[11px] text-ink-400">
+                            {new Date(f.createdAt).toLocaleString()}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-500">{f.error}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Recent requests */}
             <div className="surface mt-5 overflow-hidden rounded-2xl">
               <p className="px-4 pt-4 text-[12px] font-semibold text-ink-700 dark:text-ink-200">Latest review requests</p>
@@ -1212,7 +1260,14 @@ export default function AdminPortal() {
                   { label: 'Near their cap (80%+)', n: overview.health.nearQuota, hint: 'about to be blocked this month', filter: 'nearQuota' },
                   { label: 'Failing review-request sends', n: overview.health.queueFailing, hint: 'retrying with backoff; check the provider if this climbs', filter: 'failingSends' },
                   { label: 'Imports stuck in processing', n: overview.health.importsStuck, hint: 'claimed over an hour ago and never finished', filter: 'stuckImports' },
-                  { label: 'Imports failed (30d)', n: overview.health.importsFailed30, hint: 'merchant-visible failure', filter: 'failedImports' },
+                  {
+                    label: 'Imports failed on our side (30d)',
+                    n: overview.health.importsFailedPlatform30,
+                    hint: overview.health.importsFailedListing30 > 0
+                      ? `${overview.health.importsFailedListing30} more failed because the merchant's listing had no reviews — not counted here`
+                      : 'the importer itself broke, rather than the listing being empty',
+                    filter: 'failedImports',
+                  },
                   { label: 'Hard bounces / complaints', n: overview.health.hardBounces, hint: 'suppressed addresses — deliverability risk', severe: true, panel: 'suppressions' },
                   { label: 'Suppressed addresses (total)', n: overview.health.emailSuppressed, hint: Object.entries(overview.health.suppressionByReason).map(([r, n]) => `${n} ${r}`).join(', ') || 'bounce, complaint, unsubscribe', panel: 'suppressions' },
                   { label: 'Unanswered questions', n: overview.health.questionsUnanswered, hint: 'shoppers waiting on a merchant reply', filter: 'unansweredQuestions' },

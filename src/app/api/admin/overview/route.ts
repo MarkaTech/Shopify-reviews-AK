@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { summariseImportFailures } from '@/lib/import-health';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { PLANS, normalisePlan, type PlanId } from '@/lib/plans';
 
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     totalReviews, reviews30, pendingModeration, ratingAgg, bySource,
     requestsSent30, requestsSubmitted30, requestsOpened30, queueDue, queueFailing,
     questionsUnanswered, storesWithReviews, storesWithProducts,
-    usageRows, importsStuck, importsFailed30, suppressions,
+    usageRows, importsStuck, importFailures30, suppressions,
     grantsIssued, grantsRedeemed,
   ] = await Promise.all([
     db.store.findMany({ select: { id: true, plan: true, isActive: true, tokenExpiresAt: true, refreshTokenExpiresAt: true, installedAt: true, updatedAt: true } }),
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
     db.storeSetting.findMany({ where: { key: monthKey }, select: { storeId: true, value: true } }),
     // "Stuck" = claimed by a worker over an hour ago and never finished.
     db.importJob.count({ where: { status: 'processing', updatedAt: { lt: new Date(now.getTime() - 60 * 60 * 1000) } } }),
-    db.importJob.count({ where: { status: 'failed', createdAt: { gte: d30 } } }),
+    db.importJob.findMany({ where: { status: 'failed', createdAt: { gte: d30 } }, select: { errorMessage: true } }),
     db.emailSuppression.groupBy({ by: ['reason'], _count: { _all: true } }),
 
     db.incentiveGrant.count(),
@@ -128,6 +129,12 @@ export async function GET(request: NextRequest) {
   const toSeries = (rows: Array<{ day: Date; n: bigint }>) =>
     rows.map((r) => ({ day: r.day.toISOString().slice(0, 10), n: Number(r.n) }));
 
+  // Split, not just counted. A merchant pasting a listing with no reviews on it is not a
+  // platform fault, and lumping the two together makes this row permanently non-zero once
+  // real merchants are importing — which trains an operator to ignore the one number that
+  // would have told them the importer itself had broken.
+  const imports = summariseImportFailures(importFailures30);
+
   return NextResponse.json({
     business: {
       mrr,
@@ -169,7 +176,10 @@ export async function GET(request: NextRequest) {
       atQuota,
       nearQuota,
       importsStuck,
-      importsFailed30,
+      importsFailed30: imports.total,
+      // The actionable one — ours, not the merchant's URL.
+      importsFailedPlatform30: imports.platform,
+      importsFailedListing30: imports.listing,
       emailSuppressed: Object.values(suppressionByReason).reduce((a, b) => a + b, 0),
       hardBounces,
       suppressionByReason,
