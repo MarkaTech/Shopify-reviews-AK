@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { classifyImportFailure } from '@/lib/import-health';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { getRequestUsage, normalisePlan, PLANS } from '@/lib/plans';
 
@@ -34,6 +35,7 @@ export async function GET(
   const [
     usage, settings, productCount, reviewsByStatus, requestStats30,
     recentReviews, recentRequests, widgets, incentives, questionCount,
+    failedImports,
   ] = await Promise.all([
     getRequestUsage(store.id),
     db.storeSetting.findMany({ where: { storeId: id }, select: { key: true, value: true, updatedAt: true }, orderBy: { key: 'asc' } }),
@@ -61,6 +63,15 @@ export async function GET(
     db.widgetConfig.count({ where: { storeId: id } }),
     db.incentive.count({ where: { storeId: id } }),
     db.question.count({ where: { storeId: id } }),
+    // The reasons, not just a count. "Imports failed: 6" cost a whole session to explain
+    // once, and the answer — a merchant pasting listing URLs with no reviews on them —
+    // was only reachable from the database.
+    db.importJob.findMany({
+      where: { storeId: id, status: 'failed' },
+      select: { id: true, source: true, errorMessage: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 6,
+    }),
   ]);
 
   // Mask customer emails: the operator needs "which request", not the address itself.
@@ -120,6 +131,16 @@ export async function GET(
     },
     recentReviews,
     recentRequests: recentRequests.map((r) => ({ ...r, customerEmail: mask(r.customerEmail) })),
+    // Classified, so an operator can see at a glance which of these are theirs to fix.
+    recentImportFailures: failedImports.map((j) => ({
+      id: j.id,
+      source: j.source,
+      createdAt: j.createdAt,
+      kind: classifyImportFailure(j.errorMessage),
+      // Truncated: these carry upstream diagnostics that run to hundreds of characters,
+      // and the drawer needs the gist. The full text is in the row if it is ever needed.
+      error: (j.errorMessage ?? 'No error recorded').slice(0, 240),
+    })),
     sendingPaused: settings.some((s) => s.key === 'admin.sendingPaused' && s.value === '1'),
   });
 }
