@@ -25,10 +25,22 @@ export async function PUT(
     // Answering and publishing are one action in the UI: a question nobody answered is
     // not worth showing a shopper, and publishing it alone just advertises the silence.
     if (typeof body.answer === 'string' && body.answer.trim()) {
+      // The fallback used to be the literal string 'Store', and nothing in the UI ever
+      // sent `answerAuthor` — so every merchant's answers were signed "Store" on their own
+      // product pages. A shopper reading "Store said:" under a question is being shown a
+      // placeholder, and it makes a real reply look automated.
+      //
+      // The store's own name is both truthful and what a shopper expects. 'Store' survives
+      // only as the last resort for a store row with no name at all.
+      const explicit = typeof body.answerAuthor === 'string' ? body.answerAuthor.trim() : '';
+      const store = explicit
+        ? null
+        : await db.store.findUnique({ where: { id: storeId }, select: { name: true } });
+
       await db.answer.create({
         data: {
           questionId: id,
-          authorName: (body.answerAuthor as string) || 'Store',
+          authorName: explicit || store?.name?.trim() || 'Store',
           authorType: 'merchant',
           body: body.answer.trim().slice(0, 5000),
           isPublished: true,
