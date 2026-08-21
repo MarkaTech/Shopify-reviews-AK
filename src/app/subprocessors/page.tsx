@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     'The third parties ReviewMaster uses to process merchant customer data, what each one does, and where it is located.',
 };
 
-const LAST_UPDATED = '1 August 2026';
+const LAST_UPDATED = '20 August 2026';
 const CONTACT_EMAIL = 'tech@houseofmarka.com';
 
 interface SubProcessor {
@@ -31,11 +31,15 @@ const SUBPROCESSORS: SubProcessor[] = [
     location: 'United States (Central US)',
   },
   {
-    name: 'Amazon SES',
-    entity: 'Amazon Web Services, Inc.',
+    // Production sends through Resend. Amazon SES was listed here from an earlier plan
+    // that never shipped — SES production access was declined, and every email this app
+    // has ever sent went through Resend. A subprocessor list naming a provider that never
+    // sees the data, while omitting the one that does, fails at the one job it has.
+    name: 'Resend',
+    entity: 'Resend, Inc.',
     purpose: 'Delivery of review invitations and merchant notification email',
     data: 'Recipient name and email address, message content',
-    location: 'United States (us-east-1)',
+    location: 'United States',
   },
 ];
 
