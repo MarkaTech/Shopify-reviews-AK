@@ -516,6 +516,8 @@ export interface IncentiveEmailInput {
   expiresAt: Date;
   /** The merchant's disclosure line. Always included — the reward and the disclosure travel together. */
   disclosureText: string;
+  /** One-click opt-out, same as the review-request mail. */
+  unsubscribeUrl?: string;
 }
 
 /**
@@ -533,8 +535,18 @@ export interface IncentiveEmailInput {
 export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
   const greeting = input.customerName ? `Hi ${input.customerName},` : 'Hi,';
   const store = escapeHtml(input.storeName);
+  // Both call sites read "here is your reward — <reward> your next order", so each arm has
+  // to end in the preposition that sentence needs.
+  //
+  // free_shipping needs its own arm. Without one it fell to the fixed-amount branch and
+  // rendered "0.00 off your next order" — because the create route forces rewardValue to 0
+  // for that type — so a shopper promised free shipping was emailed a code described as
+  // worth nothing. Minting the right discount (discountCodeFreeShippingCreate) fixed the
+  // code; this fixes what the shopper is told it is.
   const reward =
-    input.rewardType === 'percentage'
+    input.rewardType === 'free_shipping'
+      ? 'free shipping on'
+      : input.rewardType === 'percentage'
       ? `${input.rewardValue}% off`
       : `${input.rewardValue.toFixed(2)} off`;
   const expires = input.expiresAt.toLocaleDateString('en-US', {
@@ -563,6 +575,9 @@ export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
             Enter this code at checkout. It can be used once and expires on ${escapeHtml(expires)}.
           </p>
           <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">${escapeHtml(input.disclosureText)}</p>
+          ${input.unsubscribeUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">
+            Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a>.
+          </p>` : ''}
         </td></tr>
       </table>
     </td></tr>
@@ -580,6 +595,9 @@ export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
     `Enter this code at checkout. It can be used once and expires on ${expires}.`,
     '',
     input.disclosureText,
+    ...(input.unsubscribeUrl
+      ? ['', `Prefer not to receive these? Unsubscribe: ${input.unsubscribeUrl}`]
+      : []),
   ].join('\n');
 
   return {
@@ -587,5 +605,8 @@ export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
     subject: `Your thank-you discount from ${input.storeName}`,
     html,
     text,
+    // Carries the List-Unsubscribe / List-Unsubscribe-Post headers through sendEmail, which
+    // is what makes the opt-out one-click for Gmail and Yahoo.
+    unsubscribeUrl: input.unsubscribeUrl,
   };
 }

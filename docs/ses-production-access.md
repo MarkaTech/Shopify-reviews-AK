@@ -86,15 +86,40 @@ The code is already in place — `/api/webhooks/ses` verifies the SNS signature 
 suppressions, and `sendEmail()` refuses to send to a suppressed address. It just needs
 connecting:
 
-1. **SNS console → Topics → Create topic** → Standard → name it `reviewmaster-ses-feedback`
-2. **Create subscription** on that topic:
+1. **SNS console → Topics → Create topic** → Standard → name it `reviewmaster-ses-feedback`.
+   Copy the topic ARN.
+2. **Set `SES_TOPIC_ARN` in Azure app settings to that ARN, and wait for the restart.**
+   Do this BEFORE creating the subscription — the order matters:
+
+   ```bash
+   az webapp config appsettings set \
+     --resource-group reviewmaster-rg --name reviewmaster-app \
+     --settings SES_TOPIC_ARN='arn:aws:sns:us-east-1:<account>:reviewmaster-ses-feedback' \
+     --output none
+   ```
+
+   `/api/webhooks/ses` refuses every notification while this is unset, **including the
+   subscription confirmation** — so a subscription created first will sit at *Pending
+   confirmation* and never complete. An SNS signature proves only that AWS sent the
+   message, not that our topic did; without this check anyone with an AWS account could
+   point their own topic at the endpoint and publish a hand-written "complaint" that
+   permanently suppresses any address, for every merchant. The endpoint fails closed
+   rather than accept that.
+
+   Writing an app setting restarts the container, which is how the new value is picked up.
+   Wait for the restart before continuing.
+3. **Create subscription** on that topic:
    - Protocol: **HTTPS**
    - Endpoint: `https://reviewmaster-app.azurewebsites.net/api/webhooks/ses`
    - Leave "Enable raw message delivery" **off** — the handler expects the SNS envelope,
      which is what carries the signature
-3. The endpoint confirms the subscription automatically. Refresh; status should move from
+4. The endpoint confirms the subscription automatically. Refresh; status should move from
    *Pending confirmation* to *Confirmed* within a few seconds.
-4. **SES console → Identities → `aavyro.com` → Notifications → Feedback notifications**
+
+   Still pending? Check the app log for `SES_TOPIC_ARN is not set` (step 2 did not take
+   effect) or `rejected a correctly-signed notification from a foreign topic` (the ARN does
+   not match the topic you subscribed). Fix and use **Request confirmation** to resend.
+5. **SES console → Identities → `aavyro.com` → Notifications → Feedback notifications**
    → Edit. Set **Bounce** and **Complaint** to the SNS topic. Leave Delivery off — it is
    high volume and tells you nothing you need.
 

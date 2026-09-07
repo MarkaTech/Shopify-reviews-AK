@@ -31,6 +31,21 @@
         {
           "@context": "https://schema.org/",
           "@type": "Product",
+          {%- comment -%}
+            "@id" anchored to the canonical product URL.
+
+            Most modern themes (Dawn among them) already emit their own Product JSON-LD on a
+            product page, so without an identifier this block adds a SECOND, unrelated
+            Product node describing the same item — and Google's guidance is that duplicate
+            conflicting entities for one page get ignored, which loses the stars this block
+            exists to produce.
+
+            A shared "@id" tells a consumer the two nodes are the same thing, so the rating
+            here merges into the theme's product rather than competing with it. It is not a
+            guarantee (a theme that omits "@id" cannot be merged from our side), which is why
+            the setting below stays available and its help text names the test to run.
+          {%- endcomment -%}
+          "@id": {{ shop.url | append: product.url | append: '#product' | json }},
           "name": {{ product.title | json }},
           "url": {{ shop.url | append: product.url | json }},
           {% if product.featured_image %}"image": {{ product.featured_image | image_url: width: 1200 | prepend: 'https:' | json }},{% endif %}
@@ -59,7 +74,7 @@
       "id": "enable_rich_snippets",
       "label": "Add review rich snippets for Google",
       "default": true,
-      "info": "Adds Product structured data with your aggregate rating so stars can appear in Google results. If your theme already outputs a rating in its own Product schema, turn this off to avoid duplicate markup — check with Google's Rich Results Test."
+      "info": "Adds Product structured data with your aggregate rating so stars can appear in Google results. Run Google's Rich Results Test on a product page after enabling: if it reports two Product items or a rating conflict, your theme already outputs its own rating and you should turn this off."
     }
   ]
 }

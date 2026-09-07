@@ -32,6 +32,13 @@ export async function GET(request: NextRequest) {
       data: { plan },
     });
 
+    // The trial is consumed here, on entitlement, not when the charge was created. A
+    // merchant who opened the approval screen and closed it keeps their trial.
+    if (plan !== 'free') {
+      const { markTrialConsumed } = await import('@/lib/trial');
+      await markTrialConsumed(storeId);
+    }
+
     return NextResponse.json({
       success: true,
       plan,

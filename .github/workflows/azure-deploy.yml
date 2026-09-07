@@ -22,6 +22,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ---- Gate: typecheck and tests ----
+      #
+      # These existed and were green, and nothing ever ran them. The pipeline went
+      # checkout -> docker build -> deploy, so `tsc` and the four test files gated
+      # precisely nothing, and next.config.ts's `ignoreBuildErrors: false` was the only
+      # thing standing between a type error and production.
+      #
+      # Placed before the image build so a failure costs seconds rather than a full
+      # multi-stage Docker build, and so a broken commit never produces a pushed image.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bunx prisma generate
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      # Each file as a script, NOT `bun test tests/`.
+      #
+      # These suites do not use bun's test API — they build their own `tests` array, run it,
+      # and `process.exit(1)` on a failure. `bun test` discovers no test cases in them and
+      # reports "Ran 0 tests" with a success exit code, so wiring CI up that way would have
+      # produced a green check that asserted nothing. Running them as scripts is what
+      # actually surfaces the exit code.
+      - name: Test
+        run: |
+          for f in tests/*.test.ts; do
+            echo "── $f"
+            bun run "$f"
+          done
+
       - name: Detect DATABASE_URL secret
         run: |
           if [ -n "${{ secrets.DATABASE_URL }}" ]; then
@@ -106,6 +143,11 @@ jobs:
           # creates the history table; every later run takes the normal path above.
           if ! npx prisma migrate deploy; then
             echo "migrate deploy failed - attempting one-time baseline (P3005 path)"
+            # 0_init describes the tables that already exist from the db-push era, so it is
+            # recorded as applied WITHOUT running it. Running it would be harmless (every
+            # statement is CREATE TABLE, which would error on existing tables) but pointless:
+            # the point of a baseline is to tell Prisma "this state is already here".
+            npx prisma migrate resolve --applied 0_init
             npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810120000_import_key_and_grant_uniqueness/migration.sql
             npx prisma migrate resolve --applied 20260810120000_import_key_and_grant_uniqueness
             npx prisma migrate deploy

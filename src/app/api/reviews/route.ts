@@ -15,10 +15,16 @@ export async function GET(request: NextRequest) {
 
     const search = searchParams.get('search');
     if (search) {
+      // `mode: 'insensitive'`. Postgres `contains` is case-SENSITIVE by default, so
+      // searching a merchant's own reviews for "Sarah" missed every review by "sarah" and
+      // searching "necklace" missed titles beginning "Necklace" — capitalised exactly as a
+      // shopper would type them. The moderation queue is where a merchant looks for one
+      // specific review, so a search that silently omits most matches is worse than none.
+      const needle = { contains: search, mode: 'insensitive' as const };
       where.OR = [
-        { title: { contains: search } },
-        { body: { contains: search } },
-        { reviewerName: { contains: search } },
+        { title: needle },
+        { body: needle },
+        { reviewerName: needle },
       ];
     }
 
@@ -78,8 +84,15 @@ export async function GET(request: NextRequest) {
     const orderBy: Record<string, string> = {};
     orderBy[sortBy] = sortOrder;
 
-    const page = Number(searchParams.get('page')) || 1;
-    const limit = Number(searchParams.get('limit')) || 20;
+    // Bounded, because both are caller-supplied and both reach the database directly.
+    // `limit` had no ceiling — `?limit=1000000` asked Postgres for every review the store
+    // has, serialised them all into one JSON response, and did it on an authenticated route
+    // any merchant can call in a loop. `page` had no floor, and a negative one produces a
+    // negative `skip`, which Prisma rejects with a 500 rather than an empty page.
+    const MAX_LIMIT = 5000;
+    const page = Math.max(1, Math.floor(Number(searchParams.get('page')) || 1));
+    const requested = Math.floor(Number(searchParams.get('limit')) || 20);
+    const limit = Math.min(MAX_LIMIT, Math.max(1, requested));
     const skip = (page - 1) * limit;
 
     const [reviews, total] = await Promise.all([

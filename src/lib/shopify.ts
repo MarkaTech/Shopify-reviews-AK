@@ -463,13 +463,41 @@ export async function callShopifyGraphQL<T>(
       body: JSON.stringify({ query, variables }),
     });
 
-  let response = await send(accessToken);
+  let token = accessToken;
+  let response = await send(token);
 
   // Retry exactly once on 401 with a freshly minted token. Covers a token that lapsed
   // between the proactive expiry check and this request, with no risk of a refresh loop.
   if (response.status === 401 && onUnauthorized) {
     const retryToken = await onUnauthorized();
-    if (retryToken) response = await send(retryToken);
+    if (retryToken) {
+      token = retryToken;
+      response = await send(token);
+    }
+  }
+
+  // ── Throttling ──
+  //
+  // Shopify's Admin API is a leaky bucket: exceed the refill rate and it answers 429 with a
+  // Retry-After, and GraphQL additionally reports THROTTLED as a body error on an HTTP 200.
+  // Neither was handled — a 429 became a hard ShopifyGraphQLError and the caller gave up.
+  //
+  // That is not a rare condition for this app. Catalogue sync walks a store's whole
+  // catalogue in 100-node pages back to back, and updateProductRating fires three calls per
+  // publish; a merchant approving a batch of reviews, or a 5,000-product sync, hits the
+  // bucket routinely. The failure was silent in the worst places: the install-time sync
+  // only console.errors, so a merchant throttled during install simply had no products.
+  //
+  // Bounded, and it honours the server's own Retry-After when it sends one. Two retries is
+  // enough to ride out a refill without turning a genuine outage into a long stall.
+  for (let attempt = 0; attempt < THROTTLE_RETRIES && response.status === 429; attempt++) {
+    const retryAfter = Number(response.headers.get('retry-after'));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1000, THROTTLE_MAX_WAIT_MS)
+      : THROTTLE_BASE_WAIT_MS * 2 ** attempt;
+    console.warn(`[shopify] 429 from ${shop}; retrying in ${waitMs}ms (attempt ${attempt + 1})`);
+    await sleep(waitMs);
+    response = await send(token);
   }
 
   if (!response.ok) {
@@ -477,10 +505,25 @@ export async function callShopifyGraphQL<T>(
     throw new ShopifyGraphQLError(`Shopify API error ${response.status}: ${text}`, response.status);
   }
 
-  const payload = (await response.json()) as {
+  let payload = (await response.json()) as {
     data?: T;
     errors?: Array<{ message: string; extensions?: { code?: string } }>;
   };
+
+  // THROTTLED arrives as a body error on an HTTP 200, so the check above never sees it.
+  for (let attempt = 0; attempt < THROTTLE_RETRIES; attempt++) {
+    const throttled = payload.errors?.some((e) => e.extensions?.code === 'THROTTLED');
+    if (!throttled) break;
+    const waitMs = THROTTLE_BASE_WAIT_MS * 2 ** attempt;
+    console.warn(`[shopify] THROTTLED by ${shop}; retrying in ${waitMs}ms (attempt ${attempt + 1})`);
+    await sleep(waitMs);
+    response = await send(token);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ShopifyGraphQLError(`Shopify API error ${response.status}: ${text}`, response.status);
+    }
+    payload = (await response.json()) as typeof payload;
+  }
 
   // GraphQL reports failures in the body with HTTP 200, so a bare response.ok check is not
   // enough — this is the classic way a GraphQL migration silently "succeeds" while doing
@@ -496,6 +539,19 @@ export async function callShopifyGraphQL<T>(
 
   return payload.data;
 }
+
+/**
+ * Throttle handling constants.
+ *
+ * Shopify's Admin API is a leaky bucket. Two retries rides out a refill without turning a
+ * genuine outage into a long stall, and the cap stops a hostile or buggy Retry-After from
+ * pinning a request open.
+ */
+const THROTTLE_RETRIES = 2;
+const THROTTLE_BASE_WAIT_MS = 1_000;
+const THROTTLE_MAX_WAIT_MS = 10_000;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Throw if a mutation returned userErrors. These are HTTP 200 + errors:[] free. */
 function assertNoUserErrors(errors: GraphQLUserError[] | undefined, context: string): void {
@@ -584,6 +640,34 @@ const PRODUCTS_QUERY = `
   }
 `;
 
+/**
+ * Nodes per page of the catalogue sync. Not 250, which is the connection maximum.
+ *
+ * The Admin API rejects a query whose *requested* cost exceeds 1,000 points, and requested
+ * cost is computed from the `first:` argument before the query runs — so this is not a
+ * large-catalogue problem that shows up in production. It fails identically on a three-
+ * product development store, which is what made it invisible in review: the sync simply
+ * never worked for anyone.
+ *
+ * Cost of one node in PRODUCTS_QUERY, under Shopify's documented model (object = 1,
+ * connection = 2 + first x child, scalars = 0):
+ *
+ *     Product                                     1
+ *     featuredMedia { preview { image } }         3   (three nested objects)
+ *     variants(first: 1) { nodes { price } }      3   (2 + 1 x 1)
+ *                                                 -
+ *                                                 7
+ *
+ * At 250 that is 2 + 250 x 7 = 1,752, comfortably over the ceiling. At 100 it is 702, which
+ * leaves room for a field to be added to the selection later without silently going over
+ * again. The cost of the smaller page is one extra round trip per 100 products; the cost of
+ * the larger one was the entire feature.
+ *
+ * If you add a field here, recompute this. `extensions.cost.requestedQueryCost` on any real
+ * response tells you the true number.
+ */
+const SYNC_PAGE_SIZE = 100;
+
 export interface ShopifyProductSummary {
   id: string;
   title: string;
@@ -613,7 +697,7 @@ export async function fetchShopifyProducts(
   let after: string | null = null;
 
   while (out.length < limit) {
-    const pageSize: number = Math.min(250, limit - out.length);
+    const pageSize: number = Math.min(SYNC_PAGE_SIZE, limit - out.length);
     const data: {
       products: {
         pageInfo: { hasNextPage: boolean; endCursor: string | null };
@@ -747,7 +831,20 @@ export async function createRecurringCharge(
   accessToken: string,
   plan: string,
   returnUrl: string,
-  onUnauthorized?: () => Promise<string | null>
+  onUnauthorized?: () => Promise<string | null>,
+  /**
+   * Days of free trial to grant on THIS subscription.
+   *
+   * A parameter rather than the hardcoded 30 it used to be. `trialDays: 30` on every
+   * `appSubscriptionCreate` meant the trial was a property of the mutation instead of a
+   * property of the store: cancel on day 29, resubscribe, get another 30 days, forever, at
+   * no cost and with no signal anywhere that it was happening.
+   *
+   * The caller decides, because deciding requires knowing whether this store has had a
+   * trial before, and that lives in the database — which this module deliberately does not
+   * import.
+   */
+  trialDays: number = 0
 ): Promise<string> {
   const price = PLAN_PRICES[plan] || 0;
 
@@ -769,13 +866,20 @@ export async function createRecurringCharge(
   // Inverted, the failure is loud and immediate: a live charge against a development store
   // is rejected by Shopify the first time anyone tries it, during development, by the
   // person who can fix it.
-  const isTestCharge = billingTestMode();
+  //
+  // Now decided per shop rather than per deployment: a development store can only take a
+  // test charge, so it gets one regardless of the flag. See shopRequiresTestCharges.
+  const isDevStore = await shopRequiresTestCharges(shop, accessToken, onUnauthorized);
+  const isTestCharge = billingTestMode() || isDevStore;
 
   if (isTestCharge) {
-    // Deliberately noisy. If this appears in production logs, no merchant is being billed.
+    // Deliberately noisy. If this appears for a store that is NOT a development store, no
+    // merchant is being billed.
     console.warn(
       `[billing] TEST charge for ${shop} on ${plan} — no money will move. ` +
-        'Unset SHOPIFY_BILLING_TEST to bill for real.'
+        (isDevStore
+          ? 'This is a development store, which cannot take live charges.'
+          : 'Unset SHOPIFY_BILLING_TEST to bill for real.')
     );
   }
 
@@ -793,16 +897,16 @@ export async function createRecurringCharge(
       name: planDisplayName(plan),
       returnUrl,
       test: isTestCharge,
-      // 30 days, not the 7 this used to be, and not the 14-15 the category uses.
+      // Supplied by the caller, and 0 for a store that has already had one.
       //
-      // The default review-request delay is 14 days after fulfilment. A 7-day trial
-      // therefore expired a full week BEFORE the merchant's first request email even
-      // sent — they cancelled having never once seen the product do the thing they were
+      // The full trial is 30 days, not the 7 it once was and not the 14-15 the category
+      // uses: the default review-request delay is 14 days after fulfilment, so a 7-day
+      // trial expired a full week BEFORE the merchant's first request email even sent —
+      // they cancelled having never once seen the product do the thing they were
       // evaluating. The real cycle is order, fulfilment, 14-day delay, customer replies,
-      // merchant moderates: 20-30 days before the first review lands.
-      //
-      // 30 is simply the shortest trial that lets this product demonstrate itself.
-      trialDays: 30,
+      // merchant moderates: 20-30 days before the first review lands. 30 is simply the
+      // shortest trial that lets this product demonstrate itself.
+      trialDays,
       lineItems: [
         {
           plan: {
@@ -944,6 +1048,69 @@ export function billingTestMode(): boolean {
   return (process.env.SHOPIFY_BILLING_TEST ?? 'false').toLowerCase() === 'true';
 }
 
+const SHOP_PLAN_QUERY = `
+  query ShopBillingClass {
+    shop { plan { partnerDevelopment } }
+  }
+`;
+
+/**
+ * Is this shop one Shopify will only accept TEST charges from?
+ *
+ * Development and Partner stores cannot be billed for real — `appSubscriptionCreate` with
+ * `test: false` is rejected outright. That makes "test or live" a property of the SHOP, and
+ * it was being decided by `SHOPIFY_BILLING_TEST`, a single deployment-wide environment
+ * variable. One flag cannot be right for both audiences at once, and both ways of setting
+ * it were broken:
+ *
+ *   - Left at the documented production default (`false`), the App Store reviewer's
+ *     development store gets a live charge, Shopify rejects it, and the upgrade cannot be
+ *     completed at all.
+ *   - Set to `true` so the reviewer can subscribe, every real merchant is also put on test
+ *     charges: the flow completes, the plan activates, and no money ever moves.
+ *
+ * Deciding per shop removes the choice. A development store gets a test charge and is
+ * entitled by it; a real merchant gets a live charge and a test subscription never entitles
+ * them to anything. `SHOPIFY_BILLING_TEST` is kept as a deployment-wide override for local
+ * work against a store that is not flagged as development.
+ *
+ * Fails to `false` — a shop we cannot classify is treated as a paying one, so the failure
+ * mode is a rejected charge somebody notices rather than a free plan nobody does.
+ */
+export async function shopChargeClass(
+  shop: string,
+  accessToken: string,
+  onUnauthorized?: () => Promise<string | null>
+): Promise<'development' | 'live' | 'unknown'> {
+  try {
+    const data = await callShopifyGraphQL<{
+      shop: { plan: { partnerDevelopment: boolean } | null } | null;
+    }>(shop, accessToken, SHOP_PLAN_QUERY, undefined, onUnauthorized);
+    if (data.shop?.plan == null) return 'unknown';
+    return data.shop.plan.partnerDevelopment ? 'development' : 'live';
+  } catch (error) {
+    console.warn(`[billing] could not read the plan class for ${shop}:`, error);
+    return 'unknown';
+  }
+}
+
+/**
+ * Convenience for the charge-creation side, where "unknown" should mean "bill for real".
+ *
+ * The two sides want different defaults from the same fact, which is why the class is
+ * three-valued and each caller collapses it deliberately rather than sharing one boolean.
+ * Opening a charge fails toward a LIVE charge: if the shop is actually a development store,
+ * Shopify rejects it immediately and visibly, during development, by the person who can fix
+ * it. Failing the other way would put real merchants on test charges that move no money.
+ */
+export async function shopRequiresTestCharges(
+  shop: string,
+  accessToken: string,
+  onUnauthorized?: () => Promise<string | null>
+): Promise<boolean> {
+  return (await shopChargeClass(shop, accessToken, onUnauthorized)) === 'development';
+}
+
 export async function resolveActivePlan(
   shop: string,
   accessToken: string,
@@ -956,29 +1123,49 @@ export async function resolveActivePlan(
   // out a paid plan for free — silently, because everything downstream looks exactly like
   // a genuine upgrade.
   //
-  // But it is honoured when this deployment is ITSELF in billing-test mode, because then
-  // a test subscription is the only kind the app can create: SHOPIFY_BILLING_TEST=true
-  // stamps `test: true` on every charge it opens. Rejecting them unconditionally meant
+  // But it is honoured when a test subscription is the only kind this shop could have
+  // opened: a development store, which Shopify will not let us bill for real, or a
+  // deployment running with SHOPIFY_BILLING_TEST=true. Rejecting them unconditionally meant
   // the whole upgrade flow completed — approval screen, ACTIVE subscription, redirect —
   // and then resolved to 'free', which is indistinguishable from the upgrade silently
-  // failing. The same flag governs both sides, so test charges can never entitle a plan
-  // on a deployment that bills for real.
-  const honourTestCharges = billingTestMode();
+  // failing.
+  //
+  // This MUST use the same predicate as createRecurringCharge. When the two disagreed —
+  // one reading a shop property, the other an environment variable — the app opened a
+  // charge it then refused to honour, which is the worst of both: the merchant approves,
+  // and nothing happens.
+  // A shop we cannot classify does not resolve to "live" — it resolves to "do not decide".
+  //
+  // shopRequiresTestCharges fails to `false`, which is the right default when OPENING a
+  // charge (a rejected charge is loud and recoverable). It is the wrong default here: on a
+  // development store whose classification call happened to fail, treating it as live would
+  // discard a legitimate test subscription and write the merchant down to 'free'. That is
+  // the precise disagreement between the two call sites that this whole change exists to
+  // eliminate. So a classification failure aborts instead, leaving store.plan untouched for
+  // the hourly reconcile to correct.
+  const shopClass = await shopChargeClass(shop, accessToken, onUnauthorized);
+  if (shopClass === 'unknown' && !billingTestMode()) {
+    throw new Error(
+      `could not determine the plan class for ${shop}; leaving the stored plan unchanged`
+    );
+  }
+  const honourTestCharges = billingTestMode() || shopClass === 'development';
   const active = subs.find(
     (s) => s.status === 'ACTIVE' && (honourTestCharges ? true : !s.test)
   );
 
   if (!active && subs.some((s) => s.status === 'ACTIVE' && s.test)) {
     console.warn(
-      `[billing] ${shop} has an ACTIVE test subscription but this deployment bills for ` +
-        'real; treating as free. Set SHOPIFY_BILLING_TEST=true to test plan upgrades.'
+      `[billing] ${shop} has an ACTIVE test subscription but Shopify reports it as a live ` +
+        'store, so the subscription moves no money and is not honoured. Treating as free.'
     );
   }
 
   if (active?.test) {
     console.warn(
       `[billing] ${shop} entitled to '${planFromSubscriptionName(active.name)}' from a ` +
-        'TEST subscription. No money is moving. Unset SHOPIFY_BILLING_TEST before launch.'
+        'TEST subscription — no money is moving. Expected for a development store; if this ' +
+        'is a real merchant, SHOPIFY_BILLING_TEST is set and must be unset.'
     );
   }
 
@@ -1016,17 +1203,15 @@ const WEBHOOK_CREATE = `
   }
 `;
 
-export async function registerWebhooks(
-  shop: string,
-  accessToken: string,
-  appUrl: string = SHOPIFY_APP_URL,
-  onUnauthorized?: () => Promise<string | null>
-): Promise<void> {
-  // The three mandatory GDPR compliance topics (customers/data_request, customers/redact,
-  // shop/redact) are NOT registered here. Shopify does not accept them via the webhook
-  // API — they are configured in the Partner Dashboard under App setup > Compliance
-  // webhooks. The handlers live in /api/webhooks/[topic].
-  const webhookTopics = [
+/**
+ * Every topic this app depends on. Shared by registration and reconciliation so the two
+ * cannot drift — a topic added to one and not the other is invisible until it is needed.
+ *
+ * The three mandatory GDPR compliance topics are NOT here: Shopify does not accept them via
+ * the webhook API, they are configured in the Partner Dashboard under App setup > Compliance
+ * webhooks, and their handlers live in /api/webhooks/[topic].
+ */
+const WEBHOOK_TOPICS = [
     'app/uninstalled',
     'products/create',
     'products/update',
@@ -1046,7 +1231,99 @@ export async function registerWebhooks(
     // approved, cancelled, declined or expired — i.e. every event that should change what
     // the merchant is entitled to.
     'app_subscriptions/update',
-  ];
+];
+
+const WEBHOOKS_QUERY = `
+  query WebhookSubscriptions {
+    webhookSubscriptions(first: 100) {
+      nodes {
+        topic
+        endpoint { ... on WebhookHttpEndpoint { callbackUrl } }
+      }
+    }
+  }
+`;
+
+/**
+ * What Shopify says this app is actually subscribed to for this shop.
+ *
+ * Nothing in the app asked this question. Registration recorded a local marker and that
+ * marker was treated as the truth forever — but a subscription can disappear from Shopify's
+ * side without our marker changing: a merchant or another tool deleting it, an app URL
+ * change orphaning the endpoint, or a Shopify-side expiry. The symptom is the same as a
+ * failed registration and just as silent: `orders/fulfilled` stops arriving, no review
+ * invitation is ever created again, and the local marker still says everything is fine.
+ *
+ * Returns the topic enums (APP_UNINSTALLED, ORDERS_FULFILLED, …) that point at THIS app's
+ * URL. Subscriptions pointing somewhere else belong to another installation and are ignored.
+ */
+export async function listWebhookTopics(
+  shop: string,
+  accessToken: string,
+  appUrl: string = SHOPIFY_APP_URL,
+  onUnauthorized?: () => Promise<string | null>
+): Promise<Set<string>> {
+  const data = await callShopifyGraphQL<{
+    webhookSubscriptions: {
+      nodes: Array<{ topic: string; endpoint: { callbackUrl?: string } | null }>;
+    };
+  }>(shop, accessToken, WEBHOOKS_QUERY, undefined, onUnauthorized);
+
+  const ours = new Set<string>();
+  for (const node of data.webhookSubscriptions.nodes) {
+    const url = node.endpoint?.callbackUrl ?? '';
+    if (appUrl && !url.startsWith(appUrl)) continue;
+    ours.add(node.topic);
+  }
+  return ours;
+}
+
+/** The topics this app depends on, as Shopify's enum values. */
+export function requiredWebhookTopics(): string[] {
+  return WEBHOOK_TOPICS.map(topicToEnum);
+}
+
+/** Raised when one or more topics did not end up subscribed. */
+export class WebhookRegistrationError extends Error {
+  constructor(public readonly failedTopics: string[]) {
+    super(`Webhook registration failed for: ${failedTopics.join(', ')}`);
+    this.name = 'WebhookRegistrationError';
+  }
+}
+
+/**
+ * Subscribe every topic the app depends on, and THROW if any of them did not land.
+ *
+ * This used to catch each per-topic failure inside the loop, log it, and return `void`. It
+ * therefore resolved identically whether 8 of 8 topics registered or 0 of 8 did — and all
+ * three callers read that resolution as success and wrote the permanent
+ * `webhooks.registeredAt` marker, including `webhook-health.ts`, the module written
+ * specifically to repair missed registrations, and the operator's re-register button, which
+ * reported `{ ok: true }` on total failure.
+ *
+ * The cost of that was invisible and permanent. A store that installed during an Admin API
+ * throttle never received `orders/fulfilled`, so no review invitation was ever created and
+ * no review could earn the Verified Purchase badge — the app's main differentiator, dead
+ * for that merchant, with a local marker saying everything was fine and nothing anywhere
+ * reconciling it.
+ *
+ * "Already exists" is still not a failure: it is the expected result on reinstall, and it
+ * means the subscription is present, which is all the caller actually cares about.
+ */
+export async function registerWebhooks(
+  shop: string,
+  accessToken: string,
+  appUrl: string = SHOPIFY_APP_URL,
+  onUnauthorized?: () => Promise<string | null>
+): Promise<void> {
+  // The three mandatory GDPR compliance topics (customers/data_request, customers/redact,
+  // shop/redact) are NOT registered here. Shopify does not accept them via the webhook
+  // API — they are configured in the Partner Dashboard under App setup > Compliance
+  // webhooks. The handlers live in /api/webhooks/[topic].
+  const webhookTopics = WEBHOOK_TOPICS;
+
+
+  const failed: string[] = [];
 
   for (const topic of webhookTopics) {
     try {
@@ -1070,12 +1347,25 @@ export async function registerWebhooks(
       // expected on reinstall and is not worth failing the install over — but anything
       // else should be visible in the logs rather than swallowed.
       const errs = data.webhookSubscriptionCreate.userErrors;
-      if (errs?.length && !errs.some((e) => /already exists|taken/i.test(e.message))) {
+      const alreadyThere = errs?.some((e) => /already exists|taken/i.test(e.message));
+
+      if (errs?.length && !alreadyThere) {
         console.error(`Webhook ${topic} rejected:`, errs.map((e) => e.message).join('; '));
+        failed.push(topic);
+      } else if (!alreadyThere && !data.webhookSubscriptionCreate.webhookSubscription) {
+        // No errors and no subscription is not a success — it is a response shape we do not
+        // understand, and treating it as one is how the original bug stayed invisible.
+        console.error(`Webhook ${topic}: no subscription returned and no userErrors`);
+        failed.push(topic);
       }
     } catch (error) {
       console.error(`Failed to register webhook ${topic}:`, error);
+      failed.push(topic);
     }
+  }
+
+  if (failed.length) {
+    throw new WebhookRegistrationError(failed);
   }
 }
 

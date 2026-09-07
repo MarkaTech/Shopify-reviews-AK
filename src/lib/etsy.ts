@@ -229,6 +229,8 @@ export interface EtsySyncResult {
   imported: number;
   skippedExisting: number;
   skippedUnmatched: number;
+  /** Rating-only Etsy reviews, which have no text to publish. */
+  skippedNoBody: number;
   unmatchedListings: number;
 }
 
@@ -251,20 +253,36 @@ export async function isEtsyConnected(storeId: string): Promise<{ connected: boo
 export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> {
   const shopId = await resolveShopId(storeId);
 
-  // Listing titles for matching.
-  const listings = await etsyGet<{ results?: Array<{ listing_id: number; title: string }> }>(
-    storeId,
-    `/shops/${shopId}/listings/active?limit=100`
-  );
+  // Listing titles for matching — ALL of them, not the first page.
+  //
+  // This read one unpaginated `?limit=100` page, so a shop with more than 100 active
+  // listings could only ever match reviews belonging to those first 100. Every review on
+  // listing 101 onwards was counted as "unmatched", and the merchant-facing message for
+  // that case blames their product titles for not lining up — sending them to fix titles
+  // that were already correct, on a shop size that is entirely ordinary for Etsy.
   const products = await db.product.findMany({
     where: { storeId },
     select: { id: true, title: true },
   });
   const byTitle = new Map(products.map((p) => [p.title.trim().toLowerCase(), p.id]));
   const listingToProduct = new Map<number, string>();
-  for (const l of listings.results ?? []) {
-    const match = byTitle.get(l.title.trim().toLowerCase());
-    if (match) listingToProduct.set(l.listing_id, match);
+
+  // Bounded: a shop with more listings than this is past what a title-matching import can
+  // sensibly serve, and the loop must terminate regardless of what the API returns.
+  const MAX_LISTING_PAGES = 20;
+  let activeListings = 0;
+  for (let page = 0; page < MAX_LISTING_PAGES; page++) {
+    const listings = await etsyGet<{ results?: Array<{ listing_id: number; title: string }> }>(
+      storeId,
+      `/shops/${shopId}/listings/active?limit=100&offset=${page * 100}`
+    );
+    const results = listings.results ?? [];
+    activeListings += results.length;
+    for (const l of results) {
+      const match = byTitle.get(l.title.trim().toLowerCase());
+      if (match) listingToProduct.set(l.listing_id, match);
+    }
+    if (results.length < 100) break;
   }
 
   // Reviews, paginated.
@@ -290,12 +308,24 @@ export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> 
   let imported = 0;
   let skippedExisting = 0;
   let skippedUnmatched = 0;
+  let skippedNoBody = 0;
   const touchedProducts = new Set<string>();
 
   for (const r of all) {
     const tx = String(r.transaction_id ?? '');
     const rating = Math.round(Number(r.rating ?? 0));
     if (!tx || rating < 1 || rating > 5) continue;
+
+    // Etsy reviews are frequently a star rating with no words — leaving a comment is
+    // optional there. This was the only ingest path in the app that admitted a review with
+    // an empty body: the storefront form requires text, the CSV importer rejects rows
+    // without it, and the widget renders `body` unconditionally, so a rating-only Etsy
+    // review shipped to the storefront as a blank card under a name and a date.
+    //
+    // The rating itself is not lost — it is simply not published as a review. Counted as
+    // skipped so the merchant's sync summary adds up.
+    const body = String(r.review ?? '').trim();
+    if (!body) { skippedNoBody++; continue; }
     // The in-memory set is kept as a cheap first pass — it saves a round trip for the
     // common case of re-syncing an unchanged shop. It is no longer the guarantee: the set
     // is a snapshot and cannot see a concurrent run, which is how the daily cron
@@ -316,7 +346,7 @@ export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> 
         sourceReviewKey: tx,
         reviewerName: 'Etsy Customer',
         rating,
-        body: String(r.review ?? '').trim(),
+        body,
         images: r.image_url_fullxfull?.startsWith('https://') ? JSON.stringify([r.image_url_fullxfull]) : null,
         source: 'etsy',
         sourceProductId: tx,
@@ -363,10 +393,10 @@ export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> 
 
   await putSetting(storeId, K.lastSyncAt, new Date().toISOString());
 
-  const matchedListingIds = new Set(listingToProduct.keys());
-  const unmatchedListings = (listings.results ?? []).filter((l) => !matchedListingIds.has(l.listing_id)).length;
+  // Counted across every page, not just the first — see the pagination note above.
+  const unmatchedListings = activeListings - listingToProduct.size;
 
-  return { fetched: all.length, imported, skippedExisting, skippedUnmatched, unmatchedListings };
+  return { fetched: all.length, imported, skippedExisting, skippedUnmatched, skippedNoBody, unmatchedListings };
 }
 
 /** Stores due a background resync: connected, and last synced more than ~7 days ago. */

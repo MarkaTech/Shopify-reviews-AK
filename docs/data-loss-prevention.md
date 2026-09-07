@@ -42,9 +42,17 @@ The strongest control is not holding the data:
 - **Tenant isolation is enforced in queries**, not in the UI. A merchant cannot reach another
   merchant's data by changing an identifier, because the identifier is checked against their
   store before use.
-- **Database access is firewalled** to known addresses. There is no public route to port 5432.
-- **The database admin credential is not in source control** and is held only in Azure
-  application settings.
+- **Database access is firewalled.** The server is not open to the internet at large. Note the
+  current rule set includes Azure's "allow Azure services" exception, which admits any host
+  inside Azure rather than a named address list; narrowing this to the Web App's outbound IPs
+  or a VNet integration is tracked work, and until it lands "firewalled" should be read as
+  "not publicly routable", not as "reachable only by us".
+- **The database admin credential is held in Azure application settings** and is not in the
+  working tree. It is not clean history: a revision of `DEPLOY-RUNBOOK.md` committed on
+  2026-07-25 carried the live connection string, and that repository was public. The value has
+  been removed from the tree and must be treated as compromised until it is rotated and the
+  history is purged — see the note at the end of `DEPLOY-RUNBOOK.md`. This paragraph
+  previously asserted the credential had never been in source control, which was untrue.
 - **The Shopify access token is encrypted at the application layer**, so a database
   disclosure alone does not yield the ability to call merchant stores and pull more data.
 
@@ -65,8 +73,20 @@ Database connection and query logging is enabled through Azure diagnostic settin
 for 30 days. Application logs record authentication events, webhook verification failures,
 suppression writes and retention runs.
 
-What is watched for: authentication failures in bursts, webhook signature failures, and
-database connections from an address that is not the App.
+What is recorded, and where it can be seen: the operator portal (`/admin`) reads this back
+directly — per-store webhook registration state, job runs with their outcomes, failed imports
+classified by cause, plan reconciliation timestamps and the email suppression list. That is
+real, purpose-built monitoring and it is more than most apps of this size have.
+
+**What does not exist is alerting.** Nothing pages anyone. Authentication failures in bursts,
+webhook signature failures and connections from an unexpected address are all *recorded*, and
+would be *found* by an operator who went looking — but nothing surfaces them unprompted, so
+time-to-detection is bounded by how often somebody opens the portal rather than by anything
+automated.
+
+This section previously read "what is watched for", which implied active detection that is
+not in place. Closing that gap means routing the existing signals into an alert channel; until
+that ships, this document should not claim otherwise.
 
 ## 6. Prohibited practices
 

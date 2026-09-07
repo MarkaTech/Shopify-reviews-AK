@@ -5,6 +5,7 @@ import { getRequestSettings } from './request-settings';
 import { hasRequestQuota, recordRequestSent, nextQuotaReset, getStorePlan, PLANS } from './plans';
 import { SHOPIFY_APP_URL } from './shopify';
 import { unsubscribeToken } from '@/app/api/unsubscribe/route';
+import { maskEmail } from './pii';
 
 /**
  * The one place a review-request email is actually sent from.
@@ -277,7 +278,7 @@ export async function sendDueRequest(
       data: { sendFailures: failures, nextSendAt: null },
     });
     console.error(
-      `[review-request] giving up on ${request.customerEmail} after ${failures} attempts, last rejected as a bad recipient: ${result.detail}`
+      `[review-request] giving up on request ${request.id} (${maskEmail(request.customerEmail)}) after ${failures} attempts, last rejected as a bad recipient: ${result.detail}`
     );
     return 'abandoned';
   }
@@ -288,7 +289,7 @@ export async function sendDueRequest(
     data: { sendFailures: failures, nextSendAt: new Date(Date.now() + wait) },
   });
   console.error(
-    `[review-request] send failed for ${request.customerEmail} ` +
+    `[review-request] send failed for request ${request.id} (${maskEmail(request.customerEmail)}) ` +
       `(attempt ${failures}, ${rejectedByRecipient ? 'recipient rejected' : 'provider-side'}, ` +
       `retrying in ${Math.round(wait / 3_600_000)}h): ${result.detail}`
   );

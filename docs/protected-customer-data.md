@@ -60,7 +60,7 @@ behalf. *Personalization* means recommendations.
 
 | Question | Answer | Evidence |
 |---|---|---|
-| Limit staff access? | **Yes** | Single operator; production credentials only in Azure application settings; database firewalled |
+| Limit staff access? | **Yes** | Single operator; production credentials held in Azure application settings; database not publicly routable. One exception on record: a `DEPLOY-RUNBOOK.md` revision committed 2026-07-25 carried the database connection string in a public repository. Removed from the tree; rotation and history purge tracked in `DEPLOY-RUNBOOK.md` |
 | Strong staff passwords? | **Yes** | Strong passwords and MFA on Shopify Partner, Azure and AWS accounts |
 | Log access to personal data? | **Yes** | Azure diagnostic settings on the Postgres server; application logs record authentication events |
 | Security incident response policy? | **Yes** | `docs/incident-response.md` |

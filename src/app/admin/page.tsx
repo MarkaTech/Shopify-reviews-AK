@@ -73,7 +73,7 @@ interface StoreDetail {
   };
 }
 
-interface Suppression { email: string; reason: string; detail: string | null; createdAt: string }
+interface Suppression { id: string; email: string; reason: string; detail: string | null; createdAt: string }
 
 interface JobRow {
   job: string; label: string; critical: boolean; everyMinutes: number;
@@ -788,12 +788,15 @@ const SuppressionPanel = React.forwardRef<HTMLDivElement, {
   /* eslint-disable-next-line react-hooks/set-state-in-effect -- lazy fetch when the panel opens. */
   useEffect(() => { if (open) load(); }, [open, load]);
 
-  const remove = async (email: string) => {
-    setBusy(email);
+  // Keyed on the row id, not the address: the listing now returns masked addresses, so
+  // there is no full address here to send back. The server resolves the id to the real
+  // address it already holds.
+  const remove = async (id: string) => {
+    setBusy(id);
     await fetch('/api/admin/suppressions', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ id }),
     });
     setBusy('');
     load();
@@ -839,7 +842,7 @@ const SuppressionPanel = React.forwardRef<HTMLDivElement, {
               </thead>
               <tbody>
                 {rows.map((s) => (
-                  <tr key={s.email} className="border-t border-border">
+                  <tr key={s.id} className="border-t border-border">
                     <td className="py-2 font-mono text-ink-700 dark:text-ink-200">{s.email}</td>
                     <td className="py-2">
                       <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
@@ -853,11 +856,11 @@ const SuppressionPanel = React.forwardRef<HTMLDivElement, {
                     <td className="tnum py-2 text-ink-400">{fmtDate(s.createdAt)}</td>
                     <td className="py-2 text-right">
                       <button
-                        onClick={() => remove(s.email)}
-                        disabled={busy === s.email}
+                        onClick={() => remove(s.id)}
+                        disabled={busy === s.id}
                         className="ring-focus rounded-lg px-2 py-1 text-[11.5px] font-semibold text-ink-500 hover:text-ink-900 disabled:opacity-40 dark:hover:text-white"
                       >
-                        {busy === s.email ? '…' : 'Allow again'}
+                        {busy === s.id ? '…' : 'Allow again'}
                       </button>
                     </td>
                   </tr>

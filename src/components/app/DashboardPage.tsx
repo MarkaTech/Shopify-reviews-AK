@@ -5,14 +5,39 @@ import {
   Star, MessageSquare, Eye, BadgeCheck, Camera, TrendingUp, Inbox,
   ArrowRight, Clock, Sparkles, ShieldCheck, PieChart as PieIcon,
 } from 'lucide-react';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
-} from 'recharts';
+import dynamic from 'next/dynamic';
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import OnboardingFlow from './OnboardingFlow';
 import type { PageId } from './TopNav';
+
+/**
+ * recharts, loaded off the critical path.
+ *
+ * The dashboard is the app's entry route, and recharts was its single largest chunk
+ * (~478 KB) sitting in front of first paint for two below-the-fold figures. `ssr: false`
+ * because recharts measures the DOM to size itself and renders nothing useful on the server.
+ *
+ * The placeholders match the rendered heights exactly (248px and 168px), so the page does
+ * not move when the chunk lands.
+ */
+const ChartFallback = ({ height }: { height: number }) => (
+  <div
+    style={{ height }}
+    className="flex items-center justify-center rounded-xl bg-ink-50/60 dark:bg-white/[0.03]"
+    aria-hidden="true"
+  />
+);
+
+const ReviewsOverTimeChart = dynamic(
+  () => import('./DashboardCharts').then((m) => m.ReviewsOverTimeChart),
+  { ssr: false, loading: () => <ChartFallback height={248} /> }
+);
+
+const SentimentChart = dynamic(
+  () => import('./DashboardCharts').then((m) => m.SentimentChart),
+  { ssr: false, loading: () => <ChartFallback height={168} /> }
+);
 import RequestPerformance from './RequestPerformance';
 import {
   Panel, PanelHeader, StatCard, StatSkeletonRow, Skeleton, Stars, Pill,
@@ -215,86 +240,14 @@ export default function DashboardPage({
                 }
               />
               <div className="h-[248px] px-2 pb-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data.reviewsOverTime} margin={{ top: 4, right: 12, left: -18, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="dashArea" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--brand-500)" stopOpacity={0.32} />
-                        <stop offset="100%" stopColor="var(--brand-500)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="4 4" stroke="var(--ink-200)" vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 11, fill: 'var(--ink-400)' }}
-                      tickFormatter={(v: string) => v.slice(5)}
-                      axisLine={false}
-                      tickLine={false}
-                      minTickGap={24}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: 'var(--ink-400)' }}
-                      axisLine={false}
-                      tickLine={false}
-                      allowDecimals={false}
-                      width={34}
-                    />
-                    <Tooltip
-                      cursor={{ stroke: 'var(--ink-300)', strokeDasharray: '4 4' }}
-                      contentStyle={{
-                        fontSize: 12,
-                        borderRadius: 12,
-                        border: '1px solid var(--border)',
-                        boxShadow: 'var(--elev-2)',
-                        background: 'var(--card)',
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="count"
-                      name="Reviews"
-                      stroke="var(--brand-500)"
-                      strokeWidth={2.5}
-                      fill="url(#dashArea)"
-                      dot={false}
-                      activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--card)' }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <ReviewsOverTimeChart data={data.reviewsOverTime} />
               </div>
             </Panel>
 
             <Panel>
               <PanelHeader title="Sentiment" description="Derived from star ratings" icon={PieIcon} tone="violet" />
               <div className="relative h-[168px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={sentimentData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={52}
-                      outerRadius={72}
-                      dataKey="value"
-                      paddingAngle={3}
-                      stroke="var(--card)"
-                      strokeWidth={3}
-                    >
-                      {sentimentData.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        fontSize: 12,
-                        borderRadius: 12,
-                        border: '1px solid var(--border)',
-                        boxShadow: 'var(--elev-2)',
-                        background: 'var(--card)',
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <SentimentChart data={sentimentData} />
                 {/* The number belongs in the hole of a donut; without it the chart is
                     decoration rather than information. */}
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">

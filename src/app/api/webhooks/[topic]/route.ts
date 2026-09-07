@@ -3,8 +3,9 @@ import { verifyWebhookHmac } from '@/lib/shopify';
 import { clearWebhookRegistration } from '@/lib/webhook-health';
 import { db } from '@/lib/db';
 import { recomputeProductRating } from '@/lib/ratings';
-import { handleComplianceTopic } from '@/lib/compliance';
+import { handleComplianceTopic, ShopMismatchError } from '@/lib/compliance';
 import { recordJobRun } from '@/lib/job-run';
+import { maskEmail } from '@/lib/pii';
 
 export async function POST(
   request: NextRequest,
@@ -64,6 +65,13 @@ export async function POST(
 
     return NextResponse.json({ received: true });
   } catch (error) {
+    // Same rule as /api/webhooks/compliance: a header naming a different tenant than the
+    // signed body is a rejection. 401 rather than 500 so it is distinguishable from a
+    // handler fault; Shopify still retries, and still gets the same answer.
+    if (error instanceof ShopMismatchError) {
+      console.error('[webhook] rejected a request with a forged shop header:', error.message);
+      return NextResponse.json({ error: 'Shop mismatch' }, { status: 401 });
+    }
     console.error('Webhook error:', error);
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
@@ -269,17 +277,29 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     const created = await createRequestForOrder(storeId, data as never, settings.delayDays, shop);
     if (!created) return; // no email, no tracked products, or already requested
 
+    // Masked. This line put a raw buyer address into stdout on the normal path — outside
+    // every erasure and retention route the app has, since neither runRetention nor
+    // handleCustomerRedact can reach a log line.
     console.log(
-      `[review-request] scheduled for ${created.email} in ${settings.delayDays} day(s)`
+      `[review-request] scheduled for ${maskEmail(created.email)} in ${settings.delayDays} day(s)`
     );
   },
 
   'orders-paid': async (data, storeId) => {
-    // Log analytics event for potential review request
+    // A paid-order counter, and nothing more.
+    //
+    // This used to write `customerEmail` into the event blob. Nothing in the app has ever
+    // read this table back — every reference to AnalyticsEvent is a create or a delete — so
+    // that was a copy of every paying customer's address, kept for a feature that does not
+    // exist, in a JSON column no erasure path can target by column. `customers/redact` has
+    // to find it by substring-matching the quoted address, which is exactly the fragile
+    // matching that once over-deleted other customers' rows.
+    //
+    // The order id is enough for any counting use, and it is not personal data. If a buyer
+    // identifier is ever genuinely needed here, store a salted hash rather than the address.
     const order = data as {
       id: number;
       order_number: number;
-      customer?: { email?: string; first_name?: string; last_name?: string };
       total_price: string;
     };
 
@@ -290,7 +310,6 @@ const webhookHandlers: Record<string, WebhookHandler> = {
         eventData: JSON.stringify({
           orderId: order.id,
           orderNumber: order.order_number,
-          customerEmail: order.customer?.email,
           total: order.total_price,
         }),
       },
@@ -336,6 +355,14 @@ const webhookHandlers: Record<string, WebhookHandler> = {
       const plan = await resolveActivePlan(shop, token, tokenRefresherFor(storeId));
 
       await db.store.update({ where: { id: storeId }, data: { plan } });
+
+      // Entitlement reached: this store has now had its trial. Idempotent, so the hourly
+      // reconcile calling through here again does not move the recorded date.
+      if (plan !== 'free') {
+        const { markTrialConsumed } = await import('@/lib/trial');
+        await markTrialConsumed(storeId);
+      }
+
       console.info(`[billing] ${shop} -> ${plan} (subscription status: ${reported})`);
     } catch (err) {
       console.error(`[billing] failed to resolve plan for ${shop}:`, err);

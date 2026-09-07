@@ -68,12 +68,25 @@ export interface StorefrontConfig {
     star: string;
     verifiedBg: string;
     verifiedText: string;
-    /** Card background. Merchants on dark themes need this. */
-    cardBg: string;
-    /** Body text inside cards. */
-    cardText: string;
-    /** Card border / divider. */
-    border: string;
+    /**
+     * Card background, body text and border.
+     *
+     * Nullable, and null by DEFAULT — these three inherit from the merchant's theme unless
+     * they choose otherwise.
+     *
+     * They used to default to concrete light values (#FFFFFF / #1F2937 / #E5E7EB), which
+     * made the CSS's theme-adaptive fallbacks — `var(--rm-card-bg, transparent)` and
+     * `var(--rm-card-text, inherit)` — unreachable dead code. Every store got white cards
+     * with dark text, so a shop on a dark theme rendered a block of white rectangles in the
+     * middle of its product page and had to discover the colour pickers to fix it.
+     *
+     * Null means "do not set the custom property at all", so the fallback applies and the
+     * widget takes the theme's own background and text colour. The widget JS already skips
+     * any value that is not a hex string, so null needs no handling there.
+     */
+    cardBg: string | null;
+    cardText: string | null;
+    border: string | null;
   };
   layout: {
     type: LayoutType;
@@ -171,15 +184,23 @@ export interface StorefrontConfig {
  * as plain braces rather than a template language means a merchant can move them around
  * to suit their language's word order.
  */
+/**
+ * Colours a merchant may leave unset, so the widget takes the theme's own.
+ *
+ * Deliberately not accent/star/verified: those are the widget's identity and have no
+ * sensible fallback — an inherited star colour renders invisible stars on some themes.
+ */
+export const INHERITABLE_COLORS = new Set(['cardBg', 'cardText', 'border']);
+
 export const DEFAULT_CONFIG: StorefrontConfig = {
   colors: {
     accent: '#059669',
     star: '#F5A623',
     verifiedBg: '#ECFDF5',
     verifiedText: '#047857',
-    cardBg: '#FFFFFF',
-    cardText: '#1F2937',
-    border: '#E5E7EB',
+    cardBg: null,
+    cardText: null,
+    border: null,
   },
   layout: {
     type: 'list',
@@ -282,7 +303,10 @@ function clampNumber(group: string, field: string, n: number, fallback: number):
 
 function flatten(config: StorefrontConfig): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(config.colors)) out[`${PREFIX}color.${k}`] = String(v);
+  // `v ?? ''`, not `String(v)`. A null colour means "inherit from the merchant's theme",
+  // and String(null) writes the literal text "null" — which then fails the hex check on the
+  // way back in and is silently discarded, so choosing "use theme colour" would never stick.
+  for (const [k, v] of Object.entries(config.colors)) out[`${PREFIX}color.${k}`] = v ?? '';
   for (const [k, v] of Object.entries(config.layout)) out[`${PREFIX}layout.${k}`] = String(v);
   for (const [k, v] of Object.entries(config.text)) out[`${PREFIX}text.${k}`] = String(v);
   for (const [k, v] of Object.entries(config.behaviour)) out[`${PREFIX}behaviour.${k}`] = String(v);
@@ -360,11 +384,13 @@ export async function getStorefrontConfig(
     const field = rest.slice(dot + 1);
 
     if (group === 'color' && field in config.colors) {
-      // Only accept a hex colour. This string goes into a CSS custom property that is
-      // interpolated into a style attribute, so an unvalidated value is a CSS injection
-      // vector on the merchant's storefront.
-      if (HEX.test(row.value)) {
-        (config.colors as Record<string, string>)[field] = row.value;
+      // Only a hex colour, or empty for the inheritable ones. This string goes into a CSS
+      // custom property that is interpolated into a style attribute, so an unvalidated value
+      // is a CSS injection vector on the merchant's storefront.
+      if (row.value === '' && INHERITABLE_COLORS.has(field)) {
+        (config.colors as Record<string, string | null>)[field] = null;
+      } else if (HEX.test(row.value)) {
+        (config.colors as Record<string, string | null>)[field] = row.value;
       }
     } else if (group === 'layout' && field in config.layout) {
       if (field === 'type' && !LAYOUTS.includes(row.value as LayoutType)) continue;
@@ -510,7 +536,11 @@ export async function saveStorefrontConfig(
     if (key === CSS_KEY) {
       value = sanitiseCss(value);
     } else if (key.startsWith(`${PREFIX}color.`)) {
-      if (!HEX.test(value)) {
+      // Empty means "inherit from the theme", and is only offered for the colours that have
+      // a sensible fallback — a blank accent or star colour would render invisible stars.
+      const field = key.slice(`${PREFIX}color.`.length);
+      const inheritable = INHERITABLE_COLORS.has(field);
+      if (!(value === '' && inheritable) && !HEX.test(value)) {
         rejected.push(key);
         continue;
       }

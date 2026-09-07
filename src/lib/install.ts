@@ -66,13 +66,20 @@ export async function provisionStore(shop: string, tokens: ShopifyTokenSet) {
     create: storeFields,
   });
 
-  registerWebhooks(shop, accessToken).then(
-    () => markWebhooksRegistered(store.id),
-    (err) => {
-      // No marker on failure — ensureWebhooks retries on the next request.
-      console.error('[install] webhook registration failed for', shop, '— will retry', err);
-    }
-  );
+  registerWebhooks(shop, accessToken)
+    .then(
+      () => markWebhooksRegistered(store.id),
+      (err) => {
+        // No marker on failure — ensureWebhooks retries on the next request, with backoff.
+        console.error('[install] webhook registration failed for', shop, '— will retry', err);
+      }
+    )
+    // Terminates the chain. The fulfilled arm returns markWebhooksRegistered()'s promise,
+    // and a rejection from THAT (a database blip while writing the marker) had no handler —
+    // an unhandled rejection, which in Node is fatal by default.
+    .catch((err) =>
+      console.error('[install] could not record the webhook marker for', shop, err)
+    );
 
   syncProductsInBackground(store.id, shop, accessToken);
 

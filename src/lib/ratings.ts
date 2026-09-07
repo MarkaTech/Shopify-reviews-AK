@@ -320,22 +320,61 @@ export async function rebuildStoreRatings(
     accessToken: string;
     onUnauthorized?: () => Promise<string | null>;
   }
-): Promise<{ products: number; failed: number }> {
-  const products = await db.product.findMany({
-    where: { storeId },
-    select: { id: true },
-  });
+): Promise<{ products: number; failed: number; truncated?: boolean }> {
+  // Paged with a cursor rather than one unbounded findMany.
+  //
+  // The original loaded every Product row for the store in a single query and then awaited
+  // one updateProductRating per product in series — and with a shopifyContext each of those
+  // is three Admin API calls. A 5,000-product catalogue meant 5,000 rows held in memory and
+  // 15,000 sequential API calls inside one request, which cannot finish inside any
+  // reasonable timeout and cannot report how far it got when it dies.
+  //
+  // Cursor paging keeps memory flat. The ceiling is what makes the operation finite: a
+  // catalogue past it needs the background job, not a request handler, and the caller is
+  // told rather than silently given a partial rebuild.
+  const PAGE = 200;
+  const MAX_PRODUCTS = 5_000;
 
+  let processed = 0;
   let failed = 0;
-  for (const p of products) {
-    try {
-      await updateProductRating(storeId, p.id, shopifyContext);
-    } catch {
-      failed++;
+  let cursor: string | undefined;
+  let truncated = false;
+
+  for (;;) {
+    const page = await db.product.findMany({
+      where: { storeId },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take: PAGE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+    if (!page.length) break;
+
+    for (const p of page) {
+      if (processed >= MAX_PRODUCTS) {
+        truncated = true;
+        break;
+      }
+      try {
+        await updateProductRating(storeId, p.id, shopifyContext);
+      } catch {
+        failed++;
+      }
+      processed++;
     }
+
+    if (truncated || page.length < PAGE) break;
+    cursor = page[page.length - 1].id;
   }
 
-  return { products: products.length, failed };
+  if (truncated) {
+    console.warn(
+      `[ratings] rebuild for store ${storeId} stopped at ${MAX_PRODUCTS} products — ` +
+        'the rest were not rebuilt. Run it again to continue.'
+    );
+  }
+
+  return { products: processed, failed, truncated };
 }
 
 /** Read a cached aggregate without recomputing. For storefront reads. */

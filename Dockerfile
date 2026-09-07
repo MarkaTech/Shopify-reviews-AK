@@ -6,7 +6,18 @@ WORKDIR /app
 
 # ---- Dependencies ----
 FROM base AS deps
-COPY package.json bun.lock ./
+# package-lock.json is copied too, and it is the one that matters here.
+#
+# Only package.json and bun.lock were copied, while the install below is `npm install` —
+# npm cannot read bun.lock, so it resolved every dependency fresh from the registry at build
+# time. The committed package-lock.json, which pins the exact tree, was never consulted.
+#
+# That makes the production image non-reproducible: two builds of the same commit, minutes
+# apart, can ship different transitive versions, and a compromised or merely broken upstream
+# patch release lands in production without a single line of this repository changing. It
+# also means the lockfile that CI and local development resolve against is not the one the
+# deployed artefact was built from.
+COPY package.json package-lock.json bun.lock ./
 
 # The previous command here was:
 #   npm install --frozen-lockfile 2>/dev/null || bun install --frozen-lockfile 2>/dev/null || npm install
@@ -18,7 +29,14 @@ COPY package.json bun.lock ./
 # conflict: @hookform/resolvers wants valibot ^1.0.0 while @typeschema/valibot pins 0.39.0.
 # Neither is used directly by this app — zod is the validation library in package.json —
 # so skipping strict peer resolution is safe and deterministic.
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+# `npm ci`, not `npm install`: it installs exactly what package-lock.json pins and fails
+# loudly if the lockfile and package.json have drifted, which is the property a release
+# build wants. `npm install` silently rewrites the lockfile to whatever it resolved today.
+#
+# --legacy-peer-deps is still required: @hookform/resolvers wants valibot ^1.0.0 while
+# @typeschema/valibot pins 0.39.0. Neither is used directly by this app — zod is the
+# validation library in package.json — so skipping strict peer resolution is safe.
+RUN npm ci --legacy-peer-deps --no-audit --no-fund
 
 # ---- Build Stage ----
 FROM base AS builder

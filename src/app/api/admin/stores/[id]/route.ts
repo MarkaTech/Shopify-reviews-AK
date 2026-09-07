@@ -221,11 +221,17 @@ export async function PATCH(
         const { syncProducts } = await import('@/lib/product-sync');
         const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
         const token = await getFreshAccessTokenByStoreId(id);
-        const result = await syncProducts(store.shopifyDomain, store.shopifyDomain, token, tokenRefresherFor(id));
+        // `id` (a cuid) first, then the domain. Both parameters are strings, so passing the
+        // domain twice typechecked and shipped: the pre-existing-products lookup matched
+        // nothing, every product was treated as new, and the insert then violated the
+        // Product.storeId foreign key. The operator got "token may need re-auth" about a
+        // token that was fine, for a store whose only fault was having a catalogue.
+        const result = await syncProducts(id, store.shopifyDomain, token, tokenRefresherFor(id));
         return NextResponse.json({ ok: true, note: `Synced: ${result.created} new, ${result.alreadyPresent} already held, ${result.fetched} fetched${result.truncated ? ' (truncated)' : ''}.` });
       } catch (error) {
         console.error('[admin] resync failed', error);
-        return NextResponse.json({ error: 'Sync failed — token may need re-auth' }, { status: 502 });
+        const detail = error instanceof Error && error.message ? ` (${error.message})` : '';
+        return NextResponse.json({ error: `Sync failed${detail}` }, { status: 502 });
       }
     }
 
@@ -311,17 +317,32 @@ export async function PATCH(
       // the self-healing path only retries on a fresh process. This forces it now.
       try {
         if (!store.shopifyDomain) return NextResponse.json({ error: 'Store has no domain' }, { status: 400 });
-        const { registerWebhooks } = await import('@/lib/shopify');
-        const { markWebhooksRegistered, clearWebhookRegistration } = await import('@/lib/webhook-health');
+        const { reconcileWebhooks, clearWebhookRegistration } = await import('@/lib/webhook-health');
         const { getFreshAccessTokenByStoreId } = await import('@/lib/shopify-token');
         await clearWebhookRegistration(id);
         const token = await getFreshAccessTokenByStoreId(id);
-        await registerWebhooks(store.shopifyDomain, token);
-        await markWebhooksRegistered(id);
-        return NextResponse.json({ ok: true, note: 'Webhooks re-registered with Shopify.' });
+        // Reconcile rather than blind-register: this asks Shopify what is actually
+        // subscribed first, so the operator is told WHICH topics were missing instead of
+        // "done" with no way to know whether anything was wrong.
+        const missing = await reconcileWebhooks(id, store.shopifyDomain, token);
+        return NextResponse.json({
+          ok: true,
+          note: missing.length
+            ? `Re-registered ${missing.length} missing subscription(s): ${missing.join(', ')}.`
+            : 'All subscriptions were already present at Shopify. Nothing needed repair.',
+        });
       } catch (error) {
         console.error('[admin] webhook re-registration failed', error);
-        return NextResponse.json({ error: 'Re-registration failed — token may need re-auth' }, { status: 502 });
+        // Name the topics that failed. registerWebhooks used to swallow every failure and
+        // resolve, so this branch reported `{ ok: true }` on a total failure; now that it
+        // throws, the operator should see WHICH subscriptions are missing rather than a
+        // guess about the access token.
+        const { WebhookRegistrationError } = await import('@/lib/shopify');
+        const detail =
+          error instanceof WebhookRegistrationError
+            ? `Shopify rejected: ${error.failedTopics.join(', ')}`
+            : 'Could not reach Shopify — the token may need re-auth.';
+        return NextResponse.json({ error: `Re-registration failed. ${detail}` }, { status: 502 });
       }
     }
 
@@ -363,7 +384,22 @@ export async function PATCH(
       if (owned.productId) {
         try {
           const { updateProductRating } = await import('@/lib/ratings');
-          await updateProductRating(id, owned.productId);
+          const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
+          // With a shopifyContext, so the storefront metafield follows.
+          //
+          // This called updateProductRating with no context, which updates OUR ProductRating
+          // row and stops there. The `reviews.rating` metafield is what the theme, Google and
+          // the Shop app actually read — so an operator unpublishing a review for a legal
+          // takedown saw it vanish from the admin while the storefront kept showing the old
+          // average, which is the one case where the aggregate has to move.
+          const ctx = store.shopifyDomain
+            ? {
+                shop: store.shopifyDomain,
+                accessToken: await getFreshAccessTokenByStoreId(id),
+                onUnauthorized: tokenRefresherFor(id),
+              }
+            : undefined;
+          await updateProductRating(id, owned.productId, ctx);
         } catch (error) {
           console.error('[admin] rating update after moderation failed', error);
         }

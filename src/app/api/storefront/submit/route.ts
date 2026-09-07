@@ -5,7 +5,7 @@ import { decryptToken } from '@/lib/crypto';
 import { validateFiles, uploadToShopify, MediaError } from '@/lib/media';
 import { getFreshAccessToken, tokenRefresherFor, TOKEN_SELECT } from '@/lib/shopify-token';
 import { getSubmissionRules } from '@/lib/storefront-config';
-import { checkSubmitRateLimit } from '@/lib/rate-limit';
+import { checkSubmitRateLimit, checkSubmitFloodLimit } from '@/lib/rate-limit';
 import { notifyNewReview } from '@/lib/notifications';
 import { updateProductRating } from '@/lib/ratings';
 
@@ -48,8 +48,46 @@ function str(form: FormData, key: string, max: number): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
+/**
+ * Ceiling on the whole multipart body, checked before any of it is read.
+ *
+ * This is the only unauthenticated write endpoint in the app, and `request.formData()` was
+ * the very first statement in the handler — so every protection below it (the honeypot, the
+ * rate limiter, the store lookup, the per-file media caps) ran only AFTER the entire body
+ * had been buffered into memory. A few concurrent multi-gigabyte POSTs from an address that
+ * does not resolve to a real store were enough to exhaust the container, and the rate
+ * limiter that exists to bound this could not be reached.
+ *
+ * 100 MB is the media allowance (validateFiles enforces per-file and per-type limits inside
+ * it) plus room for the text fields.
+ */
+const MAX_BODY_BYTES = 100 * 1024 * 1024;
+
 export async function POST(request: NextRequest) {
   try {
+    // Before formData(), deliberately. A caller can omit or understate Content-Length, and
+    // the platform enforces its own ceiling above this — but an honest oversized upload is
+    // refused here for the cost of reading one header instead of the whole body.
+    const declared = Number(request.headers.get('content-length') || 0);
+    if (declared > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: 'Those files are too large. Please upload smaller photos or a shorter video.' },
+        { status: 413, headers: CORS }
+      );
+    }
+
+    // Per-IP flood guard, also before the body is read. Content-Length above is
+    // caller-supplied, so a client that simply omits it walks past that check straight into
+    // formData() — this is what actually bounds how often one address can make us buffer an
+    // unbounded upload. The full per-shop limit still runs below, once the shop is known.
+    const flood = checkSubmitFloodLimit(request);
+    if (!flood.allowed) {
+      return NextResponse.json(
+        { error: 'Too many reviews submitted from here just now. Please try again later.' },
+        { status: 429, headers: { ...CORS, 'Retry-After': String(flood.retryAfter) } }
+      );
+    }
+
     const form = await request.formData();
 
     // Honeypot. The widget renders no field by this name, so anything that fills it is
@@ -265,6 +303,47 @@ export async function POST(request: NextRequest) {
           productTitle,
           isPublished: publishNow,
         });
+      });
+    }
+
+    // ── Incentive reward ──
+    //
+    // A review created already published has no false->true transition for the merchant's
+    // PATCH handler to observe, so the reward flow that hangs off that transition never ran
+    // for auto-publish stores — the whole feature was inert for exactly the merchants who
+    // had turned auto-publish on. Granting here closes that.
+    //
+    // Nothing about the rating is passed, and grantIncentive cannot accept one: FTC
+    // 16 CFR 465.4 prohibits conditioning a reward on what a review says. One grant per
+    // review is enforced by the unique on IncentiveGrant.reviewId, so this cannot
+    // double-mint alongside the moderation path.
+    if (publishNow && email) {
+      const storeId = store.id;
+      const reviewId = created.id;
+      const reviewerName = name || null;
+      after(async () => {
+        try {
+          const token = await getFreshAccessToken(store);
+          const { rewardPublishedReview } = await import('@/lib/incentives');
+          await rewardPublishedReview(
+            storeId,
+            shop,
+            token,
+            // Media is uploaded further down, after the response flushes, so at this point
+            // the row carries no images or video yet. Passing the validated upload counts
+            // rather than the row keeps a photo review on the photo tier.
+            {
+              id: reviewId,
+              reviewerEmail: email,
+              reviewerName,
+              images: validated.some((f) => f.kind === 'image') || null,
+              videoUrl: validated.some((f) => f.kind === 'video') || null,
+            },
+            tokenRefresherFor(storeId)
+          );
+        } catch (err) {
+          console.error('[storefront/submit] incentive reward failed:', err);
+        }
       });
     }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { db } from '@/lib/db';
+import { clientIp, checkHelpfulRateLimit } from '@/lib/rate-limit';
 
 /**
  * "Was this review helpful?" — the vote endpoint.
@@ -61,11 +62,12 @@ function alreadyVoted(key: string): boolean {
   return false;
 }
 
-function clientIp(request: NextRequest): string {
-  const fwd = request.headers.get('x-forwarded-for');
-  if (fwd) return fwd.split(',')[0].trim();
-  return request.headers.get('x-real-ip') || 'unknown';
-}
+// Removed in favour of the shared helper in @/lib/rate-limit.
+//
+// This local copy drifted from it: the shared one strips the `:port` Azure appends to the
+// forwarded address, and this one did not. So the same shopper reconnecting on a new source
+// port looked like a new address and got a fresh allowance on every vote — which is the
+// whole ceiling, defeated by ordinary TCP behaviour rather than by an attacker.
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
@@ -73,6 +75,21 @@ export async function OPTIONS() {
 
 export async function POST(request: NextRequest) {
   try {
+    // Volume ceiling, first.
+    //
+    // This is the app's other unauthenticated write endpoint and it had none — only a
+    // per-(ip, review) "already voted" memo, which bounds repeat votes on ONE review and
+    // nothing else. A script walking review ids could inflate helpful counts across a whole
+    // store unimpeded, and helpfulness ordering is what decides which reviews a shopper
+    // sees first.
+    const flood = checkHelpfulRateLimit(request);
+    if (!flood.allowed) {
+      return NextResponse.json(
+        { error: 'Too many votes just now. Please try again later.' },
+        { status: 429, headers: { ...CORS, 'Retry-After': String(flood.retryAfter) } }
+      );
+    }
+
     const body = (await request.json()) as { shop?: string; reviewId?: string };
     const shop = typeof body.shop === 'string' ? body.shop.slice(0, 255) : '';
     const reviewId = typeof body.reviewId === 'string' ? body.reviewId.slice(0, 64) : '';

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookHmac } from '@/lib/shopify';
-import { handleComplianceTopic } from '@/lib/compliance';
+import { handleComplianceTopic, ShopMismatchError } from '@/lib/compliance';
 
 /**
  * Single endpoint for Shopify's three mandatory compliance webhooks.
@@ -46,6 +46,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
+    // A shop mismatch is not a transient failure: the signed body named a different tenant
+    // than the header did, or carried no tenant at all — a replayed request, or a bug.
+    // 401 rather than 500 so the two are distinguishable in logs and in the Partner
+    // Dashboard. Shopify retries every non-2xx, so this does not stop redelivery; it just
+    // keeps failing the same way, which is the correct outcome for a request we will never
+    // accept.
+    if (error instanceof ShopMismatchError) {
+      console.error('[GDPR] rejected a compliance webhook with a forged shop header:', error.message);
+      return NextResponse.json({ error: 'Shop mismatch' }, { status: 401 });
+    }
     // Loud, and retryable. See the note above: a swallowed failure here is an erasure
     // that never happens.
     console.error('[GDPR] compliance webhook FAILED — Shopify will retry:', error);

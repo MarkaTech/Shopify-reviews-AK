@@ -28,7 +28,8 @@ import { fetchShopifyProducts } from './shopify';
 /**
  * Upper bound on a single sync.
  *
- * Not a page size — `fetchShopifyProducts` follows cursors internally, 250 at a time. This
+ * Not a page size — `fetchShopifyProducts` follows cursors internally, SYNC_PAGE_SIZE (100)
+ * at a time, so this ceiling is reached in 50 round trips. This
  * is the point at which we stop, so that a store with a six-figure catalogue cannot hold a
  * request open indefinitely or exhaust memory. Stores past this get the first 5,000 and
  * their remaining products arrive through `products/create` and `products/update` webhooks.

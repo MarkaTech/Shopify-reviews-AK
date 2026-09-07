@@ -98,9 +98,32 @@ test('handles null and undefined without throwing', () => {
 
 console.log('\nDEFAULT_CONFIG and key validation');
 
-test('every default colour is a valid hex, since they land in a style attribute', () => {
+test('every default colour is either a valid hex or null, since they land in a style attribute', () => {
   for (const [name, value] of Object.entries(DEFAULT_CONFIG.colors)) {
+    if (value === null) continue;
     assert.match(value, /^#[0-9a-fA-F]{3,8}$/, `${name} is not a hex colour: ${value}`);
+  }
+});
+
+test('card background, text and border default to null so the merchant theme shows through', () => {
+  // Not cosmetic. When these carried concrete light values the CSS fallbacks
+  // `var(--rm-card-bg, transparent)` and `var(--rm-card-text, inherit)` were unreachable,
+  // so a store on a dark theme got a block of white cards it had to hunt for a setting to
+  // fix. Null means the custom property is never set and the theme's own colours apply.
+  assert.strictEqual(DEFAULT_CONFIG.colors.cardBg, null);
+  assert.strictEqual(DEFAULT_CONFIG.colors.cardText, null);
+  assert.strictEqual(DEFAULT_CONFIG.colors.border, null);
+});
+
+test('the colours that must always be set still are — they have no sensible theme fallback', () => {
+  // accent and star are the widget's own identity; inheriting them would render invisible
+  // stars on some themes.
+  for (const name of ['accent', 'star', 'verifiedBg', 'verifiedText'] as const) {
+    assert.match(
+      String(DEFAULT_CONFIG.colors[name]),
+      /^#[0-9a-fA-F]{3,8}$/,
+      `${name} must be a concrete hex colour`
+    );
   }
 });
 

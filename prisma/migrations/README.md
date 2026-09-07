@@ -6,40 +6,33 @@ Production applies these with `prisma migrate deploy` (see
 `schema.prisma` with no history, no review, and destructive changes executed
 rather than refused.
 
-## One thing is still outstanding: there is no baseline migration
+## Baseline
 
-These migrations start from the schema **as it already existed in production**,
-not from an empty database. `migrate deploy` works today because the only
-migration here alters tables that are already present.
-
-But a *fresh* database cannot be built from this directory alone — there is no
-`0_init` covering the original tables. That matters for a new developer, a
-staging environment, or `prisma migrate reset`.
-
-It is missing because the environment these were authored in could not run
-Prisma's schema engine (macOS binaries on a Linux host, no network to fetch the
-right ones). Generating it needs one command on a machine with a working Prisma:
+`0_init` is the baseline: it creates all 18 tables from empty, generated with
 
 ```bash
-# From the commit that production is currently running:
-git show <deployed-commit>:prisma/schema.prisma > /tmp/schema_prod.prisma
-
-mkdir -p prisma/migrations/0_init
-npx prisma migrate diff \
-  --from-empty \
-  --to-schema-datamodel /tmp/schema_prod.prisma \
-  --script > prisma/migrations/0_init/migration.sql
+npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script
 ```
 
-Then tell production it is already applied — this records it without running it,
-which is the point, since those tables exist:
+A fresh database can now be built from this directory alone — `prisma migrate reset`, a new
+developer, a staging environment. The two incremental migrations that follow it are fully
+idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`,
+`CREATE TABLE IF NOT EXISTS`), so applying them on top of a database the baseline just built
+is a no-op rather than a conflict. Directory order is lexicographic, and `0_init` sorts first.
+
+**Production already has these tables**, from before migration history existed. It must
+therefore record the baseline as applied rather than run it:
 
 ```bash
 npx prisma migrate resolve --applied 0_init
 ```
 
-Commit `0_init` afterwards. Until that is done, treat this directory as
-incremental-only.
+`.github/workflows/azure-deploy.yml` does this automatically on the P3005 path, so no manual
+step is needed — but if you are baselining a database by hand, that is the command.
+
+Regenerate `0_init` only when starting a genuinely new database lineage. For an ordinary
+schema change, add an incremental migration instead (below); editing the baseline after it
+has been applied anywhere makes the two disagree.
 
 ## Adding a migration
 

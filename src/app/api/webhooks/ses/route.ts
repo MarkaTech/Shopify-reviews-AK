@@ -21,9 +21,42 @@ import { suppress } from '@/lib/suppression';
  * knows, and a way to silently stop review invitations reaching a competitor's customers.
  * So: the certificate URL is pinned to AWS hosts, the certificate is fetched over HTTPS,
  * and the signature must verify before a single address is touched.
+ *
+ * Why the signature is not sufficient on its own
+ * ---------------------------------------------
+ * A valid signature proves *AWS sent this*. It does not prove *our topic sent this*, and
+ * those are very different claims. Anyone with a free AWS account can create their own SNS
+ * topic, subscribe this URL to it, and publish whatever they like: AWS signs it with a real
+ * certificate, the verification above passes, and the payload is a `Message` string the
+ * attacker wrote by hand. `SubscriptionConfirmation` is auto-confirmed below, so no
+ * operator is ever in the loop.
+ *
+ * That is a working denial-of-email primitive against the whole platform, because
+ * `EmailSuppression.email` is globally unique with no storeId — one forged Complaint blocks
+ * that address for *every* merchant, permanently, removable only through the operator
+ * portal. It is the exact attack the paragraph above says this file exists to stop; the
+ * signature check was built and the ownership check was omitted.
+ *
+ * So the TopicArn is compared against SES_TOPIC_ARN before anything else, and a missing
+ * SES_TOPIC_ARN fails closed. Failing closed means bounce and complaint processing stops
+ * until the variable is set, which costs sender reputation — but the alternative is leaving
+ * the primitive open, and an unset variable is a deployment mistake, not a state to serve.
  */
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The one SNS topic this endpoint accepts.
+ *
+ * Read per-request rather than at module load. This is a style preference, not a
+ * capability: `process.env` is populated at process start either way, so the value is NOT
+ * hot-reloadable — changing the Azure app setting restarts the container, and the restart is
+ * what picks it up. If you have set the variable and still see 503s, check that the restart
+ * actually happened.
+ */
+function expectedTopicArn(): string {
+  return (process.env.SES_TOPIC_ARN || '').trim();
+}
 
 /** SNS certificates are only ever served from these hosts. */
 function isTrustedCertUrl(url: string): boolean {
@@ -140,11 +173,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
     }
 
+    // ── Topic ownership ──
+    //
+    // Before the type is even read, because every branch below acts on the payload. See the
+    // header: a valid signature says "AWS", not "us". TopicArn is one of the fields SNS
+    // signs, so by this point it is authentic — it just has to be *ours*.
+    const expected = expectedTopicArn();
+    if (!expected) {
+      console.error(
+        '[ses] SES_TOPIC_ARN is not set — refusing every notification. Until it is set, no ' +
+          'bounce or complaint is recorded and sender reputation will drift. Set it to the ' +
+          'ARN of the SNS topic SES publishes to.'
+      );
+      return NextResponse.json({ error: 'Endpoint not configured' }, { status: 503 });
+    }
+
+    const topicArn = String(payload.TopicArn || '');
+    if (topicArn !== expected) {
+      console.warn(`[ses] rejected a correctly-signed notification from a foreign topic: ${topicArn}`);
+      return NextResponse.json({ error: 'Unrecognised topic' }, { status: 403 });
+    }
+
     const type = String(payload.Type);
 
     // Confirming the subscription is what activates the topic. Fetching the URL is the
-    // documented mechanism — and it is only reached after the signature verified, so an
-    // attacker cannot use this endpoint as a generic URL fetcher.
+    // documented mechanism — and it is only reached after the signature verified AND the
+    // topic matched, so this cannot be used as a generic URL fetcher and cannot subscribe
+    // us to a topic we do not own.
     if (type === 'SubscriptionConfirmation') {
       const subscribeUrl = String(payload.SubscribeURL || '');
       if (isTrustedCertUrl(subscribeUrl.replace(/\.pem$/, '.pem')) || /^https:\/\/sns\.[a-z0-9-]+\.amazonaws\.com\//.test(subscribeUrl)) {

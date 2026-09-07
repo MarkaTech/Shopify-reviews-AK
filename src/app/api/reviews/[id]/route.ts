@@ -4,8 +4,7 @@ import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { updateProductRating } from '@/lib/ratings';
 import { syncReviewToShop, unsyndicateReview, isSyndicationEnabled } from '@/lib/syndication';
-import { grantIncentive } from '@/lib/incentives';
-import { renderIncentiveEmail, sendEmail } from '@/lib/email';
+import { rewardPublishedReview } from '@/lib/incentives';
 
 export async function GET(
   request: NextRequest,
@@ -138,61 +137,21 @@ export async function PUT(
     // prohibits conditioning a reward on what a review says, at up to ~$53,000 per
     // instance, so the constraint is structural rather than a rule someone has to remember.
     //
-    // The whole config UI existed with nothing calling this, so no code was ever minted.
-    // One grant per review is enforced inside grantIncentive; republishing does not mint a
-    // second code.
-    if (publishChanged && updated.isPublished && !updated.reviewerEmail) {
-      // Diagnosable rather than silent: a merchant wondering "why did no code go out"
-      // deserves a log line, and reviews without an email (imports, anonymous) are the
-      // common non-obvious reason.
-      console.info('[reviews] published without reviewer email — no incentive possible:', updated.id);
-    }
-    if (publishChanged && updated.isPublished && updated.reviewerEmail) {
-      const hasPhoto = Boolean(updated.images);
-      const hasVideo = Boolean(updated.videoUrl);
-      const reviewId = updated.id;
-      const email = updated.reviewerEmail;
-      after(async () => {
-        try {
-          const grant = await grantIncentive(storeId, shop, accessToken, {
-            reviewId,
-            customerEmail: email,
-            hasPhoto,
-            hasVideo,
-            onUnauthorized,
-          });
-
-          // Minting the code is only half the feature: a code the reviewer is never told
-          // about is indistinguishable from no reward. Email it — once. `alreadyGranted`
-          // guards the republish case, so toggling a review off and on again does not
-          // send the same code twice.
-          if (grant && !grant.alreadyGranted) {
-            const store = await db.store.findUnique({
-              where: { id: storeId },
-              select: { name: true },
-            });
-            const msg = renderIncentiveEmail({
-              storeName: store?.name || shop,
-              customerName: updated.reviewerName === 'Verified Customer' ? null : updated.reviewerName,
-              code: grant.code,
-              rewardType: grant.rewardType,
-              rewardValue: grant.rewardValue,
-              expiresAt: grant.expiresAt,
-              disclosureText: grant.disclosureText,
-            });
-            const result = await sendEmail({ ...msg, to: email });
-            if (!result.sent) {
-              // The code still exists in Shopify and in the grants table — the merchant
-              // can hand it over manually from the review's detail view.
-              console.warn('[reviews] reward code minted but email not sent:', result.reason);
-            }
-          }
-        } catch (err) {
-          // A missing discount code is a disappointed shopper; a failed publish is a
-          // merchant who cannot moderate. Never let the first break the second.
-          console.error('[reviews] incentive grant failed:', err);
-        }
-      });
+    // The flow itself now lives in rewardPublishedReview, shared with the two paths that
+    // create an already-published review (/api/storefront/submit and
+    // /api/review-request/[token]). It used to live here and only here, keyed on the
+    // publish TRANSITION — which a row born published never has, so the whole feature was
+    // dead for every store with auto-publish on. One implementation, so a fix to the reward
+    // flow cannot land on one path and miss the others.
+    if (publishChanged && updated.isPublished) {
+      const review = {
+        id: updated.id,
+        reviewerEmail: updated.reviewerEmail,
+        reviewerName: updated.reviewerName,
+        images: updated.images,
+        videoUrl: updated.videoUrl,
+      };
+      after(() => rewardPublishedReview(storeId, shop, accessToken, review, onUnauthorized));
     }
 
     // Push the change to the Shop app. Best-effort — never blocks the merchant.

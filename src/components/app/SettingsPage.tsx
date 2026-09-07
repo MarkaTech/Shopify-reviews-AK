@@ -43,7 +43,11 @@ const plans = [
       'Video reviews',
       'Automatic reminders',
       'Review incentives',
-      'Questions & answers',
+      // "Questions & answers" is not sold here either, and for the same reason as the
+      // Shop app note below: the server side is complete but no shopper-facing surface
+      // exists (no Q&A block in the theme extension, no fetch in the widget), so a
+      // merchant who upgraded for it would find a screen that can never fill. It goes
+      // back on this list when the storefront block ships. See plans.ts.
       // "Shop app sync" is not sold here, and will not be until it can actually run.
       //
       // The syndication code in src/lib/syndication.ts is real and gated correctly, but
@@ -164,28 +168,50 @@ function ToggleRow({
   );
 }
 
+/**
+ * A colour picker that understands "not set".
+ *
+ * cardBg, cardText and border default to null, meaning the widget inherits the merchant's
+ * theme. `<input type="color">` has no null state — it must be given a hex — so an
+ * unset colour shows a neutral swatch and the row says it is following the theme. Touching
+ * the picker is what opts into an explicit colour; Reset puts it back to inheriting.
+ */
 function ColorRow({
-  label, value, onChange,
+  label, value, onChange, inheritable = false,
 }: {
   label: string;
-  value: string;
-  onChange: (v: string) => void;
+  value: string | null;
+  onChange: (v: string | null) => void;
+  inheritable?: boolean;
 }) {
+  const isInherited = value === null;
   return (
     <div>
-      <Label className="text-[12.5px] font-semibold text-ink-700 dark:text-ink-200">{label}</Label>
+      <div className="flex items-baseline justify-between gap-2">
+        <Label className="text-[12.5px] font-semibold text-ink-700 dark:text-ink-200">{label}</Label>
+        {inheritable && !isInherited && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-[11.5px] font-medium text-ink-400 hover:text-ink-600 dark:hover:text-ink-200"
+          >
+            Use theme colour
+          </button>
+        )}
+      </div>
       <div className="mt-1.5 flex gap-2">
         <input
           type="color"
-          value={value}
+          value={value ?? '#FFFFFF'}
           onChange={e => onChange(e.target.value)}
           className="ring-focus size-10 shrink-0 cursor-pointer rounded-xl border border-border p-0"
           aria-label={label}
         />
         <Input
           className="h-10 flex-1 rounded-xl font-mono text-[13px]"
-          value={value}
-          onChange={e => onChange(e.target.value)}
+          value={value ?? ''}
+          placeholder={inheritable ? 'Follows your theme' : ''}
+          onChange={e => onChange(e.target.value || (inheritable ? null : ''))}
           spellCheck={false}
         />
       </div>
@@ -326,7 +352,9 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   const unlocked = (
     [
       { key: 'googleFeed', label: 'Google Shopping star ratings', where: 'Settings → Integrations', icon: Globe, tone: 'cyan' as const, go: () => setTab('integrations') },
-      { key: 'questionsAndAnswers', label: 'Questions & answers', where: 'The Questions screen', icon: MessageSquare, tone: 'indigo' as const, go: () => onNavigate?.('questions') },
+      // Questions & answers row removed with the screen. The feature is false on every plan
+      // while Q&A has no storefront surface, so this row could only ever have said "locked" and
+      // pointed at a page that no longer routes.
       { key: 'incentives', label: 'Review incentives', where: 'The Incentives screen', icon: Gift, tone: 'amber' as const, go: () => onNavigate?.('incentives') },
       { key: 'videoReviews', label: 'Video reviews', where: 'Settings → General → What shoppers can attach', icon: Video, tone: 'violet' as const, go: () => setTab('general') },
       { key: 'reminderEmails', label: 'Automatic reminders', where: 'Settings → Notifications → Review request timing', icon: Clock, tone: 'brand' as const, go: () => setTab('notifications') },
@@ -338,9 +366,14 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
     setConfig(c => (c ? { ...c, behaviour: { ...c.behaviour, [field]: value } } : c));
     setDirty(d => ({ ...d, [`sf.behaviour.${field}`]: String(value) }));
   };
-  const setColor = (field: string, value: string) => {
-    setConfig(c => (c ? { ...c, colors: { ...c.colors, [field]: value } } : c));
-    setDirty(d => ({ ...d, [`sf.color.${field}`]: value }));
+  /**
+   * `null` means "inherit from the merchant's theme" and is a real, savable value for
+   * cardBg / cardText / border. It is persisted as an empty string, which is what
+   * getStorefrontConfig reads back as null.
+   */
+  const setColor = (field: string, value: string | null) => {
+    setConfig(c => (c ? ({ ...c, colors: { ...c.colors, [field]: value } } as StorefrontConfig) : c));
+    setDirty(d => ({ ...d, [`sf.color.${field}`]: value ?? '' }));
   };
   const setLayout = (field: string, value: string | number | boolean) => {
     setConfig(c => (c ? { ...c, layout: { ...c.layout, [field]: value } } : c));
@@ -371,6 +404,36 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
     Object.keys(dirty).length > 0 ||
     Object.keys(dirtyNotif).length > 0 ||
     Object.keys(dirtyReq).length > 0;
+
+  /**
+   * Throw away every pending edit and go back to what is saved.
+   *
+   * All three dirty maps are overlays on top of the loaded values, so clearing them is the
+   * whole operation — nothing needs re-fetching.
+   */
+  const discard = () => {
+    setDirty({});
+    setDirtyNotif({});
+    setDirtyReq({});
+  };
+
+  /**
+   * Warn before a reload or a tab close drops unsaved edits.
+   *
+   * Only covers leaving the page: in-app navigation is a React state change that no browser
+   * event can intercept, so the Discard button above is what makes the state recoverable
+   * there. This catches the case merchants actually hit — reloading the embedded app, or
+   * closing the admin tab, after changing a setting and not pressing Save.
+   */
+  useEffect(() => {
+    if (!hasChanges) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasChanges]);
 
   const save = async () => {
     if (!hasChanges) {
@@ -624,6 +687,17 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
             {Object.keys(dirty).length + Object.keys(dirtyNotif).length + Object.keys(dirtyReq).length} unsaved change(s)
           </p>
         </div>
+        {/* Discard. The bar announced unsaved changes and offered exactly one way out —
+            saving them. A merchant who had toggled something to see what it was had no way
+            to back out except reloading the page and hoping. */}
+        <button
+          type="button"
+          onClick={discard}
+          disabled={saving || !hasChanges}
+          className="h-8 shrink-0 rounded-lg px-3 text-[12.5px] font-medium text-ink-500 hover:bg-ink-50 disabled:opacity-40 dark:hover:bg-white/5"
+        >
+          Discard
+        </button>
         <ActionButton onClick={save} disabled={saving || !hasChanges} size="sm">
           {saving ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle className="size-3.5" />}
           {hasChanges ? 'Save changes' : 'Saved'}
@@ -803,8 +877,8 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   <ColorRow label="Accent" value={config.colors.accent} onChange={v => setColor('accent', v)} />
                   <ColorRow label="Stars" value={config.colors.star} onChange={v => setColor('star', v)} />
-                  <ColorRow label="Card background" value={config.colors.cardBg} onChange={v => setColor('cardBg', v)} />
-                  <ColorRow label="Card text" value={config.colors.cardText} onChange={v => setColor('cardText', v)} />
+                  <ColorRow label="Card background" value={config.colors.cardBg} onChange={v => setColor('cardBg', v)} inheritable />
+                  <ColorRow label="Card text" value={config.colors.cardText} onChange={v => setColor('cardText', v)} inheritable />
                   <ColorRow label="Borders" value={config.colors.border} onChange={v => setColor('border', v)} />
                   <ColorRow label="Verified badge" value={config.colors.verifiedBg} onChange={v => setColor('verifiedBg', v)} />
                 </div>
@@ -815,8 +889,10 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                   <div
                     className="border p-3.5"
                     style={{
-                      background: config.colors.cardBg,
-                      color: config.colors.cardText,
+                      // `?? undefined` so an inherited colour falls through to the preview
+                      // surface rather than being pinned to a literal.
+                      background: config.colors.cardBg ?? undefined,
+                      color: config.colors.cardText ?? undefined,
                       borderColor: config.colors.border,
                       borderRadius: `${num(config.layout.borderRadius, 8)}px`,
                     }}
