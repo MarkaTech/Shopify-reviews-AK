@@ -126,25 +126,14 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     photoReviews: true,
     videoReviews: true,
     reminderEmails: true,
-    // Not sold until the storefront half ships.
+    // Sold again: the storefront half now exists.
     //
-    // The server side is complete — GET/POST /api/storefront/questions with plan gating,
-    // per-email dedupe and rate limiting, plus a full merchant moderation screen. What does
-    // not exist is any way for a shopper to reach it: there is no Q&A block in
-    // extensions/reviewmaster, the widget never fetches /api/storefront/questions, and there
-    // is no app proxy. `db.question.create` has exactly one caller in the repository — that
-    // unreachable storefront route — so the Question table cannot be populated in production
-    // and the Questions screen is empty by construction, not by default.
-    //
-    // Same standard as apiAccess below and the Shop app sync line in SettingsPage: charging
-    // for a feature that cannot be delivered is a listed App Store rejection reason, and the
-    // fix that takes minutes is to stop selling it rather than to ship untested storefront
-    // code the week of a resubmission.
-    //
-    // To re-enable: ship a questions app block plus the fetch/render path in
-    // extension-src/reviewmaster.js, rebuild with `npm run build:ext`, then set this back to
-    // true on growth and scale and restore the SettingsPage and TopNav entries.
-    questionsAndAnswers: false,
+    // This was false while the app charged for Q&A that no shopper could reach — there was
+    // no theme block and the widget never called /api/storefront/questions, so
+    // db.question.create had one unreachable caller and the merchant's Questions screen
+    // could only ever be empty. extensions/reviewmaster/blocks/questions.liquid and the
+    // QuestionsWidget in extension-src/reviewmaster.js close that.
+    questionsAndAnswers: true,
     incentives: true,
     googleFeed: true,
     shopSyndication: true,
@@ -163,8 +152,8 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     photoReviews: true,
     videoReviews: true,
     reminderEmails: true,
-    // See the Growth tier above — not sold until the storefront half ships.
-    questionsAndAnswers: false,
+    // See the Growth tier above.
+    questionsAndAnswers: true,
     incentives: true,
     googleFeed: true,
     shopSyndication: true,

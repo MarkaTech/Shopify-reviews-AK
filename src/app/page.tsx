@@ -40,8 +40,7 @@ const BulkUploadPage = dynamic(() => import('@/components/app/BulkUploadPage'), 
 const WidgetsPage = dynamic(() => import('@/components/app/WidgetsPage'), { ssr: false, loading });
 const SettingsPage = dynamic(() => import('@/components/app/SettingsPage'), { ssr: false, loading });
 const ProductsPage = dynamic(() => import('@/components/app/ProductsPage'), { ssr: false, loading });
-// QuestionsPage is still in the tree and still compiles; it is simply not routed while
-// Q&A has no storefront surface. Re-add this import and its `case` to restore it.
+const QuestionsPage = dynamic(() => import('@/components/app/QuestionsPage'), { ssr: false, loading });
 const IncentivesPage = dynamic(() => import('@/components/app/IncentivesPage'), { ssr: false, loading });
 import { Toaster } from 'sonner';
 import { Star, ExternalLink, ChevronRight } from 'lucide-react';
@@ -51,11 +50,7 @@ const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string
   dashboard: { title: 'Dashboard', desc: 'How your reviews are performing' },
   reviews: { title: 'All reviews', desc: 'Moderate, reply to and feature customer reviews', parent: 'Reviews' },
   'bulk-upload': { title: 'Import', desc: 'Bring in reviews you own, or collect them from real orders', parent: 'Reviews' },
-  // 'questions' is intentionally absent while Q&A has no storefront surface. PAGE_TITLES
-  // feeds PAGE_IDS, the ?page= parser and the App Bridge <ui-nav-menu>, so removing it here
-  // is what actually hides the screen — dropping the TopNav entry alone left it reachable by
-  // URL and still listed in Shopify's own admin sidebar. Restore this line, the TopNav item
-  // and the plan flags together when the theme block ships.
+  questions: { title: 'Questions', desc: 'Answer shopper questions and publish them to product pages', parent: 'Reviews' },
   products: { title: 'Products', desc: 'Products synced from your Shopify catalogue', parent: 'Store' },
   widgets: { title: 'Widgets', desc: 'Design how reviews appear on your storefront', parent: 'Store' },
   incentives: { title: 'Incentives', desc: 'Reward reviewers with a discount — never tied to what they say', parent: 'Store' },
@@ -337,6 +332,7 @@ export default function Home() {
       case 'dashboard': return <DashboardPage onNavigate={navigate} storeName={storeName} />;
       case 'reviews': return <ReviewsPage />;
       case 'bulk-upload': return <BulkUploadPage />;
+      case 'questions': return <QuestionsPage storeDomain={storeDomain} onNavigate={navigate} />;
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage storeDomain={storeDomain} />;
       case 'incentives': return <IncentivesPage />;

@@ -43,11 +43,7 @@ const plans = [
       'Video reviews',
       'Automatic reminders',
       'Review incentives',
-      // "Questions & answers" is not sold here either, and for the same reason as the
-      // Shop app note below: the server side is complete but no shopper-facing surface
-      // exists (no Q&A block in the theme extension, no fetch in the widget), so a
-      // merchant who upgraded for it would find a screen that can never fill. It goes
-      // back on this list when the storefront block ships. See plans.ts.
+      'Questions & answers',
       // "Shop app sync" is not sold here, and will not be until it can actually run.
       //
       // The syndication code in src/lib/syndication.ts is real and gated correctly, but
@@ -352,9 +348,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   const unlocked = (
     [
       { key: 'googleFeed', label: 'Google Shopping star ratings', where: 'Settings → Integrations', icon: Globe, tone: 'cyan' as const, go: () => setTab('integrations') },
-      // Questions & answers row removed with the screen. The feature is false on every plan
-      // while Q&A has no storefront surface, so this row could only ever have said "locked" and
-      // pointed at a page that no longer routes.
+      { key: 'questionsAndAnswers', label: 'Questions & answers', where: 'The Questions screen', icon: MessageSquare, tone: 'indigo' as const, go: () => onNavigate?.('questions') },
       { key: 'incentives', label: 'Review incentives', where: 'The Incentives screen', icon: Gift, tone: 'amber' as const, go: () => onNavigate?.('incentives') },
       { key: 'videoReviews', label: 'Video reviews', where: 'Settings → General → What shoppers can attach', icon: Video, tone: 'violet' as const, go: () => setTab('general') },
       { key: 'reminderEmails', label: 'Automatic reminders', where: 'Settings → Notifications → Review request timing', icon: Clock, tone: 'brand' as const, go: () => setTab('notifications') },

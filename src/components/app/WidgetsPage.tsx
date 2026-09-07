@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { Panel, PanelHeader, Pill, ActionButton, EmptyState, Skeleton } from './ui-kit';
+import { THEME_EXT_UUID } from '@/lib/theme-ext';
 
 /**
  * Widget builder.
@@ -385,13 +386,6 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * The theme app extension's UUID, assigned by Shopify when the extension is deployed.
- * It is the same for every store the app is installed on; it only changes if the
- * extension is deleted and re-created, so it can be overridden without a rebuild.
- */
-const THEME_EXT_UUID =
-  process.env.NEXT_PUBLIC_THEME_EXT_UUID || '019fa7a3-4150-7e81-85fa-1980189ff629';
 
 export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = {}) {
   const confirm = useConfirm();

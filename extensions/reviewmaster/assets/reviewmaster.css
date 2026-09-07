@@ -390,3 +390,61 @@
 .rm-skel--short { width: 55%; }
 @keyframes rm-skel-pulse { 0%, 100% { opacity: .09; } 50% { opacity: .05; } }
 @media (prefers-reduced-motion: reduce) { .rm-skel { animation: none; } }
+
+/* `hidden` must win over any display: rule in this file.
+   The UA stylesheet's [hidden] { display: none } is beaten by ANY author rule that sets
+   display, so a `.rm-btn { display: inline-flex }` would silently un-hide a button the
+   script had hidden — which would turn the "only show Ask when the store accepts questions"
+   control into a no-op. Scoped to our own elements so it cannot affect the theme. */
+.rm-widget [hidden], .rm-widget[hidden] { display: none !important; }
+
+/* ── Questions & answers ──
+   Deliberately quieter than a review card: a Q&A thread is a conversation, not a rated
+   verdict, so no stars, no borders around every entry, and the answer is indented under
+   its question rather than presented as a sibling. Colours come from the same custom
+   properties as the review widget, so a merchant who themes one has themed both. */
+
+.rm-questions__actions { margin: 0 0 1rem; }
+
+.rm-q {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--rm-border, #e5e7eb);
+}
+.rm-q:last-child { border-bottom: 0; }
+
+.rm-q__head, .rm-a__head { display: flex; gap: .625rem; align-items: flex-start; }
+
+/* The Q and A markers carry the structure for sighted readers only. The script sets
+   aria-hidden on them, and assistive tech gets the same structure from role="list" on the
+   container and role="listitem" on each question, with answers nested inside. */
+.rm-q__marker, .rm-a__marker {
+  flex: 0 0 auto;
+  width: 1.375rem; height: 1.375rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  font-size: .75rem; font-weight: 700; line-height: 1;
+}
+.rm-q__marker { background: var(--rm-accent, #059669); color: #fff; }
+.rm-a__marker { background: var(--rm-border, #e5e7eb); color: var(--rm-card-text, inherit); }
+
+.rm-q__body { margin: 0; font-weight: 600; line-height: 1.5; }
+.rm-a__body { margin: 0; line-height: 1.6; }
+
+.rm-q__meta, .rm-a__meta {
+  display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
+  margin: .375rem 0 0 2rem;
+  font-size: .8125rem; opacity: .72;
+}
+
+.rm-a {
+  margin: .75rem 0 0 2rem;
+  padding: .75rem 0 0;
+  border-top: 1px dashed var(--rm-border, #e5e7eb);
+}
+/* An answer from the shop reads differently from one by another shopper, so it is set
+   apart rather than left to the badge alone. */
+.rm-a--merchant .rm-a__marker { background: var(--rm-accent, #059669); color: #fff; }
+
+@media (max-width: 480px) {
+  .rm-q__meta, .rm-a__meta, .rm-a { margin-left: 0; }
+}

@@ -20,6 +20,12 @@
     "no_file": "No files selected",
     "files_selected": "{{ count }} file(s) selected",
     "submitted": "Thank you. Your review has been submitted for approval.",
-    "heading": "Customer reviews"
+    "heading": "Customer reviews",
+    "questions_heading": "Questions & answers",
+    "ask_question": "Ask a question",
+    "your_question": "Your question",
+    "question_email_privacy": "Not published. Used only to let you know when the shop answers.",
+    "submit_question": "Send question",
+    "no_questions_yet": "No questions yet"
   }
 }

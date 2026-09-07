@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   HelpCircle, MessageSquare, Pin, Eye, EyeOff, Trash2, Send,
-  Loader2, ShoppingBag, Clock, CheckCircle2, ChevronLeft, ChevronRight,
+  Loader2, ShoppingBag, Clock, CheckCircle2, ChevronLeft, ChevronRight, Lock, Blocks,
 } from 'lucide-react';
+import { themeEditorAddBlockUrl } from '@/lib/theme-ext';
+import type { PageId } from './TopNav';
 import { useConfirm } from './confirm';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -88,7 +90,13 @@ const EMPTY_COPY: Record<TabId, { title: string; desc: string }> = {
   },
 };
 
-export default function QuestionsPage() {
+export default function QuestionsPage({
+  storeDomain,
+  onNavigate,
+}: {
+  storeDomain?: string;
+  onNavigate?: (page: PageId) => void;
+} = {}) {
   const confirm = useConfirm();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [total, setTotal] = useState(0);
@@ -98,6 +106,26 @@ export default function QuestionsPage() {
   const [composingFor, setComposingFor] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  /**
+   * Whether this store's plan includes Q&A. null until known.
+   *
+   * The only gate used to be on the SHOPPER's request — the storefront POST returns 403
+   * for a Free store — so a Free merchant opened this screen, saw a normal empty state
+   * inviting them to wait for questions, and never learned that no question could ever
+   * arrive. The same `features` flags SettingsPage drives its unlocked-features row from
+   * are read here so the merchant is told, with a way to fix it.
+   *
+   * Fails OPEN: if the usage call errors or the flag is absent, the screen renders as
+   * normal. A transient failure must not lock a paying merchant out of their own
+   * moderation queue; the server still refuses anything the plan does not allow.
+   */
+  const [canUse, setCanUse] = useState<boolean | null>(null);
+  useEffect(() => {
+    apiFetch<{ features?: Record<string, boolean> }>('/api/usage')
+      .then(u => setCanUse(u.features?.questionsAndAnswers ?? true))
+      .catch(() => setCanUse(true));
+  }, []);
 
   // Promise chain rather than async/await, and no setLoading(true) at the top.
   //
@@ -221,6 +249,24 @@ export default function QuestionsPage() {
     }
   };
 
+  if (canUse === false) {
+    return (
+      <Panel>
+        <EmptyState
+          icon={Lock}
+          tone="violet"
+          title="Questions & answers is on the Growth plan"
+          description="Shoppers ask questions from a block on your product page; you answer here and the answer publishes there. Your current plan does not include it, so the block will not accept questions until you upgrade."
+          action={
+            <ActionButton onClick={() => onNavigate?.('settings')}>
+              See plans
+            </ActionButton>
+          }
+        />
+      </Panel>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* ── Tabs ── */}
@@ -273,6 +319,23 @@ export default function QuestionsPage() {
               tone="violet"
               title={EMPTY_COPY[tab].title}
               description={EMPTY_COPY[tab].desc}
+              // Only on the unfiltered view, and only when we know the store. A merchant
+              // with an empty "All" tab has almost always never added the block — the Q&A
+              // widget lives in an app block and nothing else in the app puts it on their
+              // product page. Same one-click affordance the Widgets screen has.
+              action={
+                tab === 'all' && storeDomain ? (
+                  <a
+                    href={themeEditorAddBlockUrl(storeDomain, 'questions')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ring-focus inline-flex h-10 items-center gap-2 rounded-xl bg-brand-600 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700"
+                  >
+                    <Blocks className="size-4" />
+                    Add the Q&A block to my product page
+                  </a>
+                ) : undefined
+              }
             />
           </Panel>
         ) : (

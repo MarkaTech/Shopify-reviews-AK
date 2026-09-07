@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { checkQuestionRateLimit } from '@/lib/rate-limit';
 import { getStorePlan, PLANS } from '@/lib/plans';
+import { getStorefrontConfig } from '@/lib/storefront-config';
 
 /**
  * Public Q&A — read published questions, and ask a new one.
@@ -44,6 +45,22 @@ export async function GET(request: NextRequest) {
         })
       : null;
 
+    // Entitlement travels with the list, so the widget can decide what to OFFER.
+    //
+    // The POST below gates on plan and always will — but a gate that fires only after a
+    // shopper has typed their name, email and a paragraph is a dead end, not a control.
+    // Theme app blocks are offered to every store with the app installed regardless of
+    // plan, and Liquid has no plan signal, so without this the widget on a Free store
+    // rendered "Ask the first one" and an ask button that rejected every submission with
+    // no way for the merchant to know it was happening. Same shape as the review payload
+    // clamping allowVideo by plan so the form never offers what the server refuses.
+    //
+    // Colours ride along for the same reason they do on the review payload: a Q&A block
+    // on a page with no review block would otherwise never receive the merchant's accent
+    // colour, and Settings -> Display would appear to do nothing to it.
+    const [plan, config] = await Promise.all([getStorePlan(store.id), getStorefrontConfig(store.id)]);
+    const canAsk = PLANS[plan].questionsAndAnswers;
+
     const questions = await db.question.findMany({
       where: {
         storeId: store.id,
@@ -85,6 +102,8 @@ export async function GET(request: NextRequest) {
             date: a.createdAt.toISOString(),
           })),
         })),
+        canAsk,
+        colors: config.colors,
       },
       { headers: { ...CORS, 'Cache-Control': CACHE } }
     );

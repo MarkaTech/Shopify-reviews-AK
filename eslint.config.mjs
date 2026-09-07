@@ -44,6 +44,19 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
+  // The storefront widget source is deliberately ES5.
+  //
+  // It runs on arbitrary merchant themes, on whatever browsers their shoppers use, and
+  // scripts/build-extension.mjs minifies it with `ecma: 5`. There are no arrow functions
+  // available, so `var self = this` is not an avoidable alias — it is the only way to
+  // carry `this` into a callback. The rule flags twelve of them and every one is correct
+  // as written; leaving it on meant twelve permanent errors that could never be actioned,
+  // which is how a lint report stops being read.
+  //
+  // Scoped to this one file so the rule keeps working everywhere else.
+  files: ["extension-src/**/*.js"],
+  rules: { "@typescript-eslint/no-this-alias": "off" },
+}, {
   ignores: [
     "node_modules/**",
     ".next/**",

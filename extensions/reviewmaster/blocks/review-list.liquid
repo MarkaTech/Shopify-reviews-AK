@@ -71,7 +71,7 @@
     product pages would get whichever we guessed.
   {%- endcomment -%}
   data-rm-placement="{{ block.settings.placement }}"
-  data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' }}"
+  data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' | escape }}"
   style="{{ style }}"
   {{ block.shopify_attributes }}
 >

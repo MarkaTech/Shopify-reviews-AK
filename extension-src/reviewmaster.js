@@ -39,7 +39,20 @@
     noMatchFilter: 'No reviews match that filter.',
     noFilesSelected: 'No files selected',
     helpful: 'Helpful', helpfulThanks: 'Thanks for the feedback',
-    seeAll: 'See all reviews', close: 'Close'
+    seeAll: 'See all reviews', close: 'Close',
+    // Q&A. Separate from the review strings above because a merchant editing their
+    // storefront copy in Settings should be able to word the two independently — "Ask a
+    // question" and "Write a review" are different invitations.
+    askQuestion: 'Ask a question',
+    noQuestions: 'No questions yet. Ask the first one.',
+    storeAnswer: 'Store',
+    questionThanks: 'Thanks \u2014 your question has been sent to the shop.',
+    questionsHeading: 'Questions & answers',
+    // Shown instead of noQuestions when the store cannot accept questions, so an empty
+    // list never invites something the server will refuse.
+    noQuestionsPlain: 'No questions yet.',
+    questionInvalid: 'Please add your name and a question.',
+    questionError: 'Could not send your question. Please try again.'
   };
 
   /** Layouts that live in an overlay rather than inline in the page flow. */
@@ -1142,6 +1155,266 @@
     });
   };
 
+  // ── Questions & answers ─────────────────────────────────────────────────────────────
+  //
+  // The shopper-facing half of Q&A. The server side — GET/POST /api/storefront/questions,
+  // plan gating, per-email dedupe, rate limiting, and a full merchant moderation screen —
+  // has existed for a long time with nothing on the storefront able to reach it. No block,
+  // no fetch, so `db.question.create` had exactly one caller and that caller was
+  // unreachable: the Questions screen in the app could only ever be empty, and the feature
+  // was billed on the Growth plan regardless.
+  //
+  // Deliberately a separate widget from the review list rather than a section inside it.
+  // A merchant places Q&A where it belongs on their product page, which is frequently not
+  // directly under the reviews, and a shopper reading answers is doing something different
+  // from a shopper reading reviews.
+  //
+  // Same rules as the review widget, for the same reasons: nothing is published without the
+  // merchant approving it, every shopper-supplied string goes in through textContent, the
+  // fetch is deferred until the block nears the viewport, and the reserved space is filled
+  // with skeletons rather than collapsing when the data lands.
+
+  function QuestionsWidget(root) {
+    this.root = root;
+    this.shop = root.dataset.rmShop;
+    this.productId = root.dataset.rmProduct;
+    this.appUrl = (root.dataset.rmAppUrl || '').replace(/\/$/, '');
+    this.listEl = root.querySelector('[data-rm-q-list]');
+    this.bindForm();
+  }
+
+  QuestionsWidget.prototype.url = function () {
+    var parts = ['shop=' + encodeURIComponent(this.shop)];
+    if (this.productId) parts.push('product_id=' + encodeURIComponent(this.productId));
+    return this.appUrl + '/api/storefront/questions?' + parts.join('&');
+  };
+
+  /** Placeholders while the fetch is in flight, so the reserved box is never a blank gap. */
+  QuestionsWidget.prototype.showSkeletons = function () {
+    var list = this.listEl;
+    if (!list || list.children.length) return;
+    list.setAttribute('aria-busy', 'true');
+    for (var i = 0; i < 2; i++) {
+      var card = el('div', 'rm-q rm-q--skeleton');
+      card.setAttribute('aria-hidden', 'true');
+      card.appendChild(el('span', 'rm-skel rm-skel--line'));
+      card.appendChild(el('span', 'rm-skel rm-skel--line rm-skel--short'));
+      list.appendChild(card);
+    }
+  };
+
+  QuestionsWidget.prototype.load = function () {
+    var self = this;
+    this.showSkeletons();
+    fetch(this.url(), { credentials: 'omit' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) { self.render(data); })
+      .catch(function () {
+        // A failed load must leave the page tidy rather than showing a broken shell. The
+        // ask button stays HIDDEN: we could not confirm the store accepts questions, and
+        // offering a form the server may refuse is worse than offering nothing.
+        if (self.listEl) {
+          self.listEl.innerHTML = '';
+          self.listEl.removeAttribute('aria-busy');
+          self.listEl.style.minHeight = '0';
+        }
+      });
+  };
+
+  /**
+   * Show or hide the invitation to ask, from the entitlement the GET reports.
+   *
+   * The button is rendered hidden in the Liquid and revealed only here, on a successful
+   * load that says canAsk === true. Theme app blocks are offered to every store regardless
+   * of plan and Liquid has no plan signal, so without this a Free-plan store advertised
+   * "Ask a question" and rejected every submission after the shopper had typed it all in.
+   * The server's own gate on POST remains the backstop.
+   */
+  QuestionsWidget.prototype.setCanAsk = function (canAsk) {
+    var open = this.root.querySelector('[data-rm-q-open]');
+    if (open) open.hidden = !canAsk;
+    if (!canAsk) {
+      var wrap = this.root.querySelector('[data-rm-q-form-wrap]');
+      if (wrap) wrap.hidden = true;
+    }
+  };
+
+  QuestionsWidget.prototype.render = function (data) {
+    var self = this;
+    var list = this.listEl;
+    if (!list) return;
+
+    // The merchant's colours, so a Q&A block on a page with no review block still picks
+    // up Settings -> Display. applyColors only fills in properties the theme block did not
+    // already set inline, so a per-placement override in the block still wins.
+    applyColors(this.root, data && data.colors);
+
+    // Entitlement first, so nothing rendered below can invite what the server refuses.
+    var canAsk = !!(data && data.canAsk === true);
+    this.setCanAsk(canAsk);
+
+    list.innerHTML = '';
+    list.removeAttribute('aria-busy');
+
+    var items = (data && data.questions) || [];
+    if (!items.length) {
+      list.appendChild(el('p', 'rm-empty', t(canAsk ? 'noQuestions' : 'noQuestionsPlain')));
+      list.style.minHeight = '0';
+      return;
+    }
+
+    items.forEach(function (q) { list.appendChild(self.card(q)); });
+    list.style.minHeight = '0';
+  };
+
+  QuestionsWidget.prototype.card = function (q) {
+    var wrap = el('article', 'rm-q');
+    wrap.setAttribute('role', 'listitem');
+
+    // The Q and A markers are visual structure only. Assistive tech gets the same
+    // structure from the list/listitem roles and the answers nested under each question,
+    // so the letters are hidden from it rather than read out as "Q" and "A".
+    var head = el('div', 'rm-q__head');
+    var qm = el('span', 'rm-q__marker', 'Q'); qm.setAttribute('aria-hidden', 'true');
+    head.appendChild(qm);
+    head.appendChild(el('p', 'rm-q__body', q.body));
+    wrap.appendChild(head);
+
+    var meta = el('div', 'rm-q__meta');
+    meta.appendChild(el('span', 'rm-q__author', q.author));
+    if (q.date) meta.appendChild(el('time', 'rm-q__date', fmtDate(q.date)));
+    wrap.appendChild(meta);
+
+    (q.answers || []).forEach(function (a) {
+      var ans = el('div', 'rm-a' + (a.isMerchant ? ' rm-a--merchant' : ''));
+      var ahead = el('div', 'rm-a__head');
+      var am = el('span', 'rm-a__marker', 'A'); am.setAttribute('aria-hidden', 'true');
+      ahead.appendChild(am);
+      ahead.appendChild(el('p', 'rm-a__body', a.body));
+      ans.appendChild(ahead);
+
+      var ameta = el('div', 'rm-a__meta');
+      ameta.appendChild(el('span', 'rm-a__author', a.author));
+      // A shopper weighs an answer from the shop differently from another shopper's, so the
+      // distinction the API already carries has to be visible rather than just present.
+      if (a.isMerchant) ameta.appendChild(el('span', 'rm-badge rm-badge--verified', t('storeAnswer')));
+      if (a.date) ameta.appendChild(el('time', 'rm-a__date', fmtDate(a.date)));
+      ans.appendChild(ameta);
+
+      wrap.appendChild(ans);
+    });
+
+    return wrap;
+  };
+
+  QuestionsWidget.prototype.bindForm = function () {
+    var self = this;
+    var wrap = this.root.querySelector('[data-rm-q-form-wrap]');
+    var open = this.root.querySelector('[data-rm-q-open]');
+    var cancel = this.root.querySelector('[data-rm-q-cancel]');
+    var form = this.root.querySelector('[data-rm-q-form]');
+    if (!wrap || !form) return;
+
+    // Closing the form puts focus back on the button that opened it. Hiding the element a
+    // keyboard user is focused inside otherwise drops their focus to <body>, and the next
+    // Tab starts from the top of the page.
+    function close() {
+      wrap.hidden = true;
+      if (open) { open.setAttribute('aria-expanded', 'false'); open.focus(); }
+    }
+
+    if (open) {
+      open.addEventListener('click', function () {
+        wrap.hidden = false;
+        open.setAttribute('aria-expanded', 'true');
+        var first = form.querySelector('input[name="name"]');
+        if (first) first.focus();
+      });
+    }
+    if (cancel) cancel.addEventListener('click', close);
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var status = form.querySelector('[data-rm-q-status]');
+      var submit = form.querySelector('button[type="submit"]');
+
+      // The same rule the server applies, applied first. The form is `novalidate` so the
+      // browser's own required-field check is off, and the server counts a request against
+      // the rate limit BEFORE it validates fields — so without this, a shopper who pressed
+      // Send on an empty form a few times was locked out for ten minutes for nothing.
+      var nameEl = form.querySelector('[name="name"]');
+      var bodyEl = form.querySelector('[name="body"]');
+      var name = nameEl ? nameEl.value.trim() : '';
+      var body = bodyEl ? bodyEl.value.trim() : '';
+      if (!name || body.length < 5) {
+        if (status) status.textContent = t('questionInvalid');
+        (!name ? nameEl : bodyEl).focus();
+        return;
+      }
+
+      var fd = new FormData(form);
+      fd.append('shop', self.shop);
+      if (self.productId) fd.append('product_id', self.productId);
+
+      if (submit) submit.disabled = true;
+      if (status) status.textContent = t('submitting');
+
+      fetch(self.appUrl + '/api/storefront/questions', { method: 'POST', body: fd })
+        .then(function (res) {
+          return res.json().then(function (body) { return { ok: res.ok, body: body }; });
+        })
+        .then(function (r) {
+          // The server's message is shown as-is on the error path. It knows things the
+          // widget does not — the shop is not accepting questions, this person already has
+          // one pending for this product — and inventing a generic line here would hide it.
+          // Tagged, so the catch below can tell a message meant for the shopper from a
+          // network or JSON-parse error whose text is not.
+          if (!r.ok) {
+            var e = new Error((r.body && r.body.error) || t('questionError'));
+            e.rmUser = true;
+            throw e;
+          }
+          form.reset();
+          if (status) status.textContent = '';
+          close();
+          self.notice(t('questionThanks'));
+        })
+        .catch(function (err) {
+          // Only a message we chose to show reaches the shopper. "Unexpected token < in
+          // JSON" is not something to put on a product page.
+          if (status) status.textContent = (err && err.rmUser && err.message) || t('questionError');
+        })
+        .finally(function () {
+          if (submit) submit.disabled = false;
+        });
+    });
+  };
+
+  /**
+   * Confirmation that lives outside the form, so it survives the form closing.
+   *
+   * Writes into a live region the Liquid renders up front, rather than creating one.
+   * A `role="status"` element inserted into the DOM with its text already set is not
+   * reliably announced — screen readers watch existing live regions for CHANGES, and a
+   * node that arrives pre-filled has not changed. The region exists from page load,
+   * empty and hidden; setting its text is the change that gets read out.
+   */
+  QuestionsWidget.prototype.notice = function (message) {
+    var note = this.root.querySelector('[data-rm-q-notice]');
+    if (!note) {
+      note = el('div', 'rm-notice');
+      note.setAttribute('data-rm-q-notice', '');
+      note.setAttribute('role', 'status');
+      note.setAttribute('aria-live', 'polite');
+      this.root.insertBefore(note, this.root.firstChild);
+    }
+    note.hidden = false;
+    note.textContent = message;
+  };
+
   function init() {
     var nodes = document.querySelectorAll('[data-rm-widget]');
     if (!nodes.length) return;
@@ -1167,12 +1440,44 @@
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  /**
+   * Same deferred-load treatment for the Q&A block.
+   *
+   * A separate pass rather than a shared selector: the two widgets have different roots,
+   * different data attributes and different lifecycles, and merging them behind one
+   * querySelectorAll would mean every Q&A block constructing a review Widget that finds
+   * none of the elements it expects.
+   */
+  function initQuestions() {
+    var nodes = document.querySelectorAll('[data-rm-questions]');
+    if (!nodes.length) return;
+
+    Array.prototype.forEach.call(nodes, function (node) {
+      if (node.dataset.rmInit) return;
+      node.dataset.rmInit = '1';
+      var w = new QuestionsWidget(node);
+
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) { io.disconnect(); w.load(); }
+          });
+        }, { rootMargin: '400px' });
+        io.observe(node);
+      } else {
+        w.load();
+      }
+    });
   }
 
-  // Theme editor: re-init when a merchant drops the block in, so the preview is live.
-  document.addEventListener('shopify:section:load', init);
+  function boot() { init(); initQuestions(); }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+  // Theme editor: re-init when a merchant drops either block in, so the preview is live.
+  document.addEventListener('shopify:section:load', boot);
 })();

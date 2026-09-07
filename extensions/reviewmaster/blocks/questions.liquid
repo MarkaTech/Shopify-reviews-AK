@@ -1,0 +1,195 @@
+{% comment %}
+  Questions & answers — the shopper-facing half.
+
+  Why this block exists
+  ---------------------
+  The server side of Q&A has been complete for a long time: GET/POST
+  /api/storefront/questions, plan gating, per-email dedupe, rate limiting, and a merchant
+  moderation screen in the app. What was missing was any way for a shopper to reach it —
+  no block, and no fetch in the widget script. `db.question.create` had exactly one caller
+  and that caller was unreachable, so the merchant's Questions screen could only ever be
+  empty while the feature was billed on the Growth plan.
+
+  Design constraints, matching the review block for the same reasons:
+
+  - **Reserved space.** A min-height is declared before any data arrives so the page does
+    not shift when questions load. The script fills it with skeletons rather than letting
+    it collapse, because a box that empties is a layout shift exactly like one that fills.
+  - **Deferred load.** Nothing is fetched until the block nears the viewport. Q&A sits
+    below reviews on almost every product page, so loading it eagerly is pure waste.
+  - **Nothing is published without the merchant.** A submitted question lands unpublished
+    and appears here only once answered and approved. A public form that writes straight to
+    a storefront is a spam vector.
+{% endcomment %}
+
+{%- liquid
+  comment
+    Same colour precedence as review-list.liquid: emit an override ONLY when the merchant
+    has moved a setting off its default. The script fills in any custom property that is
+    not already set, so an untouched block emitting its defaults inline would silently
+    outrank the colours chosen in the app, and Settings -> Display would appear dead.
+
+    These defaults must match the schema below. Change one, change both.
+  endcomment
+  assign default_accent = '#059669'
+  assign default_radius = 8
+
+  assign style = ''
+  if block.settings.accent_color != blank and block.settings.accent_color != default_accent
+    assign style = style | append: '--rm-accent:' | append: block.settings.accent_color | append: ';'
+  endif
+  if block.settings.corner_radius != default_radius
+    assign style = style | append: '--rm-radius:' | append: block.settings.corner_radius | append: 'px;'
+  endif
+
+  comment
+    Reserved height is a layout hint about this placement, not a style choice, so unlike
+    the colours above it always applies.
+  endcomment
+  assign style = style | append: '--rm-min-height:' | append: block.settings.reserved_height | append: 'px;'
+-%}
+
+<div
+  id="reviewmaster-questions"
+  class="rm-widget rm-questions"
+  data-rm-questions
+  data-rm-shop="{{ shop.permanent_domain }}"
+  data-rm-product="{{ product.id }}"
+  data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' | escape }}"
+  style="{{ style }}"
+  {{ block.shopify_attributes }}
+>
+  <h2 class="rm-widget__heading">{{ 'reviewmaster.questions_heading' | t }}</h2>
+
+  {%- comment -%}
+    Announcement region for "your question has been sent". Rendered up front, empty and
+    hidden, because a live region only announces CHANGES — one inserted later with its
+    text already set is not reliably read out. The script fills it and unhides it.
+  {%- endcomment -%}
+  <div class="rm-notice" data-rm-q-notice role="status" aria-live="polite" hidden></div>
+
+  {%- comment -%}
+    Always emitted, but HIDDEN until the app confirms this store accepts questions.
+
+    Theme app blocks are offered to every store with the app installed, regardless of
+    plan, and Liquid has no way to know the plan. Rendering the button live meant a Free
+    store advertised "Ask a question" and rejected every submission — after the shopper
+    had typed their name, email and a paragraph. The script reveals it only when the
+    questions API reports canAsk. Still always in the markup rather than conditional on a
+    theme setting: a theme that can remove the element leaves the app-side switch with
+    nothing to show.
+  {%- endcomment -%}
+  <div class="rm-questions__actions">
+    <button type="button" class="rm-btn rm-btn--primary" data-rm-q-open aria-expanded="false" hidden>
+      {{ 'reviewmaster.ask_question' | t }}
+    </button>
+  </div>
+
+  {%- comment -%}
+    min-height reserves the space, and the skeletons occupy it so the box is never a blank
+    gap — including when the extension script fails to run, which on a theme with a broken
+    script tag is not hypothetical. The script replaces these on load and releases the
+    height once real content is in place. role="list" carries the structure for assistive
+    tech; the visual Q/A markers the script renders are hidden from it.
+  {%- endcomment -%}
+  <div class="rm-q-list" data-rm-q-list role="list" aria-busy="true" style="min-height: var(--rm-min-height);">
+    <div class="rm-q rm-q--skeleton" aria-hidden="true">
+      <span class="rm-skel rm-skel--line"></span>
+      <span class="rm-skel rm-skel--line rm-skel--short"></span>
+    </div>
+    <div class="rm-q rm-q--skeleton" aria-hidden="true">
+      <span class="rm-skel rm-skel--line"></span>
+      <span class="rm-skel rm-skel--line rm-skel--short"></span>
+    </div>
+  </div>
+
+  {%- comment -%}
+    Hidden until asked for. Most visitors read rather than write, so the form should cost
+    them nothing.
+  {%- endcomment -%}
+  <div class="rm-form-wrap" data-rm-q-form-wrap hidden>
+    <form class="rm-form" data-rm-q-form novalidate>
+      <h3 class="rm-form__title">{{ 'reviewmaster.ask_question' | t }}</h3>
+
+      {%- comment -%}
+        Honeypot. Hidden from humans, irresistible to bots. tabindex and autocomplete off so
+        keyboard and password-manager users never land in it. The server treats a filled
+        `website` field as automated and answers 200 without writing anything, so the bot
+        records a success and does not adapt.
+      {%- endcomment -%}
+      <div class="rm-hp" aria-hidden="true">
+        <label>Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+      </div>
+
+      <label class="rm-form__field">
+        <span>{{ 'reviewmaster.your_name' | t }}</span>
+        <input type="text" name="name" required maxlength="100" autocomplete="name">
+      </label>
+
+      <label class="rm-form__field">
+        <span>{{ 'reviewmaster.your_email' | t }}</span>
+        <input type="email" name="email" maxlength="200" autocomplete="email">
+        <small>{{ 'reviewmaster.question_email_privacy' | t }}</small>
+      </label>
+
+      <label class="rm-form__field">
+        <span>{{ 'reviewmaster.your_question' | t }}</span>
+        <textarea name="body" required rows="4" maxlength="2000"></textarea>
+      </label>
+
+      <div class="rm-form__actions">
+        <button type="submit" class="rm-btn rm-btn--primary">{{ 'reviewmaster.submit_question' | t }}</button>
+        <button type="button" class="rm-btn rm-btn--ghost" data-rm-q-cancel>{{ 'reviewmaster.cancel' | t }}</button>
+      </div>
+
+      <p class="rm-form__status" data-rm-q-status role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</div>
+
+{%- comment -%}
+  No manual <script> tag: declaring "javascript" in the schema makes Shopify serve the
+  asset from its CDN, deduplicated across blocks — so a page carrying both the review block
+  and this one loads reviewmaster.js once, not twice. Adding a tag as well double-loads it.
+{%- endcomment -%}
+
+{% schema %}
+{
+  "name": "Questions & answers",
+  "target": "section",
+  "stylesheet": "reviewmaster.css",
+  "javascript": "reviewmaster.js",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Appearance",
+      "info": "Overrides the colours set in the app, for this placement only. Leave at the defaults to use your app-wide settings."
+    },
+    { "type": "color", "id": "accent_color", "label": "Accent colour", "default": "#059669" },
+    {
+      "type": "range",
+      "id": "corner_radius",
+      "label": "Corner radius",
+      "min": 0, "max": 24, "step": 2, "unit": "px", "default": 8
+    },
+    {
+      "type": "range",
+      "id": "reserved_height",
+      "label": "Reserved height",
+      "min": 0, "max": 600, "step": 50, "unit": "px", "default": 150,
+      "info": "Space held before questions load, to prevent the page jumping. Set close to the typical rendered height."
+    },
+    {
+      "type": "header",
+      "content": "Advanced"
+    },
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "App URL",
+      "default": "https://reviewmaster-app.azurewebsites.net",
+      "info": "Leave this alone unless ReviewMaster support asks you to change it."
+    }
+  ]
+}
+{% endschema %}

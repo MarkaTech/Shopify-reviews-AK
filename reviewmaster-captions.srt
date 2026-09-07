@@ -108,25 +108,30 @@ those reviews describe a different seller.
 Imported reviews are never marked as verified.
 
 24
+00:02:56,000 --> 00:03:02,000
+Shoppers ask questions on the product page.
+You answer, and it publishes there.
+
+25
 00:03:06,000 --> 00:03:12,000
 A discount in exchange for a review — 10% for
 text, 15% with a photo, 20% with video.
 
-25
+26
 00:03:13,000 --> 00:03:20,000
 Every incentivised review carries a disclosure,
 and the discount is issued whatever the rating.
 
-26
+27
 00:03:23,000 --> 00:03:29,000
 This feed sends your star ratings
 to Google Shopping.
 
-27
+28
 00:03:31,000 --> 00:03:37,000
 Free, Growth and Scale. Merchants change
 plan here through Shopify billing.
 
-28
+29
 00:03:37,500 --> 00:03:42,000
 The change takes effect immediately.

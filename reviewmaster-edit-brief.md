@@ -45,7 +45,7 @@ Minimum time on screen per cue is **2 seconds**. The timings below already respe
 | 4 | Approve and reply | 0:25 | 1:38 |
 | 5 | Widgets | 0:30 | 2:03 |
 | 6 | Import | 0:22 | 2:33 |
-| 7 | Incentives, Google feed | 0:35 | 2:55 |
+| 7 | Q&A, Incentives, Google feed | 0:35 | 2:55 |
 | 8 | Plans | 0:15 | 3:30 |
 | | **Total** | **3:45** | |
 
@@ -134,15 +134,16 @@ Five sub-scenes. Give each roughly the time shown. This is the core loop of the 
 
 ### Clip 7 — Paid features (0:35)
 
-Two screens, moving briskly.
+Three screens, moving briskly.
 
 | Screen | In | Out | Subtitle |
 |---|---|---|---|
+| Q&A | 0:01 | 0:07 | Shoppers ask questions on the product page. You answer, and it publishes there. |
 | Incentives | 0:11 | 0:17 | A discount in exchange for a review — 10% for text, 15% with a photo, 20% with video. |
 | Incentives | 0:18 | 0:25 | Every incentivised review carries a disclosure, and the discount is issued whatever the rating. |
 | Google feed | 0:28 | 0:34 | This feed sends your star ratings to Google Shopping. |
 
-**Hold on the compliance text** during the second Incentives cue. That line is a legal claim and the reviewer may pause on it.
+**Hold on the compliance text** during the third cue. That line is a legal claim and the reviewer may pause on it.
 
 ### Clip 8 — Plans (0:15)
 

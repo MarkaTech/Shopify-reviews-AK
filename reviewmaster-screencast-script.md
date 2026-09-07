@@ -137,16 +137,14 @@ better answered before they ask.
 
 ## Shot 7 — Growth features (2:55–3:30)
 
-Move briskly; two screens, fifteen seconds each.
+Move briskly; three screens, ten seconds each.
 
-<!-- Q&A CUT. It was unfilmable, not just unshipped: no Q&A block exists in the theme
-     extension, the widget never calls /api/storefront/questions, and db.question.create has
-     a single caller on an unreachable route — so there is no way to produce the "answered
-     question" this shot called for without hand-inserting a database row, and the narration
-     ("shoppers ask questions on the product page") describes something the app cannot do. A
-     demo asserting capability the reviewer cannot reproduce is a rejection trigger in its
-     own right. Q&A is now also off the Growth plan card. Restore this shot when the block
-     ships. -->
+**Q&A** — app → Questions, showing a question with the merchant's answer beneath it. Then
+cut to the product page showing the same question answered under the Questions & answers
+block.
+
+> Shoppers ask questions on the product page. You answer in the app, and the answer
+> publishes there.
 
 **Incentives** — app → Incentives.
 
