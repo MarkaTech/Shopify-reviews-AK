@@ -159,10 +159,13 @@ jobs:
           RULE="gha-${GITHUB_RUN_ID}"
           echo "rule=$RULE" >> "$GITHUB_OUTPUT"
           echo "Opening $RULE for $RUNNER_IP"
+          # `--server-name` for the server and `--name` for the rule. There is no
+          # `--rule-name` on this command, and `--name` alone means the RULE, not the
+          # server — getting that backwards is what failed run 34117005433.
           az postgres flexible-server firewall-rule create \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --name "${{ env.AZURE_PG_SERVER }}" \
-            --rule-name "$RULE" \
+            --server-name "${{ env.AZURE_PG_SERVER }}" \
+            --name "$RULE" \
             --start-ip-address "$RUNNER_IP" --end-ip-address "$RUNNER_IP" \
             --output none
 
@@ -197,8 +200,8 @@ jobs:
         run: |
           az postgres flexible-server firewall-rule delete \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --name "${{ env.AZURE_PG_SERVER }}" \
-            --rule-name "${{ steps.dbfw.outputs.rule }}" \
+            --server-name "${{ env.AZURE_PG_SERVER }}" \
+            --name "${{ steps.dbfw.outputs.rule }}" \
             --yes --output none || echo "::warning::could not remove firewall rule ${{ steps.dbfw.outputs.rule }}"
 
       - name: Check for DATABASE_URL secret
