@@ -39,7 +39,21 @@ echo "==> Generating a new password"
 # No '#', '@', '/', ':' or '?' — every one of those has to be percent-encoded inside a
 # connection URL, and getting that wrong is how the last one ended up documented with a
 # "note the %23" caveat beside it. Alphanumeric avoids the whole class of problem.
-NEW_PW="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)"
+# `head -c 40` at the end of the pipeline would kill this script silently.
+# /dev/urandom never ends, so head closes the pipe the instant it has 40 bytes,
+# tr is killed by SIGPIPE (exit 141), `pipefail` makes that the pipeline's
+# status and `set -e` exits — printing nothing, because bash says nothing about
+# a signal death. Bounding the INPUT with head and letting `cut` read to EOF
+# means no reader ever closes early. 4096 random bytes yield ~950 alphanumerics,
+# so 40 is never short.
+NEW_PW="$(head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-40)"
+
+# Belt and braces: a short or empty password must never reach `az`, where it
+# would either fail confusingly or set something weak.
+if [ "${#NEW_PW}" -ne 40 ]; then
+  echo "could not generate a 40-character password (got ${#NEW_PW})" >&2
+  exit 1
+fi
 
 echo "==> Rotating the server admin password"
 az postgres flexible-server update \
@@ -78,15 +92,29 @@ echo "   Value is printed once below — copy it now, it is not stored anywhere.
 echo
 echo "   $DSN"
 echo
-echo "2. Narrow the firewall. The server currently carries"
+echo "2. Narrow the firewall. The server carries"
 echo "   'AllowAllAzureServicesAndResourcesWithinAzureIps' (0.0.0.0), which admits any VM"
 echo "   in ANY Azure tenant to port 5432 — so the credential alone was enough, with no"
-echo "   network foothold. Replace it with the Web App's outbound IPs:"
+echo "   network foothold."
 echo
-echo "     az webapp show --subscription $SUB -g $RG -n $APP --query possibleOutboundIpAddresses -o tsv"
-echo "     # then add one rule per address, and delete the 0.0.0.0 rule:"
-echo "     az postgres flexible-server firewall-rule delete --subscription $SUB \\"
-echo "       -g $RG -s $SERVER -r AllowAllAzureServicesAndResourcesWithinAzureIps --yes"
+echo "   ORDER MATTERS, and an earlier version of this script had it wrong. Deploys run"
+echo "   'prisma migrate deploy' from a GitHub-hosted runner, which is itself an Azure VM"
+echo "   and reaches the database ONLY through that blanket rule. Deleting it first breaks"
+echo "   every future deploy at the migration step."
+echo
+echo "   The workflow now opens a single-IP rule for its own runner around the migration"
+echo "   and removes it afterwards, so the blanket rule is no longer load-bearing — but that"
+echo "   change has to be DEPLOYED first. Sequence:"
+echo
+echo "     a. Merge and deploy the branch carrying the updated azure-deploy.yml."
+echo "     b. Confirm that deploy's 'Open/Close database firewall' steps both succeeded."
+echo "     c. Add the Web App's own outbound addresses:"
+echo "          az webapp show --subscription $SUB -g $RG -n $APP \\"
+echo "            --query possibleOutboundIpAddresses -o tsv | tr ',' '\\n' | sort -u"
+echo "        (one firewall-rule create per address)"
+echo "     d. Only then remove the blanket rule:"
+echo "          az postgres flexible-server firewall-rule delete --subscription $SUB \\"
+echo "            -g $RG -s $SERVER -r AllowAllAzureServicesAndResourcesWithinAzureIps --yes"
 echo
 echo "3. Ask GitHub Support to garbage-collect unreferenced objects on the repository."
 echo "   The force-push removed the old commits from every branch, but GitHub keeps"
