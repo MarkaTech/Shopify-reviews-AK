@@ -175,21 +175,31 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           npm install --no-save prisma@6.19.3 >/dev/null 2>&1
-          # First run against a database that predates migration history fails with
-          # P3005 ("schema is not empty"): the tables exist from the db-push era but
-          # _prisma_migrations does not, and migrate deploy refuses to guess. The
-          # documented baseline flow: run the (idempotent - every statement is
-          # IF NOT EXISTS) migration SQL directly, then record it as applied. That
-          # creates the history table; every later run takes the normal path above.
+
+          # The baseline path, and why every step of it tolerates "already done".
+          #
+          # This database predates migration history: the tables were created by
+          # `db push`, so they exist while `_prisma_migrations` did not. Prisma cannot
+          # tell that state apart from "a fresh database that needs every migration",
+          # so a plain `migrate deploy` tries to CREATE TABLE "Store" and dies with
+          # 42P07 (already exists). The fix is to RECORD the migrations as applied
+          # rather than run them, which is Prisma's documented baseline flow.
+          #
+          # Each recovery step is `|| true` because they are individually idempotent
+          # but not collectively ordered: on the run that introduced 0_init the
+          # database already had 20260810 recorded, so resolving it again returned
+          # P3008 and killed the whole recovery *after* 0_init had been recorded
+          # correctly. Any one of these having already happened is a normal state, not
+          # a failure. The final `migrate deploy` is the real gate — if the database is
+          # genuinely not in a deployable state, that is what fails the job.
           if ! npx prisma migrate deploy; then
-            echo "migrate deploy failed - attempting one-time baseline (P3005 path)"
-            # 0_init describes the tables that already exist from the db-push era, so it is
-            # recorded as applied WITHOUT running it. Running it would be harmless (every
-            # statement is CREATE TABLE, which would error on existing tables) but pointless:
-            # the point of a baseline is to tell Prisma "this state is already here".
-            npx prisma migrate resolve --applied 0_init
-            npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810120000_import_key_and_grant_uniqueness/migration.sql
-            npx prisma migrate resolve --applied 20260810120000_import_key_and_grant_uniqueness
+            echo "migrate deploy failed — recording pre-existing schema as applied"
+            # Recorded, never executed: the tables it describes are already there.
+            npx prisma migrate resolve --applied 0_init || true
+            # This one IS executed: every statement is IF NOT EXISTS, so it is safe on a
+            # database that already has the column and indexes.
+            npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810120000_import_key_and_grant_uniqueness/migration.sql || true
+            npx prisma migrate resolve --applied 20260810120000_import_key_and_grant_uniqueness || true
             npx prisma migrate deploy
           fi
       # `always()`, so a failed migration still closes the hole it opened. Tolerant of a
