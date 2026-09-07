@@ -264,6 +264,8 @@
     var self = this;
     var url = this.url();
 
+    this.showSkeletons();
+
     // Cache per query. Shoppers flip between filters and pages repeatedly; re-fetching an
     // identical query is latency the shopper feels for no new information.
     //
@@ -352,11 +354,41 @@
 
     var wrap = el('div', 'rm-branding');
     var link = el('a', 'rm-branding__link', 'Reviews by ReviewMaster');
-    link.href = 'https://apps.shopify.com/reviewmaster';
+    link.href = 'https://apps.shopify.com/reviewmaster-reviews';
     link.target = '_blank';
     link.rel = 'noopener nofollow';
     wrap.appendChild(link);
     this.root.appendChild(wrap);
+  };
+
+  /**
+   * Fill the reserved space with placeholder cards while the fetch is in flight.
+   *
+   * The container declares a min-height so the page does not jump when reviews arrive, and
+   * the render below then released that height to 0. That trades one jump for another: an
+   * empty reserved box collapsing by several hundred pixels is a layout shift exactly like
+   * the one the reservation was added to prevent, and it lands late — after a network round
+   * trip — which is the worst moment for CLS.
+   *
+   * Occupying the space with skeletons means the box is never visibly empty, and swapping a
+   * skeleton for a real card of roughly the same height is a far smaller shift than
+   * collapsing the whole container. Purely decorative, so it is hidden from assistive tech.
+   */
+  Widget.prototype.showSkeletons = function () {
+    var list = this.listEl;
+    if (!list || list.dataset.rmSkeleton === '1' || list.children.length) return;
+    list.dataset.rmSkeleton = '1';
+    list.setAttribute('aria-busy', 'true');
+    var n = this.layout === 'testimonial' ? 1 : 3;
+    for (var i = 0; i < n; i++) {
+      var card = el('div', 'rm-review rm-review--skeleton');
+      card.setAttribute('aria-hidden', 'true');
+      card.appendChild(el('span', 'rm-skel rm-skel--stars'));
+      card.appendChild(el('span', 'rm-skel rm-skel--line'));
+      card.appendChild(el('span', 'rm-skel rm-skel--line'));
+      card.appendChild(el('span', 'rm-skel rm-skel--line rm-skel--short'));
+      list.appendChild(card);
+    }
   };
 
   Widget.prototype.render = function (data) {
@@ -371,6 +403,8 @@
     }
 
     list.innerHTML = '';
+    list.dataset.rmSkeleton = '';
+    list.removeAttribute('aria-busy');
 
     if (!data.reviews || !data.reviews.length) {
       // Only speak up when a FILTER emptied the list. With no filters the Liquid summary

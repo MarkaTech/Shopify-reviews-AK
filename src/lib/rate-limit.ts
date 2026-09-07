@@ -156,6 +156,28 @@ const PER_IP_WINDOW_MS = 10 * 60_000;
 const PER_SHOP_LIMIT = 120;
 const PER_SHOP_WINDOW_MS = 60 * 60_000;
 
+/**
+ * Per-IP only, and cheap enough to run BEFORE the request body is read.
+ *
+ * `checkSubmitRateLimit` needs the shop, which arrives inside the multipart body — so it
+ * cannot run until `formData()` has already buffered the whole upload into memory. That
+ * ordering meant the limiter protecting the app's only unauthenticated write endpoint was
+ * unreachable by exactly the request that most needed limiting: a large one from a client
+ * that never intended to submit a review.
+ *
+ * This runs first, on the address alone. The allowance is deliberately looser than the
+ * per-IP-per-shop ceiling below, because it is a flood guard rather than a submission
+ * policy — a shopper legitimately reviewing several products in a session must not trip it.
+ * Once the body is parsed, the real check still runs with the shop in hand.
+ */
+export function checkSubmitFloodLimit(request: Request): RateLimitResult {
+  const ip = clientIp(request);
+  if (!hit(`submit:flood:${ip}`, PER_IP_LIMIT * 4, PER_IP_WINDOW_MS)) {
+    return { allowed: false, retryAfter: Math.ceil(PER_IP_WINDOW_MS / 1000) };
+  }
+  return { allowed: true, retryAfter: 0 };
+}
+
 export function checkSubmitRateLimit(request: Request, shop: string): RateLimitResult {
   const ip = clientIp(request);
 
@@ -165,6 +187,19 @@ export function checkSubmitRateLimit(request: Request, shop: string): RateLimitR
   if (!hit(`submit:shop:${shop}`, PER_SHOP_LIMIT, PER_SHOP_WINDOW_MS)) {
     console.warn(`[rate-limit] shop-wide submit ceiling hit for ${shop}`);
     return { allowed: false, retryAfter: Math.ceil(PER_SHOP_WINDOW_MS / 1000) };
+  }
+  return { allowed: true, retryAfter: 0 };
+}
+
+/**
+ * Helpful votes are cheap and frequent — a shopper legitimately marks several reviews on one
+ * product page — so the allowance is generous. It exists to stop a script inflating
+ * helpfulness ordering across a store, not to police a browsing session.
+ */
+export function checkHelpfulRateLimit(request: Request): RateLimitResult {
+  const ip = clientIp(request);
+  if (!hit(`helpful:${ip}`, 60, PER_IP_WINDOW_MS)) {
+    return { allowed: false, retryAfter: Math.ceil(PER_IP_WINDOW_MS / 1000) };
   }
   return { allowed: true, retryAfter: 0 };
 }

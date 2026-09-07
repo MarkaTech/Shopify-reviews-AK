@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
@@ -33,9 +34,33 @@ Jane Doe,4,Great value,"Good quality for the price. Would buy again.",2026-02-20
   });
 }
 
+/**
+ * Ceiling on an uploaded CSV, checked before the body is buffered.
+ *
+ * `request.formData()` reads the whole multipart body into memory, and `file.text()` then
+ * makes a second copy as a string — so an upload was bounded by nothing but the container's
+ * memory, on a route where the plan gate sits after the parse and cannot help. 10 MB is
+ * roughly 60,000 review rows, far past any real import; the row ceiling below catches the
+ * pathological case of a small file that expands into millions of rows.
+ */
+const MAX_CSV_BYTES = 10 * 1024 * 1024;
+const MAX_CSV_ROWS = 50_000;
+
 export async function POST(request: NextRequest) {
   try {
     const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
+
+    // Content-Length first, so an oversized body is refused before it is buffered. A caller
+    // can lie or omit it, which is why `file.size` is checked again below — but an honest
+    // client gets a clean 413 without the bytes ever being read.
+    const declared = Number(request.headers.get('content-length') || 0);
+    if (declared > MAX_CSV_BYTES) {
+      return NextResponse.json(
+        { error: 'That file is too large. The limit is 10 MB — split it and upload in parts.' },
+        { status: 413 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     // Every imported row without its own product match lands on this product, and imported
@@ -49,8 +74,25 @@ export async function POST(request: NextRequest) {
 
     if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
 
+    // The real check. Content-Length above is caller-supplied; this is the parsed size.
+    if (file.size > MAX_CSV_BYTES) {
+      return NextResponse.json(
+        { error: 'That file is too large. The limit is 10 MB — split it and upload in parts.' },
+        { status: 413 }
+      );
+    }
+
     const text = await file.text();
     const { headers, rows } = parseCSV(text);
+
+    if (rows.length > MAX_CSV_ROWS) {
+      return NextResponse.json(
+        {
+          error: `That file has ${rows.length.toLocaleString()} rows. The limit is ${MAX_CSV_ROWS.toLocaleString()} per upload — split it and import in batches.`,
+        },
+        { status: 413 }
+      );
+    }
 
     if (!headers.length || !rows.length) {
       return NextResponse.json(
@@ -121,13 +163,54 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ── Idempotency ──
+    //
+    // A CSV import used to be a plain insert per row with no dedupe key, so re-uploading the
+    // same file inserted every review a second time. That is not a hypothetical: the obvious
+    // reaction to "imported 1,802 of 1,847" is to fix the file and upload it again, and the
+    // obvious reaction to a timeout is to retry — both silently doubled the merchant's
+    // catalogue of reviews and their star averages, with no way back except deleting rows by
+    // hand. The WelcomeScreen copy also promises imports are deduplicated.
+    //
+    // Review already carries `@@unique([storeId, source, sourceReviewKey])`, which the
+    // platform importers use for exactly this. CSV rows have no upstream id, so the key is a
+    // hash of the content that identifies the review: who wrote it, what they said, and
+    // when. Re-uploading the same file now writes nothing; editing a row's text makes it a
+    // genuinely new review, which is the correct reading.
+    const rowKey = (r: { reviewerName: string; rating: number; body: string; reviewDate: Date }) =>
+      crypto
+        .createHash('sha256')
+        .update(`${r.reviewerName}|${r.rating}|${r.body}|${r.reviewDate.toISOString()}`)
+        .digest('hex')
+        .slice(0, 32);
+
+    // Recorded BEFORE the inserts, not after.
+    //
+    // The ImportJob row was created once the loop finished, so an import that timed out or
+    // crashed mid-way left no trace at all — the merchant saw reviews appear with no job in
+    // their history explaining where they came from, and no failure to point at.
+    const job = await db.importJob
+      .create({
+        data: {
+          storeId,
+          source: detectedSource || 'csv',
+          status: 'processing',
+          totalReviews: rows.length,
+          importedReviews: 0,
+          failedReviews: 0,
+        },
+      })
+      .catch(() => null);
+
     let imported = 0;
+    let duplicates = 0;
     const touchedProducts = new Set<string>();
 
     for (const r of reviews) {
       try {
         await db.review.create({
           data: {
+            sourceReviewKey: rowKey(r),
             storeId,
             productId: r.productId,
             reviewerName: r.reviewerName,
@@ -155,6 +238,13 @@ export async function POST(request: NextRequest) {
         imported++;
         if (r.productId && r.isPublished) touchedProducts.add(r.productId);
       } catch (err) {
+        // A unique-constraint violation is the dedupe working, not a failure. Counted
+        // separately and reported as such, so "nothing happened" reads as "you already
+        // have these" rather than as a broken import.
+        if (err && typeof err === 'object' && (err as { code?: string }).code === 'P2002') {
+          duplicates++;
+          continue;
+        }
         errors.push({
           row: 0,
           reason: err instanceof Error ? err.message.slice(0, 120) : 'Insert failed',
@@ -170,23 +260,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await db.importJob
-      .create({
-        data: {
-          storeId,
-          source: detectedSource || 'csv',
-          status: 'completed',
-          totalReviews: rows.length,
-          importedReviews: imported,
-          failedReviews: errors.length,
-          errorMessage: errors.length ? errors.slice(0, 5).map((e) => e.reason).join('; ') : null,
-        },
-      })
-      .catch(() => undefined);
+    if (job) {
+      await db.importJob
+        .update({
+          where: { id: job.id },
+          data: {
+            status: 'completed',
+            importedReviews: imported,
+            failedReviews: errors.length,
+            errorMessage: errors.length
+              ? errors.slice(0, 5).map((e) => e.reason).join('; ')
+              : duplicates
+              ? `${duplicates} row(s) already imported and skipped`
+              : null,
+          },
+        })
+        .catch(() => undefined);
+    }
 
     return NextResponse.json({
       total: rows.length,
       imported,
+      duplicates,
       failed: errors.length,
       matched,
       unmatched,

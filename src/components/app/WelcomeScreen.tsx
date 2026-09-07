@@ -80,7 +80,7 @@ const FEATURES = [
  * iframe. Hence the reload affordance — a merchant who lands here mid-session is one
  * click from where they were, rather than being asked to re-install.
  */
-const APP_STORE_LISTING = 'https://apps.shopify.com/reviewmaster';
+const APP_STORE_LISTING = 'https://apps.shopify.com/reviewmaster-reviews';
 
 export default function WelcomeScreen({ error }: { error?: string }) {
   return (

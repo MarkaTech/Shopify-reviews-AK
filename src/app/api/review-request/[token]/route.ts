@@ -238,6 +238,97 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data: { submittedAt: new Date() },
     });
 
+    // ── Aggregates and reward, for reviews that went live immediately ──
+    //
+    // Both were missing here. This route had neither an import of @/lib/ratings nor any
+    // call to updateProductRating, so with auto-publish on the widget listed the new review
+    // while the header average and the `reviews.rating` metafield stayed at their old
+    // values — visible to shoppers, to Google, and to the Shop app, and only corrected by
+    // the next moderation action or a manual rebuild. Shopify's syndication rules require
+    // the displayed aggregate to track reality.
+    //
+    // The reward had the same root cause as the storefront path: the grant hangs off a
+    // false->true publish transition, and a row born published never has one.
+    if (rules.autoPublish && store.shopifyDomain) {
+      const shop = store.shopifyDomain;
+      const publishedProductIds = [
+        ...new Set(
+          submitted
+            .filter((r) => r.productId && allowedProductIds.has(r.productId))
+            .map((r) => r.productId!)
+        ),
+      ];
+      // ONE reward per order, not one per line item.
+      //
+      // An order with twelve reviewable products produced twelve reviews, and rewarding each
+      // of them minted twelve real Shopify discount codes and sent twelve emails to the same
+      // buyer. The unique on IncentiveGrant.reviewId does not prevent that — it is scoped to
+      // a review, and these are twelve distinct reviews. `usageLimit` does not either: it is
+      // nullable and unset by default, and it counts grants across the whole incentive
+      // rather than per customer.
+      //
+      // The richest review wins, so the buyer gets the tier they actually earned: a video
+      // review anywhere in the order beats a photo review, which beats text.
+      const mediaKindFor = (key: string) => {
+        const files = validatedByKey.get(key) ?? [];
+        return {
+          hasVideo: files.some((f) => f.kind === 'video'),
+          hasPhoto: files.some((f) => f.kind === 'image'),
+        };
+      };
+      const rewardTarget = [...createdIds]
+        .sort((a, b) => {
+          const A = mediaKindFor(a.key);
+          const B = mediaKindFor(b.key);
+          return (
+            Number(B.hasVideo) - Number(A.hasVideo) || Number(B.hasPhoto) - Number(A.hasPhoto)
+          );
+        })[0];
+      const rewardMedia = rewardTarget ? mediaKindFor(rewardTarget.key) : null;
+      const customerEmail = state.request.customerEmail;
+      const customerName = state.request.customerName;
+
+      after(async () => {
+        try {
+          const token = await getFreshAccessToken(store);
+          const ctx = { shop, accessToken: token, onUnauthorized: tokenRefresherFor(storeId) };
+
+          const { updateProductRating } = await import('@/lib/ratings');
+          for (const productId of publishedProductIds) {
+            await updateProductRating(storeId, productId, ctx);
+          }
+
+          // Media flags come from the VALIDATED UPLOADS, not from the review row.
+          //
+          // The row cannot be trusted here: the media upload runs in a separate after()
+          // block further down, so at this moment `images` and `videoUrl` are still null on
+          // every row. Reading them meant the photo and video tiers never applied, and an
+          // incentive with `requiresMedia` never granted at all — it bailed out on a review
+          // whose photos were, at that instant, still in flight.
+          if (rewardTarget && rewardMedia) {
+            const { rewardPublishedReview } = await import('@/lib/incentives');
+            await rewardPublishedReview(
+              storeId,
+              shop,
+              token,
+              {
+                id: rewardTarget.id,
+                reviewerEmail: customerEmail,
+                reviewerName: customerName,
+                images: rewardMedia.hasPhoto || null,
+                videoUrl: rewardMedia.hasVideo || null,
+              },
+              ctx.onUnauthorized
+            );
+          }
+        } catch (err) {
+          // The reviews are saved and live either way. Aggregates self-heal on the next
+          // publish or a manual rebuild; a missing code is recoverable by the merchant.
+          console.error('[review-request] post-publish aggregate/reward step failed:', err);
+        }
+      });
+    }
+
     // ── Media upload, off the response path ──
     //
     // Same reasoning as the storefront widget: handing bytes to Shopify Files is three

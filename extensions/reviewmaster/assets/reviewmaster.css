@@ -371,3 +371,22 @@
   text-decoration: underline;
 }
 .rm-theme--minimal .rm-branding { border-top: 0; }
+
+
+/* ── Loading skeletons ──
+   Occupy the reserved min-height while reviews are fetched, so the container is never a
+   blank box that later collapses. Shapes approximate a real review card: stars, two full
+   text lines, one short one. */
+.rm-review--skeleton { pointer-events: none; }
+.rm-skel {
+  display: block;
+  border-radius: 4px;
+  background: currentColor;
+  opacity: .09;
+  animation: rm-skel-pulse 1.4s ease-in-out infinite;
+}
+.rm-skel--stars { width: 5.5rem; height: .8rem; margin-bottom: .7rem; }
+.rm-skel--line { height: .7rem; margin-bottom: .45rem; }
+.rm-skel--short { width: 55%; }
+@keyframes rm-skel-pulse { 0%, 100% { opacity: .09; } 50% { opacity: .05; } }
+@media (prefers-reduced-motion: reduce) { .rm-skel { animation: none; } }

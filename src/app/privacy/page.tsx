@@ -620,7 +620,7 @@ export default function Privacy() {
           <li>placed beyond ordinary active use;</li>
           <li>not restored to production except where legitimately necessary for disaster recovery;</li>
           <li>
-            automatically deleted or overwritten within no more than <strong>28 days</strong>{' '}
+            automatically deleted or overwritten within no more than <strong>35 days</strong>{' '}
             after the relevant production deletion, unless Applicable Law requires otherwise.
           </li>
         </ul>

@@ -40,7 +40,8 @@ const BulkUploadPage = dynamic(() => import('@/components/app/BulkUploadPage'), 
 const WidgetsPage = dynamic(() => import('@/components/app/WidgetsPage'), { ssr: false, loading });
 const SettingsPage = dynamic(() => import('@/components/app/SettingsPage'), { ssr: false, loading });
 const ProductsPage = dynamic(() => import('@/components/app/ProductsPage'), { ssr: false, loading });
-const QuestionsPage = dynamic(() => import('@/components/app/QuestionsPage'), { ssr: false, loading });
+// QuestionsPage is still in the tree and still compiles; it is simply not routed while
+// Q&A has no storefront surface. Re-add this import and its `case` to restore it.
 const IncentivesPage = dynamic(() => import('@/components/app/IncentivesPage'), { ssr: false, loading });
 import { Toaster } from 'sonner';
 import { Star, ExternalLink, ChevronRight } from 'lucide-react';
@@ -50,7 +51,11 @@ const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string
   dashboard: { title: 'Dashboard', desc: 'How your reviews are performing' },
   reviews: { title: 'All reviews', desc: 'Moderate, reply to and feature customer reviews', parent: 'Reviews' },
   'bulk-upload': { title: 'Import', desc: 'Bring in reviews you own, or collect them from real orders', parent: 'Reviews' },
-  questions: { title: 'Questions', desc: 'Answer shopper questions and publish them to product pages', parent: 'Reviews' },
+  // 'questions' is intentionally absent while Q&A has no storefront surface. PAGE_TITLES
+  // feeds PAGE_IDS, the ?page= parser and the App Bridge <ui-nav-menu>, so removing it here
+  // is what actually hides the screen — dropping the TopNav entry alone left it reachable by
+  // URL and still listed in Shopify's own admin sidebar. Restore this line, the TopNav item
+  // and the plan flags together when the theme block ships.
   products: { title: 'Products', desc: 'Products synced from your Shopify catalogue', parent: 'Store' },
   widgets: { title: 'Widgets', desc: 'Design how reviews appear on your storefront', parent: 'Store' },
   incentives: { title: 'Incentives', desc: 'Reward reviewers with a discount — never tied to what they say', parent: 'Store' },
@@ -281,7 +286,46 @@ export default function Home() {
   }
 
   // ── Not authenticated ──
+  //
+  // Inside the admin frame this must NOT be the marketing page.
+  //
+  // WelcomeScreen is, by its own docstring, "a sales page" — hero, proof points and an
+  // "Install from the Shopify App Store" button. Rendering it on any auth failure meant a
+  // merchant whose session had simply expired, or an App Store reviewer whose token call
+  // hit a blip, was shown an advert telling them to install the app they were already
+  // inside. It is the right screen for someone who has landed on the app's public URL and
+  // the wrong one for someone sitting in their own Shopify admin.
+  //
+  // Embedded, the recoverable action is to reload — App Bridge mints a fresh session token
+  // on load, which is what fixes an expired one.
   if (!isAuthenticated) {
+    if (isEmbedded) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background p-6">
+          <div className="surface w-full max-w-md rounded-2xl p-8 text-center">
+            <span className="tile tile-brand mx-auto mb-4 flex size-12 items-center justify-center">
+              <Star className="size-6" fill="currentColor" strokeWidth={0} />
+            </span>
+            <h1 className="text-[16px] font-bold text-ink-900 dark:text-white">
+              Could not reach your store
+            </h1>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-500">
+              {authError || 'Your session expired. Reloading usually fixes it.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 h-9 rounded-lg bg-ink-900 px-4 text-[13px] font-semibold text-white hover:opacity-90 dark:bg-white dark:text-ink-900"
+            >
+              Reload
+            </button>
+            <p className="mt-4 text-[12px] text-ink-400">
+              Still stuck? Email tech@houseofmarka.com and we will sort it out.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <WelcomeScreen error={authError} />
     );
@@ -293,7 +337,6 @@ export default function Home() {
       case 'dashboard': return <DashboardPage onNavigate={navigate} storeName={storeName} />;
       case 'reviews': return <ReviewsPage />;
       case 'bulk-upload': return <BulkUploadPage />;
-      case 'questions': return <QuestionsPage />;
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage storeDomain={storeDomain} />;
       case 'incentives': return <IncentivesPage />;

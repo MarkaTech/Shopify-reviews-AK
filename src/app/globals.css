@@ -122,7 +122,21 @@
   --ink-100: #f1f5f9;
   --ink-200: #e6ebf1;
   --ink-300: #cfd8e3;
-  --ink-400: #94a3b8;
+  /**
+   * Darkened from #94a3b8 for contrast.
+   *
+   * `text-ink-400` is the app's secondary-text colour and is used on 12px hints, captions and
+   * empty-state copy across fifteen components — all normal text under WCAG, which requires
+   * 4.5:1. #94a3b8 on the white surface measures 2.56:1, so the app's most common
+   * explanatory text failed AA everywhere it appeared, and worst where it mattered: the
+   * one-line hints under form controls.
+   *
+   * #7c8ba1 measures 3.46:1 — still short of 4.5:1 but a real improvement, and it keeps the
+   * visual step down from --ink-500 that the hierarchy depends on. Going all the way to a
+   * compliant value would collapse 400 and 500 into the same tone. The honest position: this
+   * is better, not compliant, and the scale needs a designer's pass to fix properly.
+   */
+  --ink-400: #7c8ba1;
   --ink-500: #64748b;
   --ink-600: #4a5568;
   --ink-700: #364152;

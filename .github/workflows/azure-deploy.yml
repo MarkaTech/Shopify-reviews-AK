@@ -9,6 +9,7 @@ env:
   AZURE_WEBAPP_NAME: reviewmaster-app      # Your Azure Web App name
   AZURE_RESOURCE_GROUP: reviewmaster-rg    # Resource group holding the Web App
   REGISTRY: ghcr.io                        # GitHub Container Registry
+  AZURE_PG_SERVER: reviewmaster-db-server  # Postgres Flexible Server holding the app database
 
 jobs:
   build-and-deploy:
@@ -21,6 +22,43 @@ jobs:
       # ---- Checkout ----
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ---- Gate: typecheck and tests ----
+      #
+      # These existed and were green, and nothing ever ran them. The pipeline went
+      # checkout -> docker build -> deploy, so `tsc` and the four test files gated
+      # precisely nothing, and next.config.ts's `ignoreBuildErrors: false` was the only
+      # thing standing between a type error and production.
+      #
+      # Placed before the image build so a failure costs seconds rather than a full
+      # multi-stage Docker build, and so a broken commit never produces a pushed image.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bunx prisma generate
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      # Each file as a script, NOT `bun test tests/`.
+      #
+      # These suites do not use bun's test API — they build their own `tests` array, run it,
+      # and `process.exit(1)` on a failure. `bun test` discovers no test cases in them and
+      # reports "Ran 0 tests" with a success exit code, so wiring CI up that way would have
+      # produced a green check that asserted nothing. Running them as scripts is what
+      # actually surfaces the exit code.
+      - name: Test
+        run: |
+          for f in tests/*.test.ts; do
+            echo "── $f"
+            bun run "$f"
+          done
 
       - name: Detect DATABASE_URL secret
         run: |
@@ -92,6 +130,42 @@ jobs:
       #
       # It also fails closed: a migration that errors stops the step, so the new image is
       # never deployed against a half-migrated database.
+      # ---- Login to Azure ----
+      #
+      # Moved AHEAD of the migration step. It used to sit after it, which was fine only
+      # because the database carried Azure's blanket "allow all Azure services" firewall
+      # rule (0.0.0.0) — GitHub-hosted runners are Azure VMs, so they slipped through it.
+      #
+      # That rule admits every VM in every Azure tenant to port 5432, so the leaked admin
+      # credential needed no network foothold at all. Removing it is the fix, but removing
+      # it with the old ordering would have broken `migrate deploy` on every deploy. Hence
+      # this: log in first, open a firewall rule for THIS runner's address only, migrate,
+      # then close it again.
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ---- Open the database to this runner, and only this runner ----
+      - name: Open database firewall for this run
+        id: dbfw
+        if: ${{ env.HAS_DB_URL == 'true' }}
+        run: |
+          RUNNER_IP="$(curl -sf --retry 3 https://api.ipify.org)"
+          if [ -z "$RUNNER_IP" ]; then
+            echo "::error::could not determine the runner's public IP; refusing to open the firewall"
+            exit 1
+          fi
+          RULE="gha-${GITHUB_RUN_ID}"
+          echo "rule=$RULE" >> "$GITHUB_OUTPUT"
+          echo "Opening $RULE for $RUNNER_IP"
+          az postgres flexible-server firewall-rule create \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ env.AZURE_PG_SERVER }}" \
+            --rule-name "$RULE" \
+            --start-ip-address "$RUNNER_IP" --end-ip-address "$RUNNER_IP" \
+            --output none
+
       - name: Apply database migrations
         if: ${{ env.HAS_DB_URL == 'true' }}
         env:
@@ -106,22 +180,33 @@ jobs:
           # creates the history table; every later run takes the normal path above.
           if ! npx prisma migrate deploy; then
             echo "migrate deploy failed - attempting one-time baseline (P3005 path)"
+            # 0_init describes the tables that already exist from the db-push era, so it is
+            # recorded as applied WITHOUT running it. Running it would be harmless (every
+            # statement is CREATE TABLE, which would error on existing tables) but pointless:
+            # the point of a baseline is to tell Prisma "this state is already here".
+            npx prisma migrate resolve --applied 0_init
             npx prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810120000_import_key_and_grant_uniqueness/migration.sql
             npx prisma migrate resolve --applied 20260810120000_import_key_and_grant_uniqueness
             npx prisma migrate deploy
           fi
+      # `always()`, so a failed migration still closes the hole it opened. Tolerant of a
+      # delete that fails: a leftover single-IP rule for a dead runner is untidy, not
+      # dangerous, and failing the deploy over cleanup would be worse.
+      - name: Close database firewall
+        if: ${{ always() && steps.dbfw.outputs.rule != '' }}
+        run: |
+          az postgres flexible-server firewall-rule delete \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ env.AZURE_PG_SERVER }}" \
+            --rule-name "${{ steps.dbfw.outputs.rule }}" \
+            --yes --output none || echo "::warning::could not remove firewall rule ${{ steps.dbfw.outputs.rule }}"
+
       - name: Check for DATABASE_URL secret
         if: ${{ always() }}
         run: |
           if [ -z "${{ secrets.DATABASE_URL }}" ]; then
             echo "::warning::DATABASE_URL secret is not set - schema was NOT pushed. Set it in repo Settings -> Secrets."
           fi
-
-      # ---- Login to Azure ----
-      - name: Log in to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # ---- Give Azure credentials to pull from GHCR ----
       # The GHCR package is private by default. Without these settings the Web App gets a

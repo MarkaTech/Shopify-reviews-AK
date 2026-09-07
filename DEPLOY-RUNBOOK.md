@@ -33,10 +33,18 @@ az webapp config appsettings set \
   --settings \
     DATABASE_URL='postgresql://dbadmin:<DB_PASSWORD>@reviewmaster-db-server.postgres.database.azure.com:5432/reviewmaster?sslmode=require' \
     TOKEN_ENCRYPTION_KEY='<TOKEN_KEY>' \
+    CRON_SECRET='<CRON_SECRET>' \
+    SES_TOPIC_ARN='<SNS_TOPIC_ARN>' \
   --output none
 ```
 
-Note `%237x`, not `#7x`. Same encoding applies anywhere else you use this password in a URL.
+`CRON_SECRET` gates the four cron routes — unset, they return 503 forever and no review
+invitation is ever sent. `SES_TOPIC_ARN` gates `/api/webhooks/ses`, which refuses every
+notification (including the SNS subscription confirmation) while it is unset; see
+`docs/ses-production-access.md`, and note the topic must exist before this is set.
+
+If the password contains a `#`, percent-encode it as `%23` here and anywhere else it
+appears inside a URL — an unencoded `#` truncates the connection string at that point.
 
 ---
 
@@ -180,8 +188,14 @@ Verified offline: 20 unit checks over the HMAC logic, topic mapping and encrypti
 
 ## Still outstanding for App Store submission
 
-- `next.config.ts` sets `typescript.ignoreBuildErrors: true`, which is what let the broken upsert reach production. Worth turning off and fixing what surfaces.
-- No `shopify.app.toml`. Fine if you configure entirely through the dashboard.
+- `next.config.ts` now sets `typescript.ignoreBuildErrors: false` and the tree typechecks clean. Keep it that way — this setting is what let the broken upsert reach production.
+- `shopify.app.toml` is committed and is the source of truth for scopes, webhooks and the application URL.
 - Listing assets: 128×128 icon, 5+ screenshots at 1024×768, 200+ word description, privacy policy URL, terms URL.
-- Billing plans exist in code (free / 9.99 / 29.99 / 99.99) but need matching listing entries.
-- **Rotate the Postgres password** once things are stable — it was pasted into a chat.
+- Billing plans exist in code (free / growth / scale) and need matching listing entries.
+- **The Postgres admin password must be rotated.** An earlier revision of this file carried
+  the real `DATABASE_URL` — host, `dbadmin` username and password — in the two commands
+  above. That revision was committed on 2026-07-25 and pushed to a public GitHub
+  repository, so the credential is in public git history and removing it from the working
+  tree (done) does not remediate it. Rotate in Azure, update the `DATABASE_URL` app setting
+  and the GitHub Actions secret, then purge the history with `git-filter-repo` or BFG and
+  force-push. Treat the old password as harvested.

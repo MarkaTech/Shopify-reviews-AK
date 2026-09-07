@@ -193,14 +193,21 @@ async function fetchPage(host: string, productId: string, page: number): Promise
     res = await fetch(`${host}/pc/searchEvaluation.do?${params}`, {
       signal: controller.signal,
       headers: {
-        // A plain server-side fetch with no UA reads as a bot probe; a browser-shaped
-        // request reads as the feedback widget doing its job.
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        // Identifies itself, rather than impersonating a browser.
+        //
+        // This used to send a full Chrome User-Agent plus a forged `Referer` and `Origin`
+        // claiming the request came from aliexpress.com, with a comment saying the point was
+        // to read as "the feedback widget doing its job". That is deliberate misrepresentation
+        // of the client to a third party's servers: it is the part of automated access that
+        // takes it from "undocumented endpoint" to "evading access controls", it is what a
+        // ToS complaint would quote, and it buys nothing a merchant could not get by asking.
+        //
+        // A truthful UA with a contact URL is the convention for server-side fetching. If
+        // AliExpress blocks it, that is their answer about whether this access is welcome —
+        // and it is better to have that answer than to route around it.
+        'User-Agent': 'ReviewMaster/1.0 (+https://apps.shopify.com/reviewmaster-reviews)',
         Accept: 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
-        Referer: `https://www.aliexpress.com/item/${productId}.html`,
-        Origin: 'https://www.aliexpress.com',
       },
     });
   } catch (err) {

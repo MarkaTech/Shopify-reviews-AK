@@ -1,0 +1,132 @@
+1
+00:00:01,000 --> 00:00:05,500
+ReviewMaster collects product reviews
+from your real orders.
+
+2
+00:00:06,000 --> 00:00:10,000
+You approve them, and they appear
+on your product pages.
+
+3
+00:00:10,500 --> 00:00:14,000
+This store has 27 published reviews.
+
+4
+00:00:19,000 --> 00:00:23,000
+This is what a shopper sees
+on the product page.
+
+5
+00:00:24,000 --> 00:00:29,000
+A star summary, the rating breakdown,
+and the reviews.
+
+6
+00:00:31,000 --> 00:00:37,000
+This badge only appears when the review
+came from a real order.
+
+7
+00:00:37,500 --> 00:00:41,500
+Imported reviews never get it.
+
+8
+00:00:43,000 --> 00:00:48,000
+Low ratings are published too —
+nothing in the app hides them.
+
+9
+00:00:49,000 --> 00:00:54,000
+When an order is fulfilled, the app
+schedules a review invitation.
+
+10
+00:00:57,000 --> 00:01:03,000
+The merchant chooses the timing — here,
+14 days after fulfilment, with one reminder.
+
+11
+00:01:07,000 --> 00:01:12,000
+The customer gets this email.
+One link, no account needed.
+
+12
+00:01:16,000 --> 00:01:20,000
+They rate it, write a line, and submit.
+
+13
+00:01:29,000 --> 00:01:35,000
+It lands in the app marked verified,
+because it matched that order.
+
+14
+00:01:39,000 --> 00:01:45,000
+New reviews wait for approval.
+Auto-publish is off by default.
+
+15
+00:01:47,000 --> 00:01:50,000
+One click publishes it.
+
+16
+00:01:53,000 --> 00:02:00,000
+The merchant can reply in public.
+The reply appears under the review.
+
+17
+00:02:04,000 --> 00:02:09,000
+Nine layouts. The preview updates
+as you change anything.
+
+18
+00:02:11,000 --> 00:02:17,000
+Colours, layout, how many reviews show,
+what each card shows.
+
+19
+00:02:19,000 --> 00:02:23,000
+And the mobile view.
+
+20
+00:02:25,000 --> 00:02:31,000
+One click puts the review block on your
+product page. No theme code.
+
+21
+00:02:34,000 --> 00:02:41,000
+Reviews you already own can be imported —
+CSV, manual entry, or an AliExpress listing.
+
+22
+00:02:43,000 --> 00:02:49,000
+Amazon and eBay are excluded on purpose:
+those reviews describe a different seller.
+
+23
+00:02:49,500 --> 00:02:54,000
+Imported reviews are never marked as verified.
+
+24
+00:03:06,000 --> 00:03:12,000
+A discount in exchange for a review — 10% for
+text, 15% with a photo, 20% with video.
+
+25
+00:03:13,000 --> 00:03:20,000
+Every incentivised review carries a disclosure,
+and the discount is issued whatever the rating.
+
+26
+00:03:23,000 --> 00:03:29,000
+This feed sends your star ratings
+to Google Shopping.
+
+27
+00:03:31,000 --> 00:03:37,000
+Free, Growth and Scale. Merchants change
+plan here through Shopify billing.
+
+28
+00:03:37,500 --> 00:03:42,000
+The change takes effect immediately.

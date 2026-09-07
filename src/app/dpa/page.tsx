@@ -451,7 +451,7 @@ export default function Dpa() {
           </li>
           <li>
             residual copies contained solely in encrypted backups will be placed beyond active use
-            and automatically deleted or overwritten within no more than <strong>28 days</strong>{' '}
+            and automatically deleted or overwritten within no more than <strong>35 days</strong>{' '}
             after the relevant production deletion.
           </li>
         </ul>
@@ -870,7 +870,7 @@ export default function Dpa() {
         <p>As stated in Section 11 and the ReviewMaster <Link href="/privacy">Privacy Policy</Link>.</p>
         <p>
           Residual backup copies are deleted or overwritten within no more than{' '}
-          <strong>28 days</strong> after applicable production deletion, unless legally required
+          <strong>35 days</strong> after applicable production deletion, unless legally required
           otherwise.
         </p>
 
@@ -948,7 +948,7 @@ export default function Dpa() {
         <p>
           Following production deletion, residual encrypted backups containing affected Customer
           Personal Data are automatically deleted or overwritten within no more than{' '}
-          <strong>28 days</strong>, unless Applicable Law requires otherwise.
+          <strong>35 days</strong>, unless Applicable Law requires otherwise.
         </p>
 
         <H3>9. Incident Response</H3>

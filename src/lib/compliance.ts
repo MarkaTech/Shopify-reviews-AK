@@ -26,10 +26,111 @@ export function normaliseComplianceTopic(raw: string): ComplianceTopic | null {
   return null;
 }
 
-/** A merchant asked what personal data we hold about one of their customers. */
+/**
+ * Everything this app holds about one person, in one place.
+ *
+ * Extracted so the ACCESS path and the ERASURE path cannot drift, which is exactly what
+ * had happened: `customers/redact` swept five tables with a case-insensitive match, while
+ * `customers/data_request` queried `Review` alone with a case-sensitive equality — so a
+ * shopper stored as `Jane@Example.com` was correctly erased but reported as having no data
+ * at all. Under GDPR those are the same question asked twice, and they must return the same
+ * rows.
+ */
+async function collectPersonalData(
+  storeId: string,
+  email: string | null,
+  orderIds: string[]
+) {
+  const emailMatch = email ? { equals: email, mode: 'insensitive' as const } : undefined;
+
+  // `id: ''` is the deliberate match-nothing case, so a payload carrying neither an email
+  // nor order ids returns empty rather than everything.
+  const nothing = { storeId, id: '' };
+
+  const [reviews, questions, requests, grants] = await Promise.all([
+    db.review.findMany({
+      where: emailMatch ? { storeId, reviewerEmail: emailMatch } : nothing,
+      select: {
+        id: true, reviewerName: true, reviewerEmail: true, reviewerLocation: true,
+        rating: true, title: true, body: true, reviewDate: true, source: true,
+      },
+    }),
+    db.question.findMany({
+      where: emailMatch ? { storeId, askerEmail: emailMatch } : nothing,
+      select: { id: true, askerName: true, askerEmail: true, body: true, createdAt: true },
+    }),
+    db.reviewRequest.findMany({
+      where: {
+        storeId,
+        OR: [
+          ...(emailMatch ? [{ customerEmail: emailMatch }] : []),
+          ...(orderIds.length ? [{ shopifyOrderId: { in: orderIds } }] : []),
+        ],
+      },
+      select: {
+        id: true, customerEmail: true, customerName: true, shopifyOrderId: true,
+        createdAt: true, submittedAt: true,
+      },
+    }),
+    db.incentiveGrant.findMany({
+      where: emailMatch
+        ? { incentive: { storeId }, customerEmail: emailMatch }
+        : { incentive: { storeId }, id: '' },
+      select: { id: true, customerEmail: true, discountCode: true, createdAt: true },
+    }),
+  ]);
+
+  // Analytics events embed the address inside a JSON blob, so they are matched on the
+  // quoted form for the same reason the erasure path does — a bare `contains` on a short
+  // address matches other people's rows.
+  // Order ids as well as the address — the same clause set the erasure path uses. Access and
+  // erasure have to see identical rows, or the app reports holding nothing about someone
+  // whose data it then goes on to delete.
+  const eventClauses = [
+    ...(email
+      ? [
+          { eventData: { contains: `"${email}"`, mode: 'insensitive' as const } },
+          { eventData: { contains: `:"${email}"`, mode: 'insensitive' as const } },
+        ]
+      : []),
+    ...orderIds.flatMap((id) => [
+      { eventData: { contains: `"orderId":${id},` } },
+      { eventData: { contains: `"orderId":${id}}` } },
+    ]),
+  ];
+
+  const events = eventClauses.length
+    ? await db.analyticsEvent.findMany({
+        where: { storeId, OR: eventClauses },
+        select: { id: true, eventType: true, eventData: true, createdAt: true },
+      })
+    : [];
+
+  return { reviews, questions, requests, grants, events };
+}
+
+/**
+ * A merchant asked what personal data we hold about one of their customers.
+ *
+ * Shopify's requirement is that the app provides the data TO THE STORE OWNER. This used to
+ * write the result into an `AnalyticsEvent` row and stop. Nothing in the app ever read that
+ * row back — every reference to the table is a create or a delete — and the retention job
+ * deleted it after 180 days. So the request was recorded, never answered, and the merchant
+ * was never told it had arrived. The 200 we returned told Shopify it was handled.
+ *
+ * Now the payload is emailed to the store owner and only a RECEIPT is stored: counts and a
+ * timestamp, no personal data. Keeping a second copy of someone's data in order to prove we
+ * disclosed their data is its own minimisation problem.
+ */
 async function handleDataRequest(data: Record<string, unknown>, shop: string) {
-  const payload = data as { customer?: { id?: number; email?: string } };
-  const email = payload.customer?.email || null;
+  const payload = data as {
+    customer?: { id?: number; email?: string };
+    orders_requested?: Array<number | string>;
+  };
+  // Trimmed and lower-cased for the same reason the erasure path does it: the address
+  // arrives in whatever case the shopper typed at checkout.
+  const email = payload.customer?.email?.trim().toLowerCase() || null;
+  const orderIds = (payload.orders_requested ?? []).map(String).filter(Boolean);
 
   const store = await db.store.findUnique({ where: { shopifyDomain: shop } });
   if (!store) {
@@ -37,32 +138,104 @@ async function handleDataRequest(data: Record<string, unknown>, shop: string) {
     return;
   }
 
-  const reviews = email
-    ? await db.review.findMany({
-        where: { storeId: store.id, reviewerEmail: email },
-        select: {
-          id: true, reviewerName: true, reviewerEmail: true, reviewerLocation: true,
-          rating: true, title: true, body: true, reviewDate: true,
-        },
-      })
-    : [];
+  const held = await collectPersonalData(store.id, email, orderIds);
+  const counts = {
+    reviews: held.reviews.length,
+    questions: held.questions.length,
+    invitations: held.requests.length,
+    incentiveGrants: held.grants.length,
+    analyticsEvents: held.events.length,
+  };
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
+  // Receipt only. No customer email, no rows — this is the artefact that proves the request
+  // was serviced, not a second store of the data it was about.
   await db.analyticsEvent.create({
     data: {
       storeId: store.id,
       eventType: 'gdpr_data_request',
       eventData: JSON.stringify({
-        shop,
-        customerId: payload.customer?.id ?? null,
-        customerEmail: email,
-        reviewCount: reviews.length,
-        reviews,
+        shopifyCustomerId: payload.customer?.id ?? null,
+        counts,
+        total,
         requestedAt: new Date().toISOString(),
       }),
     },
   });
 
-  console.log(`[GDPR] data_request for ${shop}: ${reviews.length} review(s) held`);
+  await deliverDataRequest(store.email, shop, email, counts, total, held);
+
+  console.log(`[GDPR] data_request for ${shop}: ${total} record(s) across ${Object.keys(counts).length} tables`);
+}
+
+/**
+ * Send the assembled data to the store owner.
+ *
+ * Failure here must reach the caller: the compliance route deliberately returns 500 so
+ * Shopify retries, and a disclosure that silently did not happen is the same class of
+ * problem as an erasure that silently did not happen. The one case that is NOT a failure is
+ * having no address on file — nothing to retry would fix that, so it logs and returns.
+ */
+async function deliverDataRequest(
+  storeEmail: string | null,
+  shop: string,
+  customerEmail: string | null,
+  counts: Record<string, number>,
+  total: number,
+  held: unknown
+): Promise<void> {
+  if (!storeEmail) {
+    console.warn(
+      `[GDPR] data_request for ${shop}: no store owner address on file, cannot deliver. ` +
+        'The data is available to the operator on request.'
+    );
+    return;
+  }
+
+  const { sendEmail } = await import('./email');
+  const subject = `Customer data request — ${customerEmail ?? 'unidentified customer'}`;
+  const summary = Object.entries(counts)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+  const body = JSON.stringify(held, null, 2);
+
+  const result = await sendEmail({
+    to: storeEmail,
+    subject,
+    text:
+      `Shopify forwarded a data request for ${customerEmail ?? 'a customer'} on ${shop}.\n\n` +
+      `Everything ReviewMaster holds about them is below (${total} record(s)).\n\n` +
+      `${summary}\n\n----\n\n${body}\n`,
+    html:
+      `<p>Shopify forwarded a data request for <strong>${escapeHtml(customerEmail ?? 'a customer')}</strong> on ${escapeHtml(shop)}.</p>` +
+      `<p>Everything ReviewMaster holds about them is below (${total} record(s)).</p>` +
+      `<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px">${escapeHtml(body)}</pre>`,
+  });
+
+  if (!result.sent) {
+    // Retryable failures are thrown so the route 500s and Shopify tries again. Permanent
+    // ones are not: no email provider is configured, or the address is suppressed, and
+    // neither is fixed by redelivery. Throwing on those would pin the compliance webhook
+    // red in the Partner Dashboard forever on a condition retrying cannot clear — which is
+    // the opposite of the signal a failing webhook is supposed to carry.
+    if (result.retryable === false || result.reason === 'not_configured') {
+      console.error(
+        `[GDPR] data_request for ${shop} could NOT be delivered (${result.reason}) and will ` +
+          'not be retried. This request is unfulfilled — deliver it by hand and configure an ' +
+          'email provider (EMAIL_PROVIDER / SES / Resend).'
+      );
+      return;
+    }
+    throw new Error(`could not deliver data request to the store owner (${result.reason})`);
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /** A customer asked to be erased. */
@@ -167,16 +340,33 @@ async function handleCustomerRedact(data: Record<string, unknown>, shop: string)
   // a whole field value rather than a fragment of a longer one. Two forms because the
   // address can appear as a value or inside a nested object, and the case-insensitive
   // flag for the same reason as above.
-  const events = email
-    ? await db.analyticsEvent.deleteMany({
-        where: {
-          storeId,
-          OR: [
-            { eventData: { contains: `"${email}"`, mode: 'insensitive' } },
-            { eventData: { contains: `:"${email}"`, mode: 'insensitive' } },
-          ],
-        },
-      })
+  // Matched on the ORDER ID as well, not just the address.
+  //
+  // `orders/paid` no longer stores the buyer's email — that was a copy of protected customer
+  // data kept for a feature that does not exist. But removing the address also removed the
+  // only thing the erasure query could match on, so those rows became unreachable by this
+  // handler: still tied to a real person through `orderId`, and now permanently
+  // undeletable by any erasure request.
+  //
+  // `orders_to_redact` is the same list already used for ReviewRequest above, and the id is
+  // written as a JSON number, so the needle is unquoted and bounded by the field separator
+  // to stop `"orderId":12` matching `"orderId":1234`.
+  const orderIdClauses = orderIds.flatMap((id) => [
+    { eventData: { contains: `"orderId":${id},` } },
+    { eventData: { contains: `"orderId":${id}}` } },
+  ]);
+
+  const emailClauses = email
+    ? [
+        { eventData: { contains: `"${email}"`, mode: 'insensitive' as const } },
+        { eventData: { contains: `:"${email}"`, mode: 'insensitive' as const } },
+      ]
+    : [];
+
+  const eventClauses = [...emailClauses, ...orderIdClauses];
+
+  const events = eventClauses.length
+    ? await db.analyticsEvent.deleteMany({ where: { storeId, OR: eventClauses } })
     : { count: 0 };
 
   console.log(
@@ -262,6 +452,15 @@ const HANDLERS: Record<ComplianceTopic, (d: Record<string, unknown>, shop: strin
 };
 
 /** Returns true if the topic was recognised and handled. */
+/** Raised when the header names a different shop than the signed body does. */
+export class ShopMismatchError extends Error {
+  status = 401;
+  constructor(header: string, body: string) {
+    super(`Shop mismatch: header says "${header}", signed payload says "${body}"`);
+    this.name = 'ShopMismatchError';
+  }
+}
+
 export async function handleComplianceTopic(
   topic: string,
   data: Record<string, unknown>,
@@ -269,6 +468,37 @@ export async function handleComplianceTopic(
 ): Promise<boolean> {
   const t = normaliseComplianceTopic(topic);
   if (!t) return false;
-  await HANDLERS[t](data, shop);
+
+  // Take the tenant from the SIGNED body. Required, not merely cross-checked.
+  //
+  // The HMAC covers the request body and nothing else. Both the topic and the shop domain
+  // arrive in unsigned headers, so a captured `(body, signature)` pair can be replayed with
+  // either rewritten — and `shop/redact` hard-deletes nine tables and the Store row. That
+  // turns any leaked signed request (a proxy log, an APM trace, a shared request dump) into
+  // a cross-tenant destruction primitive that stays valid as long as the app secret does.
+  //
+  // The first version of this check only enforced when `shop_domain` was present, reasoning
+  // that a payload-shape change on Shopify's side should degrade gracefully. That reasoning
+  // left the hole wide open, because the attacker chooses the body: replaying a signed
+  // `products/create` payload — which has no `shop_domain` at all — skipped the comparison
+  // entirely and fell straight back to the attacker-controlled header. The graceful
+  // degradation WAS the bypass.
+  //
+  // So: all three compliance payloads carry `shop_domain` (customers/data_request,
+  // customers/redact and shop/redact each document it), and a compliance request without one
+  // is not a compliance request. Refuse it, and never consult the header for the identity of
+  // the tenant being erased.
+  const bodyShop = typeof data.shop_domain === 'string' ? data.shop_domain.trim().toLowerCase() : '';
+  const headerShop = shop.trim().toLowerCase();
+
+  if (!bodyShop) {
+    throw new ShopMismatchError(headerShop || '(none)', '(absent from signed body)');
+  }
+  if (headerShop && bodyShop !== headerShop) {
+    throw new ShopMismatchError(headerShop, bodyShop);
+  }
+
+  // The signed value, always. `headerShop` is never passed to a handler.
+  await HANDLERS[t](data, bodyShop);
   return true;
 }

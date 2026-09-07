@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import {
   LayoutDashboard, Star, FileSpreadsheet, Settings, ShoppingBag, Palette,
-  MessageSquare, HelpCircle, Gift, Sparkles, Zap, ArrowUpRight, type LucideIcon,
+  MessageSquare, Gift, Sparkles, Zap, ArrowUpRight, type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Meter, ActionButton } from './ui-kit';
@@ -35,7 +35,8 @@ export type PageId =
   | 'dashboard'
   | 'reviews'
   | 'bulk-upload'
-  | 'questions'
+  // 'questions' removed with the nav item and the PAGE_TITLES entry — Q&A has no storefront
+  // surface, so the screen can only ever be empty. Restore all three together.
   | 'widgets'
   | 'settings'
   | 'products'
@@ -88,7 +89,10 @@ export default function TopNav({
       { id: 'dashboard',   label: 'Dashboard',   short: 'Home',      icon: LayoutDashboard },
       { id: 'reviews',     label: 'All reviews', short: 'Reviews',   icon: MessageSquare, badge: pendingCount || undefined },
       { id: 'bulk-upload', label: 'Import',      short: 'Import',    icon: FileSpreadsheet },
-      { id: 'questions',   label: 'Questions',   short: 'Q&A',       icon: HelpCircle },
+      // Questions is hidden while Q&A has no storefront surface: db.question.create has
+      // exactly one caller, an unreachable route, so the screen can only ever be empty and
+      // a reviewer clicking it finds a dead feature. Restore this line together with the
+      // plan flags in plans.ts when the theme block ships.
       { id: 'products',    label: 'Products',    short: 'Products',  icon: ShoppingBag },
       { id: 'widgets',     label: 'Widgets',     short: 'Widgets',   icon: Palette },
       { id: 'incentives',  label: 'Incentives',  short: 'Offers',    icon: Gift },

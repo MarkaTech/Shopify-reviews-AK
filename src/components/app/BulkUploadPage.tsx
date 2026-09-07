@@ -43,7 +43,7 @@ export default function BulkUploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ total: number; imported: number; failed: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{ total: number; imported: number; failed: number; duplicates?: number; errors: string[] } | null>(null);
   const [manualRows, setManualRows] = useState<Array<{ reviewerName: string; rating: string; title: string; body: string }>>([
     { reviewerName: '', rating: '5', title: '', body: '' }
   ]);
@@ -101,7 +101,7 @@ export default function BulkUploadPage() {
       if (selectedProduct && selectedProduct !== '__none__') formData.append('productId', selectedProduct);
 
       // FormData body, so no JSON Content-Type — apiFetch only sets it for string bodies.
-      const data = await apiFetch<{ imported: number; failed: number; total: number; errors?: string[] }>(
+      const data = await apiFetch<{ imported: number; failed: number; duplicates?: number; total: number; errors?: string[] }>(
         '/api/bulk-upload', { method: 'POST', body: formData }
       );
       // errors is optional on the wire but required by the result state, so default it.
@@ -113,7 +113,14 @@ export default function BulkUploadPage() {
       if (data.failed > 0) {
         toast.error(`${data.failed} row${data.failed === 1 ? '' : 's'} failed to import`);
       }
-      if (data.imported === 0 && data.failed === 0) {
+      // Skipped duplicates are the dedupe working, not a failure — say so, or a re-upload
+      // that correctly does nothing reads as a broken import.
+      if (data.duplicates) {
+        toast.info(
+          `${data.duplicates} review${data.duplicates === 1 ? ' was' : 's were'} already imported and skipped.`
+        );
+      }
+      if (data.imported === 0 && data.failed === 0 && !data.duplicates) {
         toast.info('No reviews found in that file.');
       }
     } catch (err) {
@@ -174,9 +181,25 @@ export default function BulkUploadPage() {
         method: 'POST',
         body: JSON.stringify({ keystring: etsyKey, shop: etsyShop }),
       });
-      // Etsy's consent screen refuses to be framed; break out of the embedded admin.
-      if (window.top) window.top.location.href = data.authUrl;
-      else window.location.href = data.authUrl;
+      // Etsy's consent screen refuses to be framed, so it cannot open in place — but it
+      // must not replace the merchant's admin window either. Replacing `window.top` sent
+      // them to Etsy and left them there: the callback's own copy says "you can close this
+      // tab", and there was no tab to close, because their Shopify admin had become the
+      // Etsy page. Getting back meant navigating by hand.
+      //
+      // A new tab satisfies both constraints: unframed for Etsy, and the admin is still
+      // sitting where they left it when the callback tells them to close it.
+      const opened = window.open(data.authUrl, '_blank', 'noopener');
+      if (!opened) {
+        // Popup blocked. Falling back to a top-level navigation is worse than saying so,
+        // because the merchant would silently lose their place.
+        toast.error('Allow pop-ups for this page, then try connecting to Etsy again.', {
+          duration: 8000,
+        });
+      } else {
+        toast.info('Finish connecting in the new tab, then come back here.');
+      }
+      setEtsyBusy(false);
     } catch (err) {
       toast.error(errorMessage(err, 'Could not start the Etsy connection'));
       setEtsyBusy(false);

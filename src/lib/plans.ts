@@ -126,7 +126,25 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     photoReviews: true,
     videoReviews: true,
     reminderEmails: true,
-    questionsAndAnswers: true,
+    // Not sold until the storefront half ships.
+    //
+    // The server side is complete — GET/POST /api/storefront/questions with plan gating,
+    // per-email dedupe and rate limiting, plus a full merchant moderation screen. What does
+    // not exist is any way for a shopper to reach it: there is no Q&A block in
+    // extensions/reviewmaster, the widget never fetches /api/storefront/questions, and there
+    // is no app proxy. `db.question.create` has exactly one caller in the repository — that
+    // unreachable storefront route — so the Question table cannot be populated in production
+    // and the Questions screen is empty by construction, not by default.
+    //
+    // Same standard as apiAccess below and the Shop app sync line in SettingsPage: charging
+    // for a feature that cannot be delivered is a listed App Store rejection reason, and the
+    // fix that takes minutes is to stop selling it rather than to ship untested storefront
+    // code the week of a resubmission.
+    //
+    // To re-enable: ship a questions app block plus the fetch/render path in
+    // extension-src/reviewmaster.js, rebuild with `npm run build:ext`, then set this back to
+    // true on growth and scale and restore the SettingsPage and TopNav entries.
+    questionsAndAnswers: false,
     incentives: true,
     googleFeed: true,
     shopSyndication: true,
@@ -145,7 +163,8 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     photoReviews: true,
     videoReviews: true,
     reminderEmails: true,
-    questionsAndAnswers: true,
+    // See the Growth tier above — not sold until the storefront half ships.
+    questionsAndAnswers: false,
     incentives: true,
     googleFeed: true,
     shopSyndication: true,
@@ -531,7 +550,12 @@ export function planLimitResponse(error: unknown) {
         currentPlan: error.currentPlan,
         suggestedPlan: error.suggestedPlan,
         usage: error.usage,
-        upgradeUrl: '/billing',
+        // `?page=settings`, not `/billing`. There is no /billing route — the app is a
+        // single embedded page that switches on a `page` query parameter (see PAGE_IDS in
+        // src/app/page.tsx), and the plan picker lives on the Settings screen. Nothing in
+        // the UI reads this field today, so the dead path was invisible; it is part of the
+        // 402 body and any client that followed it would have got a 404.
+        upgradeUrl: '?page=settings',
       },
       status: error.status,
     };

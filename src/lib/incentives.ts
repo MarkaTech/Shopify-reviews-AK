@@ -45,6 +45,28 @@ const DISCOUNT_CREATE = `
 `;
 
 /**
+ * Free shipping is a different mutation, not a different value.
+ *
+ * `free_shipping` is offered in the merchant's reward-type picker and the create route
+ * forces its `rewardValue` to 0. The grant then branched only on 'percentage', so free
+ * shipping fell through to the fixed-amount arm and minted a discount of
+ * `{ amount: 0 }` — a code that takes nothing off, paired with a reward email reading
+ * "0.00 off your next order". The shopper was promised free shipping and given a working
+ * code worth nothing, which is worse than the feature not existing.
+ *
+ * `discountCodeFreeShippingCreate` takes no `customerGets`; the benefit is the shipping
+ * line itself, scoped by destination.
+ */
+const FREE_SHIPPING_CREATE = `
+  mutation CreateReviewFreeShipping($freeShippingCodeDiscount: DiscountCodeFreeShippingInput!) {
+    discountCodeFreeShippingCreate(freeShippingCodeDiscount: $freeShippingCodeDiscount) {
+      codeDiscountNode { id }
+      userErrors { field code message }
+    }
+  }
+`;
+
+/**
  * Human-friendly, unguessable code.
  *
  * Excludes I, O, 0 and 1 — a merchant reads these out over the phone and a customer types
@@ -57,6 +79,15 @@ function generateCode(prefix = 'THANKS'): string {
   for (let i = 0; i < 8; i++) code += alphabet[bytes[i] % alphabet.length];
   return `${prefix}-${code}`;
 }
+
+/**
+ * Codes one store may mint in any rolling 24 hours, across every incentive it has.
+ *
+ * A backstop against automated farming of a feature that hands out real money, not a
+ * product limit. See the check in grantIncentive for why a per-incentive `usageLimit`
+ * cannot serve this purpose.
+ */
+const MAX_GRANTS_PER_DAY = 50;
 
 export interface GrantResult {
   code: string;
@@ -87,6 +118,20 @@ export async function grantIncentive(
     onUnauthorized?: () => Promise<string | null>;
   }
 ): Promise<GrantResult | null> {
+  // Plan gate, here rather than at the call sites, so no call site can forget it.
+  //
+  // The only condition on granting used to be "is there an active Incentive row", and
+  // nothing deactivates that row on downgrade — /api/billing writes plan: 'free' and
+  // reconcilePlan writes the plan field, neither touches Incentive. So a store that dropped
+  // to Free kept minting real Shopify discount codes and emailing them out, indefinitely,
+  // against a feature it was no longer paying for.
+  const { getStorePlan, PLANS } = await import('./plans');
+  const plan = await getStorePlan(storeId);
+  if (!PLANS[plan].incentives) {
+    console.warn(`[incentives] skipped: store ${storeId} is on '${plan}', which has no incentives`);
+    return null;
+  }
+
   const incentive = await db.incentive.findFirst({
     where: { storeId, isActive: true },
     orderBy: { createdAt: 'desc' },
@@ -138,17 +183,75 @@ export async function grantIncentive(
     }
   }
 
+  // Daily ceiling, independent of the merchant's own usageLimit.
+  //
+  // Until recently the only way to reach this function was a merchant pressing Publish, so
+  // a human bounded the spend. Granting on auto-publish removed that human: an anonymous
+  // storefront submission now mints a REAL Shopify discount code with no approval, and the
+  // only other bound is the 120-per-hour-per-shop storefront rate limit — roughly 2,880
+  // codes a day, each worth real money, farmable by anyone who can vary an email address.
+  //
+  // `usageLimit` does not cover this: it is nullable and unset by default, and it is a
+  // lifetime total for the incentive rather than a rate. This is a rate, it is always on,
+  // and it is deliberately generous — a store legitimately collecting 50 rewarded reviews
+  // in one day is doing extremely well, and one that appears to be collecting 500 is being
+  // farmed. Hitting it pauses rewards, never reviews.
+  const dayAgo = new Date(Date.now() - 86400_000);
+  const grantedToday = await db.incentiveGrant.count({
+    where: { incentive: { storeId }, createdAt: { gte: dayAgo } },
+  });
+  if (grantedToday >= MAX_GRANTS_PER_DAY) {
+    console.warn(
+      `[incentives] skipped: store ${storeId} has minted ${grantedToday} codes in 24h ` +
+        `(ceiling ${MAX_GRANTS_PER_DAY}). Reviews are unaffected; rewards resume automatically.`
+    );
+    return null;
+  }
+
   const code = generateCode();
   const expiresAt = new Date(Date.now() + incentive.expiryDays * 86400_000);
+
+  const isFreeShipping = incentive.rewardType === 'free_shipping';
 
   const value =
     incentive.rewardType === 'percentage'
       ? { percentage: rewardValue / 100 }
       : { discountAmount: { amount: rewardValue, appliesOnEachItem: false } };
 
+  // Shared by both mutations — everything except how the benefit is expressed.
+  const common = {
+    title: `Review reward — ${incentive.name}`,
+    code,
+    startsAt: new Date().toISOString(),
+    endsAt: expiresAt.toISOString(),
+    customerSelection: { all: true },
+    // One use, by one customer. A review reward that leaks onto a coupon site and
+    // gets used ten thousand times is a merchant's worst day.
+    appliesOncePerCustomer: true,
+    usageLimit: 1,
+  };
+
   try {
-    const createDiscount = (token: string) =>
-      callShopifyGraphQL<{
+    // Both mutations return the same shape, so the response is normalised to one field and
+    // the rest of this function does not have to care which was used.
+    const createDiscount = async (token: string) => {
+      if (isFreeShipping) {
+        const res = await callShopifyGraphQL<{
+          discountCodeFreeShippingCreate: {
+            codeDiscountNode: { id: string } | null;
+            userErrors: Array<{ message: string }>;
+          };
+        }>(
+          shop,
+          token,
+          FREE_SHIPPING_CREATE,
+          { freeShippingCodeDiscount: { ...common, destination: { all: true } } },
+          opts.onUnauthorized
+        );
+        return res.discountCodeFreeShippingCreate;
+      }
+
+      const res = await callShopifyGraphQL<{
         discountCodeBasicCreate: {
           codeDiscountNode: { id: string } | null;
           userErrors: Array<{ message: string }>;
@@ -159,20 +262,14 @@ export async function grantIncentive(
         DISCOUNT_CREATE,
         {
           basicCodeDiscount: {
-            title: `Review reward — ${incentive.name}`,
-            code,
-            startsAt: new Date().toISOString(),
-            endsAt: expiresAt.toISOString(),
-            customerSelection: { all: true },
+            ...common,
             customerGets: { value, items: { all: true } },
-            // One use, by one customer. A review reward that leaks onto a coupon site and
-            // gets used ten thousand times is a merchant's worst day.
-            appliesOncePerCustomer: true,
-            usageLimit: 1,
           },
         },
         opts.onUnauthorized
       );
+      return res.discountCodeBasicCreate;
+    };
 
     let data;
     try {
@@ -190,7 +287,7 @@ export async function grantIncentive(
       data = await createDiscount(fresh);
     }
 
-    const errs = data.discountCodeBasicCreate.userErrors;
+    const errs = data.userErrors;
     if (errs?.length) {
       console.error('[incentives] Shopify rejected the discount:', errs.map((e) => e.message).join('; '));
       return null;
@@ -208,7 +305,7 @@ export async function grantIncentive(
           reviewId: opts.reviewId,
           customerEmail: opts.customerEmail,
           discountCode: code,
-          priceRuleId: data.discountCodeBasicCreate.codeDiscountNode?.id ?? null,
+          priceRuleId: data.codeDiscountNode?.id ?? null,
           expiresAt,
         },
       });
@@ -281,4 +378,102 @@ export async function describeActiveIncentive(storeId: string): Promise<{
     disclosure: incentive.disclosureText,
     requiresMedia: incentive.requiresMedia,
   };
+}
+
+/**
+ * Mint the reward for a review that is now published, and email it to the reviewer.
+ *
+ * Why this is shared rather than inlined
+ * -------------------------------------
+ * The reward flow lived entirely inside the merchant's PATCH /api/reviews/[id] handler, and
+ * its trigger was a false->true transition on `isPublished`. That is the right trigger for
+ * moderation — but it is the WRONG one for the two paths that create a review that is
+ * already published:
+ *
+ *   - /api/storefront/submit, when the merchant has auto-publish on
+ *   - /api/review-request/[token], likewise
+ *
+ * Neither path has a transition to observe, because the row is born published. So on every
+ * store with auto-publish enabled — which is the setting merchants reach for precisely
+ * because they want reviews live without touching them — the entire incentives feature was
+ * inert: no code minted, no email sent, and the merchant paying for the Growth plan had no
+ * way to tell.
+ *
+ * One function, called from all three, so the next creation path cannot forget it.
+ *
+ * Never throws. A missing discount code is a disappointed shopper; a failed submission is a
+ * lost review. The first must never cause the second — every caller invokes this inside
+ * `after()` for the same reason.
+ */
+export async function rewardPublishedReview(
+  storeId: string,
+  shop: string,
+  accessToken: string,
+  review: {
+    id: string;
+    reviewerEmail: string | null;
+    reviewerName?: string | null;
+    images?: unknown;
+    videoUrl?: unknown;
+  },
+  onUnauthorized?: () => Promise<string | null>
+): Promise<void> {
+  if (!review.reviewerEmail) {
+    // Diagnosable rather than silent: "why did no code go out" is a real support question,
+    // and an anonymous or imported review is the common non-obvious answer.
+    console.info('[incentives] published without reviewer email — no reward possible:', review.id);
+    return;
+  }
+
+  try {
+    const grant = await grantIncentive(storeId, shop, accessToken, {
+      reviewId: review.id,
+      customerEmail: review.reviewerEmail,
+      hasPhoto: Boolean(review.images),
+      hasVideo: Boolean(review.videoUrl),
+      onUnauthorized,
+    });
+
+    // Minting the code is only half the feature: a code the reviewer is never told about is
+    // indistinguishable from no reward. `alreadyGranted` guards the republish case, so
+    // toggling a review off and on again does not send the same code twice.
+    if (!grant || grant.alreadyGranted) return;
+
+    const { renderIncentiveEmail, sendEmail } = await import('./email');
+    const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true } });
+
+    // Same unsubscribe machinery the review-request emails carry.
+    //
+    // The reward email had no opt-out of any kind: no link in the body, no List-Unsubscribe
+    // header. It was treated as a one-off receipt, but it is unsolicited mail carrying a
+    // discount code — which is exactly what a recipient reports as spam when they have no
+    // other exit, and Gmail and Yahoo require one-click unsubscribe from bulk senders
+    // regardless. Every merchant on this platform shares one sending domain, so one
+    // reputation hit is everyone's.
+    const { unsubscribeToken } = await import('@/app/api/unsubscribe/route');
+    const appUrl = process.env.SHOPIFY_APP_URL || '';
+    const unsubscribeUrl = appUrl
+      ? `${appUrl}/api/unsubscribe?t=${encodeURIComponent(unsubscribeToken(review.reviewerEmail))}`
+      : undefined;
+
+    const msg = renderIncentiveEmail({
+      unsubscribeUrl,
+      storeName: store?.name || shop,
+      customerName: review.reviewerName === 'Verified Customer' ? null : review.reviewerName ?? null,
+      code: grant.code,
+      rewardType: grant.rewardType,
+      rewardValue: grant.rewardValue,
+      expiresAt: grant.expiresAt,
+      disclosureText: grant.disclosureText,
+    });
+
+    const result = await sendEmail({ ...msg, to: review.reviewerEmail });
+    if (!result.sent) {
+      // The code still exists in Shopify and in the grants table — the merchant can hand it
+      // over by hand from the review's detail view.
+      console.warn('[incentives] reward code minted but email not sent:', result.reason);
+    }
+  } catch (err) {
+    console.error('[incentives] reward failed for review', review.id, err);
+  }
 }
