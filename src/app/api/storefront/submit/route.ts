@@ -102,7 +102,15 @@ export async function POST(request: NextRequest) {
     const email = str(form, 'email', 200);
     const title = str(form, 'title', 200);
     const body = str(form, 'body', 5000);
-    const rating = Math.min(5, Math.max(1, Number(form.get('rating')) || 0));
+    // Parsed strictly, NOT clamped. This was `Math.min(5, Math.max(1, Number(...) || 0))`,
+    // and Math.max(1, 0) is 1 — so a submission with no rating at all became a 1-star review,
+    // sailed past the `if (!rating)` gate below, and was written to the moderation queue. The
+    // "Please choose a star rating" response was dead code. The widget validates client-side
+    // so it never sent an empty rating, but any other client did, silently, as one star. A
+    // value outside 1–5 is now rejected the same way rather than clamped, because a client
+    // sending 7 is not a client whose data we should quietly correct.
+    const rawRating = Number(form.get('rating'));
+    const rating = Number.isInteger(rawRating) && rawRating >= 1 && rawRating <= 5 ? rawRating : 0;
 
     if (!shop) {
       return NextResponse.json({ error: 'Missing store' }, { status: 400, headers: CORS });

@@ -618,7 +618,7 @@ export default function Terms() {
           </li>
           <li>
             residual encrypted backup copies, where any exist, will be placed beyond active use
-            and automatically deleted or overwritten within no more than <strong>28 days</strong>,
+            and automatically deleted or overwritten within no more than <strong>35 days</strong>,
             unless Applicable Law requires longer retention.
           </li>
         </ul>
