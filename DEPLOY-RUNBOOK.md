@@ -186,6 +186,37 @@ Verified offline: 20 unit checks over the HMAC logic, topic mapping and encrypti
 
 ---
 
+## The day Shopify approves the app
+
+**Set `SHOPIFY_BILLING_TEST=false` before anyone installs.**
+
+```bash
+az webapp config appsettings set \
+  --subscription c06cb7bc-9f8e-4718-85f1-00b344431aca \
+  --resource-group reviewmaster-rg --name reviewmaster-app \
+  --settings SHOPIFY_BILLING_TEST=false --output none
+```
+
+It is deliberately `true` today so the Shopify review team can complete an upgrade on their
+development store. That reason has since expired: `createRecurringCharge` and
+`resolveActivePlan` both decide test-vs-live from the SHOP's own plan class
+(`shopify.ts:873` and `:1152`), so a development store gets a test charge and is entitled by
+it whether the flag is set or not. Shopify will not accept a live charge on a development
+store in any case.
+
+While the flag is on, **every** store that subscribes gets a test subscription — real money
+never moves. That is fine with no real installs, and becomes a problem the moment there are
+any:
+
+- A merchant who subscribes while it is `true` is on a test charge, so they are never billed.
+- When it is later set to `false`, `resolveActivePlan` stops honouring test subscriptions for
+  non-development stores, and that merchant silently drops to Free at the next plan reconcile
+  (hourly, `src/app/api/store/route.ts`). Nothing charged them, and nothing explains it.
+
+So flip it at approval, before the first install, and the window never opens. If it is missed
+and a merchant is caught by it, the recovery is to have them re-subscribe once the flag is
+off — there is no charge to refund, because none was ever made.
+
 ## Still outstanding for App Store submission
 
 - `next.config.ts` now sets `typescript.ignoreBuildErrors: false` and the tree typechecks clean. Keep it that way — this setting is what let the broken upsert reach production.
