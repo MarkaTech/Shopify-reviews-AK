@@ -48,7 +48,10 @@ export async function GET(request: NextRequest) {
     db.reviewRequest.count({ where: { sentAt: { gte: d30 } } }),
     db.reviewRequest.count({ where: { submittedAt: { gte: d30 } } }),
     db.reviewRequest.count({ where: { openedAt: { gte: d30 } } }),
-    db.reviewRequest.count({ where: { nextSendAt: { lte: now } } }),
+    // Same predicate as sweepDueRequests. Counting on `nextSendAt` alone included rows the
+    // sweep deliberately never visits — a customer who already reviewed, or a request past
+    // its expiry — so the card said "5 due right now" against a sweep that reported zero.
+    db.reviewRequest.count({ where: { nextSendAt: { lte: now }, submittedAt: null, expiresAt: { gt: now } } }),
     db.reviewRequest.count({ where: { sendFailures: { gt: 0 }, nextSendAt: { not: null } } }),
 
     db.question.count({ where: { isPublished: false } }),
