@@ -36,6 +36,8 @@ export interface OrderPayload {
   contact_email?: string | null;
   customer?: { first_name?: string | null; last_name?: string | null; email?: string | null } | null;
   line_items?: Array<{ product_id?: number | string | null; title?: string; name?: string }> | null;
+  /** Codes applied at checkout. Not personal data, so present even on a redacted payload. */
+  discount_codes?: Array<{ code?: string | null }> | null;
 }
 
 /** Cryptographically random, URL-safe, single-use. */

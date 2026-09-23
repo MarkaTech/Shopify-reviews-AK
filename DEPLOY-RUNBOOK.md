@@ -34,14 +34,20 @@ az webapp config appsettings set \
     DATABASE_URL='postgresql://dbadmin:<DB_PASSWORD>@reviewmaster-db-server.postgres.database.azure.com:5432/reviewmaster?sslmode=require' \
     TOKEN_ENCRYPTION_KEY='<TOKEN_KEY>' \
     CRON_SECRET='<CRON_SECRET>' \
-    SES_TOPIC_ARN='<SNS_TOPIC_ARN>' \
+    EMAIL_PROVIDER='resend' \
+    RESEND_API_KEY='<RESEND_API_KEY>' \
+    EMAIL_FROM='ReviewMaster <reviews@yourdomain.com>' \
   --output none
 ```
 
 `CRON_SECRET` gates the four cron routes — unset, they return 503 forever and no review
-invitation is ever sent. `SES_TOPIC_ARN` gates `/api/webhooks/ses`, which refuses every
+invitation is ever sent.
+
+Production sends email through **Resend** (`EMAIL_PROVIDER=resend`). `SES_TOPIC_ARN` is
+only needed if you switch to SES: it gates `/api/webhooks/ses`, which refuses every
 notification (including the SNS subscription confirmation) while it is unset; see
-`docs/ses-production-access.md`, and note the topic must exist before this is set.
+`docs/ses-production-access.md`, and note the topic must exist before it is set. With
+Resend it can stay unset.
 
 If the password contains a `#`, percent-encode it as `%23` here and anywhere else it
 appears inside a URL — an unencoded `#` truncates the connection string at that point.

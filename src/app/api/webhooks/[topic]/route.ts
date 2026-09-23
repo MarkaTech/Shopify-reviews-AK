@@ -272,6 +272,20 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     const { createRequestForOrder } = await import('@/lib/review-requests');
     const { getRequestSettings } = await import('@/lib/request-settings');
 
+    // A fulfilled order that used one of this store's incentive codes is that code being
+    // redeemed. `redeemedAt` was read by the Incentives screen and the admin overview and
+    // written by nothing, so "redeemed" was 0 for every store forever. Stamped before the
+    // enabled check: a merchant who has turned review requests off still pays out rewards.
+    const codes = ((data as { discount_codes?: Array<{ code?: string | null }> | null }).discount_codes ?? [])
+      .map((d) => (d.code || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (codes.length) {
+      await db.incentiveGrant.updateMany({
+        where: { incentive: { storeId }, discountCode: { in: codes }, redeemedAt: null },
+        data: { redeemedAt: new Date() },
+      }).catch((err) => console.error('[incentives] could not stamp redemption:', err));
+    }
+
     const settings = await getRequestSettings(storeId);
     if (!settings.enabled) return; // the merchant turned review requests off
 
