@@ -229,6 +229,13 @@ export async function reconcileSomeStores(
       });
     } catch (err) {
       console.error('[webhooks] reconciliation failed for', store.shopifyDomain, err);
+      // Still stamped. Without this a store whose token fetch throws sorts first forever
+      // and takes a slot in every run, so the batch never reaches anyone else.
+      await db.storeSetting.upsert({
+        where: { storeId_key: { storeId: store.id, key: RECONCILED_KEY } },
+        create: { storeId: store.id, key: RECONCILED_KEY, value: new Date().toISOString() },
+        update: { value: new Date().toISOString() },
+      }).catch(() => undefined);
     }
   }
 

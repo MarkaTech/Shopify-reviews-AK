@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { getProductRating } from '@/lib/ratings';
 import { buildProductStructuredData } from '@/lib/structured-data';
 import { getStorefrontConfig } from '@/lib/storefront-config';
+import { getStorePlan, PLANS } from '@/lib/plans';
+import { describeActiveIncentive } from '@/lib/incentives';
 
 /**
  * Public storefront read API.
@@ -106,14 +108,18 @@ export async function GET(request: NextRequest) {
       ...(mediaOnly ? { NOT: { images: null } } : {}),
     };
 
+    // Every branch ends in a unique tiebreaker. Ordering by rating alone leaves 100 five-
+    // star reviews in database-chosen order, which Postgres does not promise to keep stable
+    // between queries — so page 2 could repeat rows from page 1 and skip others entirely.
+    const tail = [{ reviewDate: 'desc' as const }, { id: 'desc' as const }];
     const orderBy =
       sort === 'highest'
-        ? [{ isPinned: 'desc' as const }, { rating: 'desc' as const }]
+        ? [{ isPinned: 'desc' as const }, { rating: 'desc' as const }, ...tail]
         : sort === 'lowest'
-        ? [{ isPinned: 'desc' as const }, { rating: 'asc' as const }]
+        ? [{ isPinned: 'desc' as const }, { rating: 'asc' as const }, ...tail]
         : sort === 'helpful'
-        ? [{ isPinned: 'desc' as const }, { helpfulCount: 'desc' as const }]
-        : [{ isPinned: 'desc' as const }, { reviewDate: 'desc' as const }];
+        ? [{ isPinned: 'desc' as const }, { helpfulCount: 'desc' as const }, ...tail]
+        : [{ isPinned: 'desc' as const }, ...tail];
 
     const [rows, total] = await Promise.all([
       db.review.findMany({
@@ -192,8 +198,16 @@ export async function GET(request: NextRequest) {
           })
         : null;
 
+    // The incentive offer, plan-gated exactly as grantIncentive is, so a downgraded store
+    // never advertises a reward it will not pay. describeActiveIncentive had no caller at
+    // all: merchants configured an offer and no shopper was ever told about it, which is the
+    // half of an incentive that produces the reviews.
+    const offer = PLANS[await getStorePlan(store.id)].incentives
+      ? await describeActiveIncentive(store.id)
+      : null;
+
     return NextResponse.json(
-      { reviews, total, page, limit, aggregate, structuredData, config },
+      { reviews, total, page, limit, aggregate, structuredData, config, offer },
       { headers: { ...CORS, 'Cache-Control': CACHE } }
     );
   } catch (error) {

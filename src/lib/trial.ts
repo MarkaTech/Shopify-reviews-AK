@@ -38,11 +38,26 @@ export const TRIAL_DAYS = 30;
  * product do the thing they were evaluating.
  */
 export async function trialDaysFor(storeId: string): Promise<number> {
-  const used = await db.storeSetting.findUnique({
-    where: { storeId_key: { storeId, key: TRIAL_KEY } },
-    select: { id: true },
-  });
-  return used ? 0 : TRIAL_DAYS;
+  const store = await db.store.findUnique({ where: { id: storeId }, select: { shopifyDomain: true } });
+  const [marker, ledger] = await Promise.all([
+    db.storeSetting.findUnique({ where: { storeId_key: { storeId, key: TRIAL_KEY } }, select: { value: true } }),
+    store?.shopifyDomain
+      ? db.trialLedger.findUnique({ where: { shopifyDomain: store.shopifyDomain }, select: { usedAt: true } })
+      : Promise.resolve(null),
+  ]);
+
+  // The earlier of the two records is when the trial actually started. The ledger is the
+  // one that survives shop/redact; the setting is the one older stores have.
+  const startedAt = [marker?.value ? Date.parse(marker.value) : NaN, ledger?.usedAt?.getTime() ?? NaN]
+    .filter(Number.isFinite);
+  if (!startedAt.length) return TRIAL_DAYS;
+
+  // REMAINING days, not zero. A merchant who switches Growth -> Scale on day 10 of a trial
+  // used to be given a new subscription with trialDays 0, forfeiting the twenty days they
+  // were promised and billing from the day of approval — the app offered no way to carry a
+  // trial across tiers, and switching mid-trial is exactly what a trialling merchant does.
+  const elapsedDays = Math.floor((Date.now() - Math.min(...startedAt)) / 86_400_000);
+  return Math.max(0, TRIAL_DAYS - elapsedDays);
 }
 
 /**
@@ -57,11 +72,20 @@ export async function trialDaysFor(storeId: string): Promise<number> {
  */
 export async function markTrialConsumed(storeId: string): Promise<void> {
   try {
+    const now = new Date();
+    const store = await db.store.findUnique({ where: { id: storeId }, select: { shopifyDomain: true } });
     await db.storeSetting.upsert({
       where: { storeId_key: { storeId, key: TRIAL_KEY } },
-      create: { storeId, key: TRIAL_KEY, value: new Date().toISOString() },
+      create: { storeId, key: TRIAL_KEY, value: now.toISOString() },
       update: {},
     });
+    if (store?.shopifyDomain) {
+      await db.trialLedger.upsert({
+        where: { shopifyDomain: store.shopifyDomain },
+        create: { shopifyDomain: store.shopifyDomain, usedAt: now },
+        update: {},
+      });
+    }
   } catch (err) {
     console.error('[billing] could not record trial consumption for store', storeId, err);
   }

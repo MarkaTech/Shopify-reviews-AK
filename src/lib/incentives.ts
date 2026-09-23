@@ -175,6 +175,23 @@ export async function grantIncentive(
     };
   }
 
+  // One reward per CUSTOMER per reward window, not just per review. The per-review unique
+  // stops a republish minting twice, but nothing stopped the same buyer collecting a code
+  // for every product on a twelve-line order, or for every order they place. The window is
+  // the code's own lifetime: once their last code has expired they can earn another.
+  const recent = await db.incentiveGrant.findFirst({
+    where: {
+      incentive: { storeId },
+      customerEmail: { equals: opts.customerEmail, mode: 'insensitive' },
+      createdAt: { gte: new Date(Date.now() - incentive.expiryDays * 86400_000) },
+    },
+    select: { id: true },
+  });
+  if (recent) {
+    console.info('[incentives] skipped: this customer already holds a live reward code from this store', opts.reviewId);
+    return null;
+  }
+
   if (incentive.usageLimit) {
     const used = await db.incentiveGrant.count({ where: { incentiveId: incentive.id } });
     if (used >= incentive.usageLimit) {

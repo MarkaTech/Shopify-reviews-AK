@@ -292,6 +292,8 @@ export interface MappedReview {
   title: string | null;
   body: string;
   reviewDate: Date;
+  /** False when reviewDate is the import-time fallback, which must not enter a dedupe key. */
+  reviewDateFromFile: boolean;
   images: string[];
   videoUrl: string | null;
   reply: string | null;
@@ -359,6 +361,7 @@ export function mapRows(
       title: (map.title ? row[map.title] : '').trim().slice(0, 200) || null,
       body: body.slice(0, 5000),
       reviewDate: parseDate(map.reviewDate ? row[map.reviewDate] : undefined) ?? new Date(),
+      reviewDateFromFile: parseDate(map.reviewDate ? row[map.reviewDate] : undefined) !== null,
       images: parseImageList(map.images ? row[map.images] : undefined),
       videoUrl: (map.videoUrl ? row[map.videoUrl] : '').trim() || null,
       reply: (map.reply ? row[map.reply] : '').trim() || null,

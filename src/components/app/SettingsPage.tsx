@@ -250,7 +250,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
-  const [reqSettings, setReqSettings] = useState<{ delayDays: number; reminders: number; reminderGapDays: number } | null>(null);
+  const [reqSettings, setReqSettings] = useState<{ enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number } | null>(null);
   const [dirtyReq, setDirtyReq] = useState<Record<string, string>>({});
   const [mailProvider, setMailProvider] = useState<string | null>(null);
   const [fallbackEmail, setFallbackEmail] = useState<string | null>(null);
@@ -328,7 +328,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
 
     apiFetch<Usage>('/api/usage').then(setUsage).catch(() => setUsage(null));
 
-    apiFetch<{ settings: { delayDays: number; reminders: number; reminderGapDays: number } }>('/api/request-settings')
+    apiFetch<{ settings: { enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number } }>('/api/request-settings')
       .then(r => { setReqSettings(r.settings); setDirtyReq({}); })
       .catch(() => setReqSettings(null));
   }, []);
@@ -382,6 +382,10 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
     setDirtyNotif(d => ({ ...d, [`notify.${field}`]: String(value) }));
   };
 
+  const setReqFlag = (field: 'enabled' | 'requireMarketingConsent', value: boolean) => {
+    setReqSettings(s => (s ? { ...s, [field]: value } : s));
+    setDirtyReq(d => ({ ...d, [`requests.${field}`]: value ? '1' : '0' }));
+  };
   const setReqField = (field: 'delayDays' | 'reminders' | 'reminderGapDays', value: number) => {
     setReqSettings(r => (r ? { ...r, [field]: value } : r));
     setDirtyReq(d => ({ ...d, [`requests.${field}`]: String(value) }));
@@ -458,7 +462,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
         // so typing 0 stores 1 — and the old code threw the response away, left the 0 on
         // screen and said "Saved", which is the app telling the merchant something untrue.
         const res = await apiFetch<{
-          settings: { delayDays: number; reminders: number; reminderGapDays: number };
+          settings: { enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number };
           adjusted?: Array<{ field: string; requested: number; applied: number; min: number; max: number }>;
         }>('/api/request-settings', {
           method: 'PUT',
@@ -1241,6 +1245,22 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                 description="The review invitation is sent this many days after an order is fulfilled — give the parcel time to arrive. Reminders only go to customers who haven’t reviewed yet, and an unsubscribe stops everything."
               />
               <div className="divide-y divide-border border-t border-border">
+                {/* The off switch. Until this existed every fulfilled order emailed its
+                    customer from the day the app was installed, and the only way to stop
+                    it was to uninstall. */}
+                <ToggleRow
+                  title="Send review requests"
+                  description="Off stops new invitations and cancels any already waiting to go out. Reviews already collected stay."
+                  checked={reqSettings?.enabled ?? true}
+                  onChange={v => setReqFlag('enabled', v)}
+                />
+                <ToggleRow
+                  title="Only ask customers who accepted marketing"
+                  description="Skips anyone who left the marketing box unticked at checkout. Turn this on if your region treats review invitations as marketing email."
+                  checked={reqSettings?.requireMarketingConsent ?? false}
+                  onChange={v => setReqFlag('requireMarketingConsent', v)}
+                  disabled={reqSettings?.enabled === false}
+                />
                 <SettingRow htmlFor="delayDays" title="Days after fulfilment (0–60)">
                   <Input id="delayDays" type="number" min={0} max={60} className="h-9 w-[120px] rounded-xl text-[13px]"
                     value={reqSettings?.delayDays ?? 14}

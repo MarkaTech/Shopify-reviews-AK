@@ -448,3 +448,9 @@
 @media (max-width: 480px) {
   .rm-q__meta, .rm-a__meta, .rm-a { margin-left: 0; }
 }
+
+/* ── Incentive offer ── shown beside the write button; the disclosure is part of the offer. */
+.rm-offer { margin: .75rem 0 1rem; padding: .75rem 1rem; border: 1px dashed var(--rm-accent, #059669);
+  border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, transparent); color: var(--rm-card-text, inherit); }
+.rm-offer__text { margin: 0; font-weight: 600; }
+.rm-offer__disclosure { margin: .35rem 0 0; font-size: .8125rem; opacity: .72; }

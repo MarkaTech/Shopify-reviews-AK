@@ -49,7 +49,14 @@ async function collectPersonalData(
 
   const [reviews, questions, requests, grants] = await Promise.all([
     db.review.findMany({
-      where: emailMatch ? { storeId, reviewerEmail: emailMatch } : nothing,
+      where: {
+        storeId,
+        OR: [
+          ...(emailMatch ? [{ reviewerEmail: emailMatch }] : []),
+          ...(orderIds.length ? [{ shopifyOrderId: { in: orderIds } }] : []),
+          ...(!emailMatch && !orderIds.length ? [{ id: '' }] : []),
+        ],
+      },
       select: {
         id: true, reviewerName: true, reviewerEmail: true, reviewerLocation: true,
         rating: true, title: true, body: true, reviewDate: true, source: true,
@@ -148,6 +155,11 @@ async function handleDataRequest(data: Record<string, unknown>, shop: string) {
   };
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
+  // Delivered FIRST, then the receipt records how that went. Writing the receipt before
+  // attempting delivery made a request the app silently could not forward look identical
+  // to one that was answered.
+  const delivery = await deliverDataRequest(store.email, shop, email, counts, total, held);
+
   // Receipt only. No customer email, no rows — this is the artefact that proves the request
   // was serviced, not a second store of the data it was about.
   await db.analyticsEvent.create({
@@ -158,12 +170,11 @@ async function handleDataRequest(data: Record<string, unknown>, shop: string) {
         shopifyCustomerId: payload.customer?.id ?? null,
         counts,
         total,
+        delivery,
         requestedAt: new Date().toISOString(),
       }),
     },
   });
-
-  await deliverDataRequest(store.email, shop, email, counts, total, held);
 
   console.log(`[GDPR] data_request for ${shop}: ${total} record(s) across ${Object.keys(counts).length} tables`);
 }
@@ -183,13 +194,13 @@ async function deliverDataRequest(
   counts: Record<string, number>,
   total: number,
   held: unknown
-): Promise<void> {
+): Promise<'sent' | 'no_store_email' | 'undeliverable'> {
   if (!storeEmail) {
     console.warn(
       `[GDPR] data_request for ${shop}: no store owner address on file, cannot deliver. ` +
         'The data is available to the operator on request.'
     );
-    return;
+    return 'no_store_email';
   }
 
   const { sendEmail } = await import('./email');
@@ -224,10 +235,11 @@ async function deliverDataRequest(
           'not be retried. This request is unfulfilled — deliver it by hand and configure an ' +
           'email provider (EMAIL_PROVIDER / SES / Resend).'
       );
-      return;
+      return 'undeliverable';
     }
     throw new Error(`could not deliver data request to the store owner (${result.reason})`);
   }
+  return 'sent';
 }
 
 function escapeHtml(s: string): string {
@@ -283,10 +295,36 @@ async function handleCustomerRedact(data: Record<string, unknown>, shop: string)
   // by a lower-cased needle regardless of which path wrote it.
   const emailMatch = email ? { equals: email, mode: 'insensitive' as const } : undefined;
 
+  // Media GIDs are read BEFORE the anonymising update nulls them, so the files can be
+  // deleted from the merchant's Shopify Files afterwards.
+  const reviewMatch = {
+    storeId,
+    OR: [
+      ...(emailMatch ? [{ reviewerEmail: emailMatch }] : []),
+      ...(orderIds.length ? [{ shopifyOrderId: { in: orderIds } }] : []),
+      ...(!emailMatch && !orderIds.length ? [{ id: '' }] : []),
+    ],
+  };
+  const mediaRows = await db.review.findMany({ where: reviewMatch, select: { mediaGids: true } });
+
   const [reviews, questions, requests, grants] = await Promise.all([
     db.review.updateMany({
-      where: emailMatch ? { storeId, reviewerEmail: emailMatch } : { storeId, id: '' },
+      // Verified-buyer reviews carry the order id, and a redact request may carry only
+      // `orders_to_redact` (a customer with no account has no email on the payload).
+      where: {
+        storeId,
+        OR: [
+          ...(emailMatch ? [{ reviewerEmail: emailMatch }] : []),
+          ...(orderIds.length ? [{ shopifyOrderId: { in: orderIds } }] : []),
+          ...(!emailMatch && !orderIds.length ? [{ id: '' }] : []),
+        ],
+      },
       data: {
+        // Media is personal data too — a face, a home. Nulled here; the files themselves
+        // are deleted from Shopify below, which is why the GIDs are read first.
+        images: null,
+        videoUrl: null,
+        mediaGids: null,
         reviewerName: 'Anonymous',
         reviewerEmail: null,
         reviewerAvatar: null,
@@ -368,6 +406,21 @@ async function handleCustomerRedact(data: Record<string, unknown>, shop: string)
   const events = eventClauses.length
     ? await db.analyticsEvent.deleteMany({ where: { storeId, OR: eventClauses } })
     : { count: 0 };
+
+  // Files last, best-effort, with a fresh token. An erased customer's photo must not stay
+  // on a public CDN because the row that pointed at it has been anonymised.
+  const { parseMediaGids, deleteShopifyFiles } = await import('./media');
+  const gids = mediaRows.flatMap((r) => parseMediaGids(r.mediaGids));
+  if (gids.length) {
+    try {
+      const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('./shopify-token');
+      const token = await getFreshAccessTokenByStoreId(storeId);
+      const n = await deleteShopifyFiles(shop, token, gids, tokenRefresherFor(storeId));
+      console.log(`[GDPR] customers/redact for ${shop}: deleted ${n}/${gids.length} media file(s)`);
+    } catch (err) {
+      console.error(`[GDPR] customers/redact for ${shop}: could not delete media files`, err);
+    }
+  }
 
   console.log(
     `[GDPR] customers/redact for ${shop}: ${reviews.count} review(s), ${questions.count} question(s), ` +

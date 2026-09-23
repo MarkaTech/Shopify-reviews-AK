@@ -116,7 +116,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       submittedRaw = body.reviews || [];
     }
 
-    const submitted = submittedRaw.filter(r => r && typeof r.rating === 'number' && r.body?.trim());
+    // Only allow reviews against products that were actually in this order.
+    const allowedProductIds = new Set(
+      state.lineItems.map(li => li.productId).filter((v): v is string => !!v)
+    );
+
+    // Bounded to the order. `reviews[]` is caller-supplied; it used to be written out one
+    // Review per element with no ceiling and no per-product dedupe, so a single valid
+    // single-use link could mint any number of `verified_buyer` reviews — the strongest
+    // trust signal the app has, for an order of one item. One review per purchased
+    // product, nothing for products not on the order, body length capped like every other
+    // ingest path.
+    const seenProducts = new Set<string>();
+    const submitted = submittedRaw
+      .filter(r => r && typeof r.rating === 'number' && typeof r.body === 'string' && r.body.trim())
+      .filter(r => {
+        const pid = r.productId ?? '';
+        if (pid && !allowedProductIds.has(pid)) return false;
+        if (seenProducts.has(pid)) return false;
+        seenProducts.add(pid);
+        return true;
+      })
+      .slice(0, Math.max(1, state.lineItems.length))
+      .map(r => ({ ...r, body: r.body!.slice(0, 5000), title: r.title?.slice(0, 200) }));
     if (submitted.length === 0) {
       return NextResponse.json(
         { error: 'Please give a rating and write a short review.' },
@@ -143,11 +165,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     await assertReviewCapacity(storeId, submitted.length);
-
-    // Only allow reviews against products that were actually in this order.
-    const allowedProductIds = new Set(
-      state.lineItems.map(li => li.productId).filter((v): v is string => !!v)
-    );
 
     // ── Media validation ──
     //
@@ -362,6 +379,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                 images: images.length ? JSON.stringify(images) : null,
                 videoUrl: video,
                 pendingMedia: pending.length ? JSON.stringify(pending) : null,
+                // Kept so the files can be deleted later — on review delete or erasure.
+                mediaGids: JSON.stringify(uploaded.map((m) => m.gid)),
               },
             });
           }

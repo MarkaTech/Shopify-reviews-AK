@@ -1116,6 +1116,21 @@ export async function resolveActivePlan(
   accessToken: string,
   onUnauthorized?: () => Promise<string | null>
 ): Promise<string> {
+  return (await resolveActiveSubscription(shop, accessToken, onUnauthorized)).plan;
+}
+
+/**
+ * The plan plus whether it comes from a TEST subscription.
+ *
+ * Callers that consume the one-per-store trial need the second half: a development store
+ * on a test subscription is entitled to the plan, but it has not had a trial in any sense
+ * that should stop it getting one when it becomes a real store.
+ */
+export async function resolveActiveSubscription(
+  shop: string,
+  accessToken: string,
+  onUnauthorized?: () => Promise<string | null>
+): Promise<{ plan: string; test: boolean }> {
   const subs = await fetchActiveSubscriptions(shop, accessToken, onUnauthorized);
 
   // `test` matters as much as `status`. A test subscription completes the entire approval
@@ -1169,7 +1184,7 @@ export async function resolveActivePlan(
     );
   }
 
-  return active ? planFromSubscriptionName(active.name) : 'free';
+  return { plan: active ? planFromSubscriptionName(active.name) : 'free', test: Boolean(active?.test) };
 }
 
 // ── Webhook Registration ──
@@ -1225,6 +1240,10 @@ const WEBHOOK_TOPICS = [
     // and no review could earn the Verified Purchase badge — the app's main differentiator,
     // silently inert.
     'orders/fulfilled',
+    // A cancelled order must not be asked for a review of goods that never arrived — the
+    // 14-day default delay is longer than most cancellation windows, so the invitation is
+    // still queued when the cancellation lands.
+    'orders/cancelled',
     'shop/update',
     // Was 'app/charges/accepted', which does not exist as a GraphQL topic and mapped to a
     // 404 route. APP_SUBSCRIPTIONS_UPDATE is the real signal for a subscription being

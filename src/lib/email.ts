@@ -610,3 +610,61 @@ export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
     unsubscribeUrl: input.unsubscribeUrl,
   };
 }
+
+
+export interface AnswerEmailInput {
+  storeName: string;
+  askerName: string;
+  question: string;
+  answer: string;
+  answeredBy: string;
+  productTitle?: string | null;
+  productUrl?: string | null;
+  unsubscribeUrl?: string;
+}
+
+/**
+ * "The shop answered your question."
+ *
+ * The Q&A form collects an email address under one stated purpose — "Used only to let you
+ * know when the shop answers" — and until this existed the app never did. Collecting personal
+ * data for a purpose you do not fulfil is its own problem, and a shopper who asked "does this
+ * fit a 34-inch waist" and never hears back has been ignored rather than helped. Carries the
+ * unsubscribe machinery because it is unsolicited mail to a shopper, even if it is the mail
+ * they asked for.
+ */
+export function renderAnswerEmail(input: AnswerEmailInput): EmailMessage {
+  const greeting = input.askerName ? `Hi ${input.askerName},` : 'Hi,';
+  const store = escapeHtml(input.storeName);
+  const where = input.productTitle
+    ? input.productUrl
+      ? `<a href="${escapeHtml(input.productUrl)}" style="color:#059669">${escapeHtml(input.productTitle)}</a>`
+      : escapeHtml(input.productTitle)
+    : 'a product';
+  const html = `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f6f7f9;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+        <tr><td>
+          <p style="margin:0 0 16px;font-size:15px;color:#111827;">${escapeHtml(greeting)}</p>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#374151;"><strong>${store}</strong> answered the question you asked about ${where}.</p>
+          <p style="margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;">You asked</p>
+          <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(input.question)}</p>
+          <p style="margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;">${escapeHtml(input.answeredBy)} answered</p>
+          <p style="margin:0 0 20px;padding:12px 14px;background:#f0fdf4;border-left:3px solid #059669;font-size:14px;line-height:1.6;color:#065f46;white-space:pre-wrap;">${escapeHtml(input.answer)}</p>
+          ${input.unsubscribeUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a>.</p>` : ''}
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+  const text = [
+    greeting, '',
+    `${input.storeName} answered the question you asked about ${input.productTitle || 'a product'}.`, '',
+    'You asked:', input.question, '',
+    `${input.answeredBy} answered:`, input.answer,
+    ...(input.unsubscribeUrl ? ['', `Prefer not to receive these? Unsubscribe: ${input.unsubscribeUrl}`] : []),
+  ].join('\n');
+  return { to: '', subject: `${input.storeName} answered your question`, html, text, unsubscribeUrl: input.unsubscribeUrl };
+}

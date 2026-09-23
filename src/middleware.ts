@@ -46,6 +46,12 @@ export function middleware(request: NextRequest) {
 
   response.headers.set('Content-Security-Policy', `frame-ancestors ${ancestors};`);
 
+  // The Web App accepts plain HTTP unless httpsOnly is set on the Azure side. This header
+  // makes a browser that has seen the app once refuse to talk to it in cleartext again,
+  // which covers the merchant's admin and the operator portal. Set httpsOnly too (az
+  // webapp update --set httpsOnly=true) — HSTS only helps after the first HTTPS visit.
+  response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
   // Cheap hardening that costs nothing and is expected of a merchant-facing app.
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');

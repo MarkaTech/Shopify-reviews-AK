@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   try {
     const { storeId } = await withAuth(request);
 
-    const [products, reviews, published, incentive, widget, dismissed, requests] =
+    const [products, reviews, published, incentive, widget, dismissed, requests, requestSettingsSaved] =
       await Promise.all([
         db.product.count({ where: { storeId } }),
         db.review.count({ where: { storeId } }),
@@ -33,6 +33,11 @@ export async function GET(request: NextRequest) {
           select: { value: true },
         }),
         db.reviewRequest.count({ where: { storeId } }),
+        // "Choose when to ask" is done once the merchant has saved any request setting —
+        // its CTA opens Settings. It used to require a ReviewRequest row, which only a real
+        // fulfilled order creates, so the step could not be completed by doing what it
+        // asked.
+        db.storeSetting.count({ where: { storeId, key: { startsWith: 'requests.' } } }),
       ]);
 
     const steps = [
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
       },
       { id: 'reviews', done: reviews > 0, auto: false },
       { id: 'widget', done: !!widget, auto: false },
-      { id: 'requests', done: requests > 0, auto: false },
+      { id: 'requests', done: requests > 0 || requestSettingsSaved > 0, auto: false },
       { id: 'publish', done: published > 0, auto: false },
       { id: 'incentive', done: !!incentive, auto: false, optional: true },
     ];

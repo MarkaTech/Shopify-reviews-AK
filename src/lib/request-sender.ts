@@ -95,9 +95,17 @@ function retryDelayMs(failures: number): number {
 
 export async function sendDueRequest(
   request: DueRequest,
-  settings?: { reminders: number; reminderGapDays: number }
+  settings?: { reminders: number; reminderGapDays: number; enabled?: boolean }
 ): Promise<SendOutcome> {
   const cfg = settings ?? (await getRequestSettings(request.storeId));
+
+  // The merchant's off switch applies to what is already queued, not only to new orders.
+  // Closed out (nextSendAt null) rather than left to retry: a merchant who turns requests
+  // off and back on a month later should not have a month-old backlog fire at once.
+  if (cfg.enabled === false) {
+    await db.reviewRequest.update({ where: { id: request.id }, data: { nextSendAt: null } });
+    return 'skipped';
+  }
 
   // Redacted by retention, or junk — close it out rather than retrying forever.
   if (!request.customerEmail.includes('@') || request.customerEmail.endsWith('.invalid')) {

@@ -5,6 +5,7 @@ import { assertProductInStore, ownershipErrorResponse } from '@/lib/ownership';
 import { updateProductRating } from '@/lib/ratings';
 import { syncReviewToShop, unsyndicateReview, isSyndicationEnabled } from '@/lib/syndication';
 import { rewardPublishedReview } from '@/lib/incentives';
+import { deleteShopifyFiles, parseMediaGids } from '@/lib/media';
 
 export async function GET(
   request: NextRequest,
@@ -187,6 +188,11 @@ export async function DELETE(
     }
 
     await db.review.delete({ where: { id } });
+
+    // The photos and video go with it. Uploaded before moderation, they otherwise stay on
+    // the merchant's public CDN after the review they belonged to is gone.
+    const gids = parseMediaGids(review.mediaGids);
+    if (gids.length) after(() => deleteShopifyFiles(shop, accessToken, gids, onUnauthorized));
 
     // Removing a review must flow through to the average. The CMA's fake-review guidance
     // makes this explicit and the FTC rule implies it: an aggregate that still counts a

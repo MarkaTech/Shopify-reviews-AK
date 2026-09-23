@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { checkQuestionRateLimit } from '@/lib/rate-limit';
+import { checkQuestionRateLimit, checkSubmitFloodLimit } from '@/lib/rate-limit';
 import { getStorePlan, PLANS } from '@/lib/plans';
 import { getStorefrontConfig } from '@/lib/storefront-config';
 
@@ -61,6 +61,16 @@ export async function GET(request: NextRequest) {
     const [plan, config] = await Promise.all([getStorePlan(store.id), getStorefrontConfig(store.id)]);
     const canAsk = PLANS[plan].questionsAndAnswers;
 
+    // A product_id that does not resolve yields an EMPTY list, as the reviews route does.
+    // It used to drop the filter instead, so a product page whose Product row had not
+    // synced yet showed every other product's questions.
+    if (shopifyProductId && !product) {
+      return NextResponse.json(
+        { questions: [], canAsk, colors: config.colors },
+        { headers: { ...CORS, 'Cache-Control': CACHE } }
+      );
+    }
+
     const questions = await db.question.findMany({
       where: {
         storeId: store.id,
@@ -113,8 +123,24 @@ export async function GET(request: NextRequest) {
   }
 }
 
+const MAX_QUESTION_BODY_BYTES = 64 * 1024;
+
 export async function POST(request: NextRequest) {
   try {
+    // Before the body is read, as the review form does: a question is a few hundred bytes,
+    // so anything declaring more is not a question.
+    const declared = Number(request.headers.get('content-length') || 0);
+    if (declared > MAX_QUESTION_BODY_BYTES) {
+      return NextResponse.json({ error: 'That question is too long.' }, { status: 413, headers: CORS });
+    }
+    const flood = checkSubmitFloodLimit(request);
+    if (!flood.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests just now. Please try again later.' },
+        { status: 429, headers: { ...CORS, 'Retry-After': String(flood.retryAfter) } }
+      );
+    }
+
     const form = await request.formData();
     const get = (k: string, max: number) => {
       const v = form.get(k);
@@ -209,6 +235,18 @@ export async function POST(request: NextRequest) {
         isPublished: false,
       },
     });
+
+    // Tell the merchant, after the response has flushed. A shopper never waits on SMTP.
+    {
+      const storeId = store.id;
+      const productTitle = product
+        ? (await db.product.findUnique({ where: { id: product.id }, select: { title: true } }))?.title ?? null
+        : null;
+      after(async () => {
+        const { notifyNewQuestion } = await import('@/lib/notifications');
+        await notifyNewQuestion(storeId, { askerName: name, body, productTitle });
+      });
+    }
 
     return NextResponse.json(
       { success: true, message: 'Thanks — we will answer your question shortly.' },

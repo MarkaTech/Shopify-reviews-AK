@@ -17,6 +17,25 @@ import { db } from './db';
 const PREFIX = 'requests.';
 
 export interface RequestSettings {
+  /**
+   * The merchant's off switch. Default ON — review requests are the product's core loop
+   * and every existing install expects them — but until this existed there was NO way for
+   * a merchant to stop them short of uninstalling. Every fulfilled order emailed its
+   * customer from the moment the app was installed, unconditionally. A merchant who
+   * installed to import and display reviews, or who already asks through another tool,
+   * was double-mailing their customers and could not tell the app to stop. Checked at
+   * creation AND at send time, so turning it off also stops what is already queued.
+   */
+  enabled: boolean;
+  /**
+   * Only ask customers who accepted marketing at checkout (`buyer_accepts_marketing`).
+   * Default OFF, because a review invitation for a product the person bought is
+   * transactional in most readings and the app has always sent to everyone — flipping
+   * the default would silently change what existing merchants get. The DPA has the
+   * merchant warrant compliance with electronic-marketing law; this is the control that
+   * lets them honour it in a jurisdiction that reads it the other way.
+   */
+  requireMarketingConsent: boolean;
   /** Days after fulfilment before the first email. 0 = same day (next sweep). */
   delayDays: number;
   /** Reminder emails after the first. 0–2. */
@@ -26,12 +45,18 @@ export interface RequestSettings {
 }
 
 export const DEFAULT_REQUEST_SETTINGS: RequestSettings = {
+  enabled: true,
+  requireMarketingConsent: false,
   delayDays: 14,
   reminders: 1,
   reminderGapDays: 7,
 };
 
-const LIMITS: Record<keyof RequestSettings, [number, number]> = {
+type NumericField = 'delayDays' | 'reminders' | 'reminderGapDays';
+type BooleanField = 'enabled' | 'requireMarketingConsent';
+const BOOLEAN_FIELDS = new Set<string>(['enabled', 'requireMarketingConsent']);
+
+const LIMITS: Record<NumericField, [number, number]> = {
   delayDays: [0, 60],
   reminders: [0, 2],
   // Minimum of one day, deliberately. A reminder arriving the same hour as the invitation
@@ -48,7 +73,14 @@ export const REQUEST_SETTING_KEYS = new Set(
   Object.keys(DEFAULT_REQUEST_SETTINGS).map((k) => `${PREFIX}${k}`)
 );
 
-function clamp(field: keyof RequestSettings, raw: string): number | null {
+function parseBool(raw: string): boolean | null {
+  const v = raw.trim().toLowerCase();
+  if (v === '1' || v === 'true') return true;
+  if (v === '0' || v === 'false') return false;
+  return null;
+}
+
+function clamp(field: NumericField, raw: string): number | null {
   const n = Number(raw);
   if (!Number.isFinite(n)) return null;
   const [lo, hi] = LIMITS[field];
@@ -63,17 +95,22 @@ export async function getRequestSettings(storeId: string): Promise<RequestSettin
 
   const out: RequestSettings = { ...DEFAULT_REQUEST_SETTINGS };
   for (const row of rows) {
-    const field = row.key.slice(PREFIX.length) as keyof RequestSettings;
+    const field = row.key.slice(PREFIX.length);
     if (!(field in out)) continue;
-    const v = clamp(field, row.value);
-    if (v !== null) out[field] = v;
+    if (BOOLEAN_FIELDS.has(field)) {
+      const b = parseBool(row.value);
+      if (b !== null) out[field as BooleanField] = b;
+    } else {
+      const v = clamp(field as NumericField, row.value);
+      if (v !== null) out[field as NumericField] = v;
+    }
   }
   return out;
 }
 
 /** A value that was stored, but not the one that was asked for. */
 export interface AdjustedSetting {
-  field: keyof RequestSettings;
+  field: NumericField;
   requested: number;
   applied: number;
   min: number;
@@ -93,7 +130,21 @@ export async function saveRequestSettings(
       rejected.push(key);
       continue;
     }
-    const field = key.slice(PREFIX.length) as keyof RequestSettings;
+    const fieldName = key.slice(PREFIX.length);
+
+    if (BOOLEAN_FIELDS.has(fieldName)) {
+      const b = parseBool(String(rawValue));
+      if (b === null) { rejected.push(key); continue; }
+      await db.storeSetting.upsert({
+        where: { storeId_key: { storeId, key } },
+        create: { storeId, key, value: b ? '1' : '0' },
+        update: { value: b ? '1' : '0' },
+      });
+      saved++;
+      continue;
+    }
+
+    const field = fieldName as NumericField;
     const v = clamp(field, String(rawValue));
     if (v === null) {
       rejected.push(key);

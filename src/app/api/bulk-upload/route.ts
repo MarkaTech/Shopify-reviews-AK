@@ -177,10 +177,13 @@ export async function POST(request: NextRequest) {
     // hash of the content that identifies the review: who wrote it, what they said, and
     // when. Re-uploading the same file now writes nothing; editing a row's text makes it a
     // genuinely new review, which is the correct reading.
-    const rowKey = (r: { reviewerName: string; rating: number; body: string; reviewDate: Date }) =>
+    // The date enters the key only when the FILE supplied it. When it is the import-time
+    // fallback (no date column, or an unparseable format), every upload gets a new timestamp
+    // and the "idempotent" re-upload duplicated everything.
+    const rowKey = (r: { reviewerName: string; rating: number; body: string; reviewDate: Date; reviewDateFromFile: boolean }) =>
       crypto
         .createHash('sha256')
-        .update(`${r.reviewerName}|${r.rating}|${r.body}|${r.reviewDate.toISOString()}`)
+        .update(`${r.reviewerName}|${r.rating}|${r.body}|${r.reviewDateFromFile ? r.reviewDate.toISOString() : ''}`)
         .digest('hex')
         .slice(0, 32);
 

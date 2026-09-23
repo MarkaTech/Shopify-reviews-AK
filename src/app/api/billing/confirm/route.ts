@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
-import { resolveActivePlan } from '@/lib/shopify';
+import { resolveActiveSubscription } from '@/lib/shopify';
 import { db } from '@/lib/db';
 
 /**
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   try {
     const { shop, accessToken, storeId, onUnauthorized } = await withAuth(request);
 
-    const plan = await resolveActivePlan(shop, accessToken, onUnauthorized);
+    const { plan, test } = await resolveActiveSubscription(shop, accessToken, onUnauthorized);
 
     await db.store.update({
       where: { id: storeId },
@@ -34,7 +34,8 @@ export async function GET(request: NextRequest) {
 
     // The trial is consumed here, on entitlement, not when the charge was created. A
     // merchant who opened the approval screen and closed it keeps their trial.
-    if (plan !== 'free') {
+    // A test subscription (development store, or the billing test flag) is not a trial.
+    if (plan !== 'free' && !test) {
       const { markTrialConsumed } = await import('@/lib/trial');
       await markTrialConsumed(storeId);
     }

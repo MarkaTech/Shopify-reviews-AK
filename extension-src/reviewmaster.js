@@ -338,6 +338,28 @@
     this.applyLayout();
     this.applyText();
     this.applyBranding(data.config.branding);
+    this.applyOffer(data.offer);
+  };
+
+  /**
+   * The merchant's review incentive, announced where the shopper decides whether to write.
+   *
+   * Rendered from the payload's `offer`, which the server only sends for a store whose plan
+   * includes incentives and which has one active — so a downgraded store cannot advertise a
+   * reward it will not pay. The disclosure travels with it; FTC 16 CFR 465 requires the
+   * offer be disclosed where it is made, not just on the review it produces.
+   */
+  Widget.prototype.applyOffer = function (offer) {
+    var existing = this.root.querySelector('.rm-offer');
+    if (existing) existing.remove();
+    if (!offer || !offer.offer) return;
+    var box = el('div', 'rm-offer');
+    box.setAttribute('role', 'note');
+    box.appendChild(el('p', 'rm-offer__text', offer.offer));
+    if (offer.disclosure) box.appendChild(el('p', 'rm-offer__disclosure', offer.disclosure));
+    var summary = this.root.querySelector('.rm-summary');
+    if (summary && summary.parentNode) summary.parentNode.insertBefore(box, summary.nextSibling);
+    else this.root.insertBefore(box, this.root.firstChild);
   };
 
   /**
@@ -367,7 +389,7 @@
 
     var wrap = el('div', 'rm-branding');
     var link = el('a', 'rm-branding__link', 'Reviews by ReviewMaster');
-    link.href = 'https://apps.shopify.com/reviewmaster-reviews';
+    link.href = 'https://apps.shopify.com/reviewmaster';
     link.target = '_blank';
     link.rel = 'noopener nofollow';
     wrap.appendChild(link);

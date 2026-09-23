@@ -205,7 +205,7 @@ async function fetchPage(host: string, productId: string, page: number): Promise
         // A truthful UA with a contact URL is the convention for server-side fetching. If
         // AliExpress blocks it, that is their answer about whether this access is welcome —
         // and it is better to have that answer than to route around it.
-        'User-Agent': 'ReviewMaster/1.0 (+https://apps.shopify.com/reviewmaster-reviews)',
+        'User-Agent': 'ReviewMaster/1.0 (+https://apps.shopify.com/reviewmaster)',
         Accept: 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
       },

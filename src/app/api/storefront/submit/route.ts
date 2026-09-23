@@ -405,6 +405,8 @@ export async function POST(request: NextRequest) {
               images: images.length ? JSON.stringify(images) : null,
               videoUrl: video,
               pendingMedia: pending.length ? JSON.stringify(pending) : null,
+              // Kept so the files can be deleted later — on review delete or erasure.
+              mediaGids: JSON.stringify(uploaded.map((m) => m.gid)),
             },
           });
         } catch (err) {

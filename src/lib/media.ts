@@ -388,3 +388,49 @@ function sanitiseFilename(name: string, kind: 'image' | 'video'): string {
     .replace(/^-|-$/g, '');
   return `review-${base || 'media'}-${Date.now()}.${safeExt}`;
 }
+
+
+const FILE_DELETE = `
+  mutation DeleteReviewMedia($fileIds: [ID!]!) {
+    fileDelete(fileIds: $fileIds) { deletedFileIds userErrors { field message } }
+  }
+`;
+
+/**
+ * Remove uploaded media from the merchant's Shopify Files.
+ *
+ * Files land on the merchant's public CDN at upload time — BEFORE moderation, so a rejected
+ * review's photo, or an erased customer's face, stayed at a public cdn.shopify.com URL
+ * indefinitely. Nothing called fileDelete anywhere. Best-effort and never throws: the row
+ * is what erasure and deletion are about, and a CDN object that outlives it by one retry is
+ * a lesser failure than a delete that refuses to complete.
+ */
+export async function deleteShopifyFiles(
+  shop: string,
+  accessToken: string,
+  gids: string[],
+  onUnauthorized?: () => Promise<string | null>
+): Promise<number> {
+  const ids = gids.filter((g) => typeof g === 'string' && g.startsWith('gid://shopify/'));
+  if (!ids.length) return 0;
+  try {
+    const { callShopifyGraphQL } = await import('./shopify');
+    const res = await callShopifyGraphQL<{
+      fileDelete: { deletedFileIds: string[]; userErrors: Array<{ message: string }> };
+    }>(shop, accessToken, FILE_DELETE, { fileIds: ids }, onUnauthorized);
+    if (res.fileDelete.userErrors?.length) {
+      console.warn('[media] fileDelete userErrors:', res.fileDelete.userErrors.map((e) => e.message).join('; '));
+    }
+    return res.fileDelete.deletedFileIds?.length ?? 0;
+  } catch (err) {
+    console.error('[media] fileDelete failed:', err);
+    return 0;
+  }
+}
+
+/** Parse the stored GID list; tolerant of the column being null or malformed. */
+export function parseMediaGids(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; }
+  catch { return []; }
+}

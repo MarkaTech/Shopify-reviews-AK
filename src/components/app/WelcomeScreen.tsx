@@ -80,7 +80,12 @@ const FEATURES = [
  * iframe. Hence the reload affordance — a merchant who lands here mid-session is one
  * click from where they were, rather than being asked to re-install.
  */
-const APP_STORE_LISTING = 'https://apps.shopify.com/reviewmaster-reviews';
+// The LISTING slug, which is not the app handle. shopify.app.toml's `handle` is
+// "reviewmaster-reviews" and is what the admin URL uses (/apps/reviewmaster-reviews); the
+// public App Store page is at /reviewmaster. They were once "corrected" to match each
+// other, which turned this link into a 404 on the welcome screen and in the widget footer.
+// Verified live: /reviewmaster -> 200, /reviewmaster-reviews -> 404.
+const APP_STORE_LISTING = 'https://apps.shopify.com/reviewmaster';
 
 export default function WelcomeScreen({ error }: { error?: string }) {
   return (

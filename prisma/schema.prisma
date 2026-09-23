@@ -109,6 +109,11 @@ model Review {
   body            String
   images          String?  // JSON array of image URLs
   videoUrl        String?
+  // JSON array of Shopify File GIDs behind `images`/`videoUrl`, so the files can be DELETED.
+  // URLs alone cannot be: fileDelete takes GIDs, and a photo uploaded before moderation
+  // otherwise stays on the merchant's public CDN after the review is rejected or the
+  // customer is erased.
+  mediaGids       String?
 
   // Review metadata
   source          String   @default("direct") // direct, amazon, ebay, etsy, alibaba, shopify
@@ -610,4 +615,18 @@ model EmailSuppression {
 
   @@index([reason])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One free trial per SHOP, surviving shop/redact.
+//
+// The trial marker used to live only in StoreSetting, which shop/redact deletes along with
+// the Store row (as it must — it is the shop's data). The managed-install bootstrap then
+// created a brand-new Store, and the marker was gone: uninstall, wait 48 hours, reinstall,
+// get another 30 days. Repeatable forever. A shop domain is not customer personal data,
+// so this one fact can outlive the erasure without being part of what erasure is for.
+// ─────────────────────────────────────────────────────────────────────────────
+model TrialLedger {
+  shopifyDomain String   @id
+  usedAt        DateTime
 }

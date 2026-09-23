@@ -36,6 +36,20 @@ const RESERVED_PREFIXES = [
   // makes that check permanently true and freezes reconciliation, which is the only
   // mechanism that corrects a stale paid tier when a subscription webhook is missed.
   'plan.',
+  // Operator-owned. `admin.note` is free-text the operator writes ABOUT the merchant and
+  // `admin.sendingPaused` is the operator's only kill-switch for a store damaging the
+  // shared sending domain. Without this entry a merchant could read the note and PUT
+  // sendingPaused="0" from their own session — the pause's own target could lift it, and
+  // nothing logged it.
+  'admin.',
+  // One-trial-per-store marker (src/lib/trial.ts). Deleting it re-arms the trial.
+  'billing.',
+  // Shop-app syndication gate. Flipping it on makes every review PUT call a metaobject
+  // API this app has no scope for; the flag is meant to be unreachable until the
+  // programme approval lands.
+  'syndication',
+  // Merchant notification preferences have their own validated endpoint.
+  'notify.',
 ];
 
 function isReserved(key: string): boolean {

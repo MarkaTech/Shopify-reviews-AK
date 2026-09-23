@@ -326,3 +326,41 @@ Awaiting approval: ${stats.pending}
     return { sent: false, reason: 'failed', detail: String(error) };
   }
 }
+
+
+/**
+ * A shopper asked a question. Gated by the same "every new review" switch: a merchant who
+ * wants to hear about each review wants to hear about each question at least as much — a
+ * question is a purchase waiting on an answer, and until this existed nothing told the
+ * merchant one had arrived. The Questions screen is the only place it showed, unprompted.
+ */
+export async function notifyNewQuestion(
+  storeId: string,
+  q: { askerName: string; body: string; productTitle?: string | null }
+): Promise<SendResult | { sent: false; reason: 'disabled' | 'no_recipient' }> {
+  try {
+    const settings = await getNotificationSettings(storeId);
+    if (!settings.newReview) return { sent: false, reason: 'disabled' };
+    if (!emailProvider()) return { sent: false, reason: 'not_configured' };
+    const to = await recipientFor(storeId, settings);
+    if (!to) return { sent: false, reason: 'no_recipient' };
+
+    const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true, shopifyDomain: true } });
+    const subject = 'A shopper asked a question';
+    const productLine = q.productTitle
+      ? `<p style="margin:0 0 4px;font-size:13px;color:#6b7280">about <strong>${esc(q.productTitle)}</strong></p>`
+      : '';
+    const inner = `
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:16px">
+      <p style="margin:0 0 10px;font-size:14px;line-height:1.55;white-space:pre-wrap">${esc(q.body.slice(0, 1200))}</p>
+      <p style="margin:0 0 2px;font-size:13px;color:#374151">— ${esc(q.askerName)}</p>
+      ${productLine}
+    </div>
+    <p style="margin:18px 0 0;font-size:13px;color:#374151">Answer it from the Questions screen in ReviewMaster. Your answer is published on the product page for every future shopper, and the person who asked is emailed if they left an address.</p>`;
+    const text = [subject, '', q.body.slice(0, 1200), `— ${q.askerName}`, q.productTitle ? `about ${q.productTitle}` : '', '', 'Answer it from the Questions screen in ReviewMaster.'].filter(Boolean).join('\n');
+    return await sendEmail({ to, subject, html: shell(subject, inner, `ReviewMaster · ${esc(store?.name || store?.shopifyDomain || '')}`), text });
+  } catch (error) {
+    console.error('[notifications] notifyNewQuestion failed:', error);
+    return { sent: false, reason: 'failed', detail: String(error) };
+  }
+}

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 
@@ -37,16 +37,51 @@ export async function PUT(
         ? null
         : await db.store.findUnique({ where: { id: storeId }, select: { name: true } });
 
+      const answerBody = body.answer.trim().slice(0, 5000);
+      const answeredBy = explicit || store?.name?.trim() || 'Store';
       await db.answer.create({
         data: {
           questionId: id,
-          authorName: explicit || store?.name?.trim() || 'Store',
+          authorName: answeredBy,
           authorType: 'merchant',
-          body: body.answer.trim().slice(0, 5000),
+          body: answerBody,
           isPublished: true,
         },
       });
       data.isPublished = true;
+
+      // Fulfil what the form promised: "used only to let you know when the shop answers".
+      // Once — the FIRST answer notifies; notifiedAt stops a second answer mailing again.
+      const asked = await db.question.findUnique({
+        where: { id },
+        select: { askerName: true, askerEmail: true, body: true, notifiedAt: true, product: { select: { title: true, handle: true } } },
+      });
+      if (asked?.askerEmail && !asked.notifiedAt) {
+        const askerEmail = asked.askerEmail;
+        const shopDomain = (await db.store.findUnique({ where: { id: storeId }, select: { shopifyDomain: true, name: true } }));
+        data.notifiedAt = new Date();
+        after(async () => {
+          try {
+            const { renderAnswerEmail, sendEmail } = await import('@/lib/email');
+            const { unsubscribeToken } = await import('@/app/api/unsubscribe/route');
+            const appUrl = process.env.SHOPIFY_APP_URL || '';
+            const msg = renderAnswerEmail({
+              storeName: shopDomain?.name || shopDomain?.shopifyDomain || 'The store',
+              askerName: asked.askerName,
+              question: asked.body,
+              answer: answerBody,
+              answeredBy,
+              productTitle: asked.product?.title ?? null,
+              productUrl: asked.product?.handle && shopDomain?.shopifyDomain ? `https://${shopDomain.shopifyDomain}/products/${asked.product.handle}` : null,
+              unsubscribeUrl: appUrl ? `${appUrl}/api/unsubscribe?t=${encodeURIComponent(unsubscribeToken(askerEmail))}` : undefined,
+            });
+            const r = await sendEmail({ ...msg, to: askerEmail });
+            if (!r.sent) console.warn('[questions] answer notification not sent:', r.reason);
+          } catch (err) {
+            console.error('[questions] answer notification failed:', err);
+          }
+        });
+      }
     }
 
     const updated = await db.question.update({

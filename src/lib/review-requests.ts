@@ -26,6 +26,12 @@ export interface RequestLineItem {
 export interface OrderPayload {
   id: number | string;
   order_number?: number | string;
+  /** Checkout marketing opt-in. Honoured when the merchant asks for it. */
+  buyer_accepts_marketing?: boolean | null;
+  /** Set once an order is cancelled; a cancelled order is not asked for a review. */
+  cancelled_at?: string | null;
+  /** Shopify test orders never reach a real customer. */
+  test?: boolean | null;
   email?: string | null;
   contact_email?: string | null;
   customer?: { first_name?: string | null; last_name?: string | null; email?: string | null } | null;
@@ -139,10 +145,25 @@ export async function createRequestForOrder(
   storeId: string,
   orderPayload: OrderPayload,
   delayDays = 0,
-  shop?: string
+  shop?: string,
+  opts: { requireMarketingConsent?: boolean } = {}
 ): Promise<{ token: string; email: string; lineItems: RequestLineItem[] } | null> {
   let order = orderPayload;
   let email = emailFrom(order);
+
+  // Orders that must never produce an invitation, decided before any address is touched.
+  if (order.test) {
+    console.log(`[review-request] order ${order.id}: test order — nothing to send`);
+    return null;
+  }
+  if (order.cancelled_at) {
+    console.log(`[review-request] order ${order.id}: cancelled — nothing to send`);
+    return null;
+  }
+  if (opts.requireMarketingConsent && order.buyer_accepts_marketing === false) {
+    console.log(`[review-request] order ${order.id}: customer declined marketing and the store requires consent — nothing to send`);
+    return null;
+  }
 
   // Thin payload — see fetchOrderFromAdmin. Only reached when the webhook carried no
   // usable address, so the ordinary path costs nothing.

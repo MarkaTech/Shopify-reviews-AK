@@ -273,8 +273,12 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     const { getRequestSettings } = await import('@/lib/request-settings');
 
     const settings = await getRequestSettings(storeId);
+    if (!settings.enabled) return; // the merchant turned review requests off
+
     // `shop` is passed so a redacted payload can be recovered from the Admin API.
-    const created = await createRequestForOrder(storeId, data as never, settings.delayDays, shop);
+    const created = await createRequestForOrder(storeId, data as never, settings.delayDays, shop, {
+      requireMarketingConsent: settings.requireMarketingConsent,
+    });
     if (!created) return; // no email, no tracked products, or already requested
 
     // Masked. This line put a raw buyer address into stdout on the normal path — outside
@@ -283,6 +287,15 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     console.log(
       `[review-request] scheduled for ${maskEmail(created.email)} in ${settings.delayDays} day(s)`
     );
+  },
+
+  'orders-cancelled': async (data, storeId) => {
+    const order = data as { id: number | string };
+    const r = await db.reviewRequest.updateMany({
+      where: { storeId, shopifyOrderId: String(order.id), submittedAt: null, nextSendAt: { not: null } },
+      data: { nextSendAt: null },
+    });
+    if (r.count) console.log(`[review-request] order ${order.id} cancelled — invitation withdrawn`);
   },
 
   'orders-paid': async (data, storeId) => {
@@ -343,7 +356,7 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     const payload = data as { app_subscription?: { name?: string; status?: string } };
     const reported = payload.app_subscription?.status ?? 'unknown';
 
-    const { resolveActivePlan } = await import('@/lib/shopify');
+    const { resolveActiveSubscription } = await import('@/lib/shopify');
     const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
 
     try {
@@ -352,13 +365,13 @@ const webhookHandlers: Record<string, WebhookHandler> = {
       // hours after the last page load is precisely the case a non-refreshing
       // implementation gets wrong.
       const token = await getFreshAccessTokenByStoreId(storeId);
-      const plan = await resolveActivePlan(shop, token, tokenRefresherFor(storeId));
+      const { plan, test } = await resolveActiveSubscription(shop, token, tokenRefresherFor(storeId));
 
       await db.store.update({ where: { id: storeId }, data: { plan } });
 
       // Entitlement reached: this store has now had its trial. Idempotent, so the hourly
       // reconcile calling through here again does not move the recorded date.
-      if (plan !== 'free') {
+      if (plan !== 'free' && !test) {
         const { markTrialConsumed } = await import('@/lib/trial');
         await markTrialConsumed(storeId);
       }

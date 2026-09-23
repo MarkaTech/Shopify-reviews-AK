@@ -148,7 +148,34 @@ export async function withAuth(request: Request): Promise<AuthContext> {
 
     await noteAuthMechanism(store.id, 'session_token');
 
-    const sessionAccessToken = await freshTokenOrReauth(store);
+    // A dead grant recovers here, not at reinstall.
+    //
+    // The bootstrap above only fires when `accessToken` is null, and nothing ever nulls it
+    // except the uninstall webhook. So a store whose refresh token passed its 90-day life,
+    // or whose refresh was refused, kept a non-null token, skipped the exchange, and threw
+    // 401 on every request forever — "silently and permanently until the merchant
+    // reinstalls", as the operator overview put it. But the verified session token in
+    // hand is exactly the credential Shopify's managed-install exchange consumes, so the
+    // fix is to run that exchange when freshness fails, rather than give up.
+    let sessionAccessToken: string;
+    try {
+      sessionAccessToken = await freshTokenOrReauth(store);
+    } catch (error) {
+      if (!(error instanceof UnauthorizedError)) throw error;
+      try {
+        const reprovisioned = await bootstrapFromSessionToken(verified.shop, bearer);
+        const fresh = await db.store.findUnique({
+          where: { id: reprovisioned.id },
+          select: { ...TOKEN_SELECT, isActive: true },
+        });
+        if (!fresh) throw error;
+        sessionAccessToken = await freshTokenOrReauth(fresh);
+        console.info('[auth] recovered an expired grant via token exchange for', verified.shop);
+      } catch (retry) {
+        console.error('[auth] token exchange after expired grant failed for', verified.shop, retry);
+        throw error;
+      }
+    }
     // Self-healing: if webhook registration never succeeded for this store, try again now.
     // Fire and forget — a repair must never be able to fail a request.
     ensureWebhooks(store.id, verified.shop, sessionAccessToken);

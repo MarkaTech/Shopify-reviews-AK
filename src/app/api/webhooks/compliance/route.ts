@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookHmac } from '@/lib/shopify';
 import { handleComplianceTopic, ShopMismatchError } from '@/lib/compliance';
+import { recordJobRun } from '@/lib/job-run';
 
 /**
  * Single endpoint for Shopify's three mandatory compliance webhooks.
@@ -39,7 +40,10 @@ export async function POST(request: NextRequest) {
     const shop = request.headers.get('x-shopify-shop-domain') || '';
     const data = JSON.parse(rawBody);
 
-    const handled = await handleComplianceTopic(topic, data, shop);
+    // Recorded as a JobRun receipt, as the path-based route already did. shopify.app.toml
+    // points Shopify at THIS route, so the receipts were only ever written for a route
+    // Shopify does not call.
+    const handled = await recordJobRun(`webhook:${topic}`, () => handleComplianceTopic(topic, data, shop), { shop });
     if (!handled) {
       console.warn(`[GDPR] unrecognised compliance topic: ${topic}`);
     }

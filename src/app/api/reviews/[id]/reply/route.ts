@@ -9,7 +9,11 @@ export async function POST(
   try {
     const { storeId } = await withAuth(request);
     const { id } = await params;
-    const { reply } = await request.json();
+    const body = (await request.json()) as { reply?: unknown };
+    // Typed and capped. `reply` was accepted as anything truthy: an object became a Prisma
+    // 500, and an unbounded string was stored and shipped to every shopper in the
+    // storefront payload. 5000 matches the answer cap on the Q&A route.
+    const reply = typeof body.reply === 'string' ? body.reply.trim().slice(0, 5000) : '';
     if (!reply) return NextResponse.json({ error: 'Reply text is required' }, { status: 400 });
 
     const review = await db.review.findFirst({ where: { id, storeId } });
