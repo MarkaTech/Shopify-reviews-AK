@@ -24,7 +24,7 @@ import { MarkaLockup, Stars } from '@/components/app/ui-kit';
 interface Overview {
   business: {
     mrr: number; arpu: number; revenueByPlan: Record<string, number>;
-    paidCount: number; paidShare: number; installs30: number; installsPrev30: number;
+    paidCount: number; paidShare: number; complimentaryCount?: number; installs30: number; installsPrev30: number;
     uninstalled30: number; netChange30: number; churnRate30: number;
   };
   stores: { total: number; active: number; byPlan: Record<string, number> };
@@ -50,6 +50,8 @@ interface StoreRow {
   productCount: number; needsReauth: boolean; activation: 'active' | 'synced' | 'cold';
   tokenExpiringSoon: boolean; failedImports30: number; stuckImports: number;
   unansweredQuestions: number;
+  /** A paid plan given at no charge, if any. */
+  complimentary?: string | null;
 }
 
 interface StoreDetail {
@@ -65,6 +67,7 @@ interface StoreDetail {
   recentImportFailures: Array<{ id: string; source: string; createdAt: string; kind: 'listing' | 'platform'; error: string }>;
   sendingPaused: boolean;
   note: string;
+  complimentary: { plan: string; grantedAt: string } | null;
   links: { shopifyAdmin: string; appInAdmin: string; storefront: string } | null;
   integrations: {
     webhooksRegisteredAt: string | null; planReconciledAt: string | null; authLastVia: string | null;
@@ -307,6 +310,17 @@ const PLAN_CHIP: Record<string, string> = {
   scale: 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300',
 };
 
+const PLAN_NAME: Record<string, string> = { free: 'Free', growth: 'Growth', scale: 'Scale' };
+
+/** A plan given at no charge from this portal. */
+function CompChip() {
+  return (
+    <span className="inline-flex rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+      Complimentary
+    </span>
+  );
+}
+
 function PlanChip({ plan }: { plan: string }) {
   return (
     <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${PLAN_CHIP[plan] ?? PLAN_CHIP.free}`}>
@@ -402,6 +416,7 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
   const [opBusy, setOpBusy] = useState('');
   const [opNote, setOpNote] = useState('');
   const [planDraft, setPlanDraft] = useState('');
+  const [compDraft, setCompDraft] = useState('scale');
   const [quotaDraft, setQuotaDraft] = useState('100');
   const [noteDraft, setNoteDraft] = useState('');
 
@@ -454,6 +469,7 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <PlanChip plan={detail.store.plan} />
+                  {detail.complimentary && <CompChip />}
                   {!detail.store.isActive && (
                     <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-700 dark:bg-red-500/10 dark:text-red-300">Uninstalled</span>
                   )}
@@ -570,6 +586,48 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                 <OpButton busy={opBusy} action="reconcile-billing" icon={RefreshCw}
                   onClick={() => op('reconcile-billing')}>Reconcile with Shopify billing</OpButton>
               </div>
+
+              {/* A paid plan at no charge. Nothing is created in Shopify, the merchant has
+                  nothing to approve, and the hourly billing check cannot undo it. */}
+              <p className="mt-4 text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Complimentary plan</p>
+              {detail.complimentary ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-[12px] text-ink-600 dark:text-ink-300">
+                    {PLAN_NAME[detail.complimentary.plan] ?? detail.complimentary.plan} free since{' '}
+                    {fmtDate(detail.complimentary.grantedAt)}. No charge and no end date.
+                  </span>
+                  <OpButton busy={opBusy} action="end-complimentary" icon={X}
+                    onClick={() => {
+                      if (window.confirm(`End the free ${PLAN_NAME[detail.complimentary!.plan] ?? ''} plan for ${detail.store.name}? They go back to the plan they pay for.`)) {
+                        op('end-complimentary');
+                      }
+                    }}>End free plan</OpButton>
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <select
+                    value={compDraft}
+                    onChange={(e) => setCompDraft(e.target.value)}
+                    aria-label="Plan to give free"
+                    className="ring-focus h-9 rounded-xl border border-border bg-transparent px-2 text-[12.5px] text-ink-800 dark:text-ink-100"
+                  >
+                    <option value="scale">Scale</option>
+                    <option value="growth">Growth</option>
+                  </select>
+                  <OpButton busy={opBusy} action="grant-complimentary" icon={Gift} primary
+                    onClick={() => {
+                      // Giving it free cancels what they pay Shopify for now, if that is this
+                      // plan or a lower one: a money decision, so it is asked about.
+                      const rank: Record<string, number> = { free: 0, growth: 1, scale: 2 };
+                      const paying = detail.store.plan !== 'free' && (rank[detail.store.plan] ?? 0) <= (rank[compDraft] ?? 0);
+                      if (paying && !window.confirm(
+                        `${detail.store.name} is on ${PLAN_NAME[detail.store.plan] ?? detail.store.plan}. Giving ${PLAN_NAME[compDraft]} free cancels their Shopify charge, so they stop paying. Go ahead?`
+                      )) return;
+                      op('grant-complimentary', { plan: compDraft });
+                    }}>Give it free</OpButton>
+                  <span className="text-[11.5px] text-ink-400">No charge and no end date. If they pay for a plan now, that charge stops.</span>
+                </div>
+              )}
 
               <p className="mt-4 text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-400">Review request emails</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1159,6 +1217,7 @@ export default function AdminPortal() {
       ['Domain', (s) => s.shopifyDomain ?? ''],
       ['Email', (s) => s.email ?? ''],
       ['Plan', (s) => s.plan],
+      ['Complimentary', (s) => s.complimentary ?? ''],
       ['MRR', (s) => s.mrr],
       ['Reviews', (s) => s.reviewCount],
       ['Pending', (s) => s.pendingReviews],
@@ -1283,7 +1342,7 @@ export default function AdminPortal() {
           <Hero
             label="MRR"
             value={overview ? money(overview.business.mrr) : '…'}
-            sub={overview ? `${overview.business.paidCount} paying of ${overview.stores.active} active · ${pct(overview.business.paidShare)} paid · ${money(overview.business.arpu)} ARPU` : undefined}
+            sub={overview ? `${overview.business.paidCount} paying of ${overview.stores.active} active${overview.business.complimentaryCount ? ` · ${overview.business.complimentaryCount} complimentary` : ''} · ${pct(overview.business.paidShare)} paid · ${money(overview.business.arpu)} ARPU` : undefined}
           />
           <Hero
             label="Active merchants"
@@ -1477,7 +1536,12 @@ export default function AdminPortal() {
                           {s.productCount === 0 && <span className="ml-2 text-[10px] font-semibold uppercase text-ink-400">no products</span>}
                         </span>
                       </td>
-                      <td className="px-2 py-2.5"><PlanChip plan={s.plan} /></td>
+                      <td className="px-2 py-2.5">
+                        <span className="inline-flex flex-wrap items-center gap-1">
+                          <PlanChip plan={s.plan} />
+                          {s.complimentary && <CompChip />}
+                        </span>
+                      </td>
                       <td className="tnum px-2 py-2.5 text-right text-ink-700 dark:text-ink-200">{s.mrr > 0 ? money(s.mrr) : '—'}</td>
                       <td className="tnum px-2 py-2.5 text-right text-ink-700 dark:text-ink-200">{s.reviewCount.toLocaleString()}</td>
                       <td className={`tnum px-2 py-2.5 text-right ${s.pendingReviews > 0 ? 'font-semibold text-amber-600' : 'text-ink-400'}`}>{s.pendingReviews}</td>

@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { classifyImportFailure } from '@/lib/import-health';
 import { isAdminRequest } from '@/lib/admin-auth';
-import { getRequestUsage, normalisePlan, PLANS } from '@/lib/plans';
+import {
+  getRequestUsage, normalisePlan, PLANS, COMPLIMENTARY_KEY, COMPLIMENTARY_PLANS, parseComplimentary,
+  serialiseComplimentary, planPaidAbove, entitledPlan, type PlanId,
+} from '@/lib/plans';
 
 /**
  * One merchant in detail, and the operations an operator can perform on them.
@@ -111,6 +114,9 @@ export async function GET(
     usage,
     settings,
     note,
+    // A paid plan given at no charge, if any. Shown as "Complimentary" in the portal and
+    // left out of revenue.
+    complimentary: parseComplimentary(get(COMPLIMENTARY_KEY)),
     integrations,
     links: handle
       ? {
@@ -146,7 +152,8 @@ export async function GET(
 }
 
 /**
- * Operations. Body: { action: 'set-plan' | 'pause-sending' | 'resume-sending' | 'reconcile-billing', plan? }
+ * Operations. Body: { action: 'set-plan' | 'grant-complimentary' | 'end-complimentary' |
+ * 'pause-sending' | 'resume-sending' | 'reconcile-billing' | ..., plan? }
  */
 export async function PATCH(
   request: NextRequest,
@@ -156,7 +163,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const { id } = await params;
-  const store = await db.store.findUnique({ where: { id }, select: { id: true, shopifyDomain: true, plan: true } });
+  const store = await db.store.findUnique({ where: { id }, select: { id: true, shopifyDomain: true, plan: true, isActive: true } });
   if (!store) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   let body: {
@@ -182,8 +189,91 @@ export async function PATCH(
       return NextResponse.json({
         ok: true,
         plan,
-        note: 'Hourly billing reconciliation with Shopify may revert this unless a matching subscription exists.',
+        note: 'The hourly billing check with Shopify may undo this unless a matching subscription exists. To give a plan for free, use Complimentary plan instead.',
       });
+    }
+    case 'grant-complimentary': {
+      // A paid plan at no charge, with no end date. Nothing is created in Shopify and the
+      // merchant has nothing to approve. The billing paths all go through entitledPlan(),
+      // so the hourly reconcile cannot undo this.
+      if (!body.plan || !(COMPLIMENTARY_PLANS as string[]).includes(body.plan)) {
+        return NextResponse.json({ error: 'Choose Growth or Scale' }, { status: 400 });
+      }
+      const plan = body.plan as PlanId;
+
+      // Free means they stop paying. A store already paying Shopify for this plan or a
+      // lower one has that subscription cancelled; one paying for MORE than the gift keeps
+      // it, and keeps what it pays for. Cancel first and write after, as the merchant's own
+      // downgrade does: if Shopify cannot be reached, nothing changes, rather than "free"
+      // here while Shopify keeps billing. An uninstalled store has no subscription left.
+      let cancelled = 0;
+      let paysForMore: PlanId | null = null;
+      if (store.isActive && store.shopifyDomain) {
+        try {
+          const { fetchActiveSubscriptions, cancelActiveSubscriptions, planFromSubscriptionName } = await import('@/lib/shopify');
+          const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
+          const token = await getFreshAccessTokenByStoreId(id);
+          const refresh = tokenRefresherFor(id);
+          const subs = await fetchActiveSubscriptions(store.shopifyDomain, token, refresh);
+          paysForMore = planPaidAbove(subs.map((s) => planFromSubscriptionName(s.name)), plan);
+          if (subs.length > 0 && !paysForMore) {
+            cancelled = await cancelActiveSubscriptions(store.shopifyDomain, token, refresh);
+          }
+        } catch (error) {
+          console.error(`[admin] could not check or cancel the Shopify charge for ${store.shopifyDomain}`, error);
+          return NextResponse.json(
+            { error: 'Shopify could not be reached to stop this store\'s current charge, so nothing was changed. Try again in a minute.' },
+            { status: 502 }
+          );
+        }
+      }
+
+      const value = serialiseComplimentary(plan);
+      await db.storeSetting.upsert({
+        where: { storeId_key: { storeId: id, key: COMPLIMENTARY_KEY } },
+        create: { storeId: id, key: COMPLIMENTARY_KEY, value },
+        update: { value },
+      });
+      // The given plan straight away, or the higher plan they pay Shopify for.
+      const next = paysForMore ?? plan;
+      await db.store.update({ where: { id }, data: { plan: next } });
+      console.warn(
+        `[admin] complimentary '${plan}' given to ${store.shopifyDomain} (plan now '${next}', ${cancelled} Shopify subscription(s) cancelled) by operator`
+      );
+      return NextResponse.json({
+        ok: true,
+        plan: next,
+        cancelled,
+        note:
+          `${PLANS[plan].label} is now free for this store, with no end date.` +
+          (cancelled > 0 ? ' Their Shopify charge was cancelled, so they stop paying.' : '') +
+          (paysForMore ? ` They pay Shopify for ${PLANS[paysForMore].label}, which is above it, so that charge stays.` : ''),
+      });
+    }
+    case 'end-complimentary': {
+      // Written empty rather than deleted: the portal does not delete. Then back to what
+      // the store actually pays for, asked of Shopify now rather than at the next check.
+      await db.storeSetting.upsert({
+        where: { storeId_key: { storeId: id, key: COMPLIMENTARY_KEY } },
+        create: { storeId: id, key: COMPLIMENTARY_KEY, value: '' },
+        update: { value: '' },
+      });
+      console.warn(`[admin] complimentary plan ended for ${store.shopifyDomain} by operator`);
+      try {
+        const { resolveActivePlan } = await import('@/lib/shopify');
+        const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
+        if (!store.shopifyDomain) throw new Error('Store has no domain');
+        const token = await getFreshAccessTokenByStoreId(id);
+        const plan = normalisePlan(await resolveActivePlan(store.shopifyDomain, token, tokenRefresherFor(id)));
+        await db.store.update({ where: { id }, data: { plan } });
+        return NextResponse.json({ ok: true, plan, note: `Ended. The store is back on ${PLANS[plan].label}, the plan it pays for.` });
+      } catch (error) {
+        console.error('[admin] reconcile after ending complimentary plan failed', error);
+        return NextResponse.json({
+          ok: true,
+          note: 'Ended. Shopify could not be reached just now, so the plan changes back at the next hourly billing check.',
+        });
+      }
     }
     case 'pause-sending':
     case 'resume-sending': {
@@ -204,7 +294,8 @@ export async function PATCH(
         const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');
         if (!store.shopifyDomain) return NextResponse.json({ error: 'Store has no domain' }, { status: 400 });
         const token = await getFreshAccessTokenByStoreId(id);
-        const plan = await resolveActivePlan(store.shopifyDomain, token, tokenRefresherFor(id));
+        // What Shopify bills for, never below a complimentary plan.
+        const plan = await entitledPlan(id, await resolveActivePlan(store.shopifyDomain, token, tokenRefresherFor(id)));
         await db.store.update({ where: { id }, data: { plan } });
         return NextResponse.json({ ok: true, plan });
       } catch (error) {

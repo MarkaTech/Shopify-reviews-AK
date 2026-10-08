@@ -242,6 +242,84 @@ export async function getStorePlan(storeId: string): Promise<PlanId> {
   return normalisePlan(store?.plan);
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Complimentary plans
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * A paid plan an operator gives a store at no charge, from the operator portal.
+ *
+ * Shopify stays the authority on what a store PAYS for. Every place that writes the plan
+ * from Shopify billing (the hourly reconcile, the subscription webhook, the billing
+ * routes) goes through entitledPlan(), so a store can pay its way above its complimentary
+ * plan but billing can never drop it below. Without that, the hourly reconcile would find
+ * no subscription and quietly move a complimentary store back to Free.
+ *
+ * Kept in StoreSetting, so there is no migration. An empty value means none: ending a
+ * complimentary plan writes an empty value rather than deleting the row, because the
+ * operator portal does not delete.
+ */
+export const COMPLIMENTARY_KEY = 'admin.complimentaryPlan';
+
+/** Only paid plans can be given; "complimentary Free" means nothing. */
+export const COMPLIMENTARY_PLANS: PlanId[] = ['growth', 'scale'];
+
+export interface Complimentary {
+  plan: PlanId;
+  /** ISO date the operator gave it. */
+  grantedAt: string;
+}
+
+export function parseComplimentary(value: string | null | undefined): Complimentary | null {
+  if (!value) return null;
+  try {
+    const v = JSON.parse(value) as { plan?: unknown; grantedAt?: unknown };
+    if (typeof v.plan === 'string' && (COMPLIMENTARY_PLANS as string[]).includes(v.plan)) {
+      return { plan: v.plan as PlanId, grantedAt: typeof v.grantedAt === 'string' ? v.grantedAt : '' };
+    }
+  } catch {
+    // A malformed value grants nothing.
+  }
+  return null;
+}
+
+export function serialiseComplimentary(plan: PlanId, grantedAt = new Date()): string {
+  return JSON.stringify({ plan, grantedAt: grantedAt.toISOString() });
+}
+
+export async function getComplimentary(storeId: string): Promise<Complimentary | null> {
+  const row = await db.storeSetting.findUnique({
+    where: { storeId_key: { storeId, key: COMPLIMENTARY_KEY } },
+    select: { value: true },
+  });
+  return parseComplimentary(row?.value);
+}
+
+/** The higher of two plans, in price order. */
+export function higherPlan(a: string | null | undefined, b: string | null | undefined): PlanId {
+  const pa = normalisePlan(a);
+  const pb = normalisePlan(b);
+  return PLAN_ORDER.indexOf(pa) >= PLAN_ORDER.indexOf(pb) ? pa : pb;
+}
+
+/**
+ * When a plan is given free: of the plans a store pays Shopify for, the one ABOVE the gift
+ * that it keeps paying for, if any. Null means every charge is for the gift or less, and
+ * all of them are cancelled, because free means they stop paying.
+ */
+export function planPaidAbove(paidPlans: Array<string | null | undefined>, gift: PlanId): PlanId | null {
+  return paidPlans.map((p) => normalisePlan(p)).find((p) => higherPlan(p, gift) !== gift) ?? null;
+}
+
+/**
+ * What a store is entitled to: the plan it pays Shopify for, or its complimentary plan,
+ * whichever is higher. Pass what Shopify reports; write what this returns.
+ */
+export async function entitledPlan(storeId: string, paidPlan: string | null | undefined): Promise<PlanId> {
+  const comp = await getComplimentary(storeId);
+  return comp ? higherPlan(paidPlan, comp.plan) : normalisePlan(paidPlan);
+}
+
 /** The cheapest plan that provides a given feature. */
 function cheapestPlanWith(feature: FeatureFlag): PlanId | null {
   return PLAN_ORDER.find((p) => PLANS[p][feature] === true) ?? null;
@@ -479,8 +557,10 @@ export async function assertWidgetAllowed(
 
 /** Current usage and limits, for display in the dashboard. */
 export async function getUsage(storeId: string) {
-  const plan = await getStorePlan(storeId);
+  const [plan, comp] = await Promise.all([getStorePlan(storeId), getComplimentary(storeId)]);
   const limits = PLANS[plan];
+  // Complimentary when the plan in force is the one an operator gave, not one being paid for.
+  const complimentary = comp !== null && comp.plan === plan;
 
   const [reviews, widgets, requests, pendingReviews] = await Promise.all([
     db.review.count({ where: { storeId } }),
@@ -500,7 +580,10 @@ export async function getUsage(storeId: string) {
   return {
     plan,
     planLabel: limits.label,
-    price: limits.price,
+    // A complimentary plan costs the merchant nothing; the price is what it would cost.
+    price: complimentary ? 0 : limits.price,
+    listPrice: limits.price,
+    complimentary,
     /** Awaiting moderation. Drives the badge on the Reviews tab. */
     pendingReviews,
     // The meter. Everything else here is informational.

@@ -2,7 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { resolveActivePlan } from '@/lib/shopify';
-import { normalisePlan } from '@/lib/plans';
+import { normalisePlan, entitledPlan } from '@/lib/plans';
 
 /**
  * How often to re-derive the plan from Shopify. Cheap enough to do often, expensive
@@ -47,7 +47,8 @@ async function reconcilePlan(
     const last = marker?.value ? Date.parse(marker.value) : 0;
     if (Number.isFinite(last) && Date.now() - last < RECONCILE_EVERY_MS) return;
 
-    const actual = await resolveActivePlan(shop, accessToken, onUnauthorized);
+    // What Shopify bills for, lifted to any complimentary plan an operator gave.
+    const actual = await entitledPlan(storeId, await resolveActivePlan(shop, accessToken, onUnauthorized));
 
     const now = new Date().toISOString();
     await db.storeSetting.upsert({

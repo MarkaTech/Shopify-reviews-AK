@@ -50,6 +50,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
     }
 
+    // A complimentary plan covers itself and every plan below it, so those are never
+    // charged for. Choosing one only does something when the store still pays Shopify for
+    // a plan ABOVE the gift (given Growth, paying for Scale): that charge is cancelled and
+    // the store settles on its free plan. Paying for a higher plan goes to Shopify as usual.
+    const { getComplimentary, higherPlan } = await import('@/lib/plans');
+    const comp = await getComplimentary(storeId);
+    if (comp && higherPlan(plan, comp.plan) === comp.plan) {
+      const cancelled = await cancelActiveSubscriptions(shop, accessToken, onUnauthorized);
+      if (cancelled === 0) {
+        return NextResponse.json(
+          { error: `Your store has the ${comp.plan === 'scale' ? 'Scale' : 'Growth'} plan free of charge, so there is nothing to change or pay.` },
+          { status: 409 }
+        );
+      }
+      const { db } = await import('@/lib/db');
+      await db.store.update({ where: { id: storeId }, data: { plan: comp.plan } });
+      console.log(`[billing] ${shop} back on complimentary '${comp.plan}' (${cancelled} subscription(s) cancelled)`);
+      return NextResponse.json({ success: true, plan: comp.plan, activated: true, cancelled });
+    }
+
     if (plan === 'free') {
       // Downgrade means cancelling the charge at Shopify, not writing 'free' locally.
       //

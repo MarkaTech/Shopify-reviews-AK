@@ -381,7 +381,9 @@ const webhookHandlers: Record<string, WebhookHandler> = {
       const token = await getFreshAccessTokenByStoreId(storeId);
       const { plan, test } = await resolveActiveSubscription(shop, token, tokenRefresherFor(storeId));
 
-      await db.store.update({ where: { id: storeId }, data: { plan } });
+      // Never below a complimentary plan an operator gave; above it if they pay for more.
+      const { entitledPlan } = await import('@/lib/plans');
+      await db.store.update({ where: { id: storeId }, data: { plan: await entitledPlan(storeId, plan) } });
 
       // Entitlement reached: this store has now had its trial. Idempotent, so the hourly
       // reconcile calling through here again does not move the recorded date.

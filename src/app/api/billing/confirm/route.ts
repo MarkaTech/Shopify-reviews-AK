@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth';
 import { resolveActiveSubscription } from '@/lib/shopify';
 import { db } from '@/lib/db';
+import { entitledPlan } from '@/lib/plans';
 
 /**
  * Landing point after the merchant approves (or declines) a subscription in Shopify.
@@ -27,9 +28,10 @@ export async function GET(request: NextRequest) {
 
     const { plan, test } = await resolveActiveSubscription(shop, accessToken, onUnauthorized);
 
+    // Never below a complimentary plan an operator gave this store.
     await db.store.update({
       where: { id: storeId },
-      data: { plan },
+      data: { plan: await entitledPlan(storeId, plan) },
     });
 
     // The trial is consumed here, on entitlement, not when the charge was created. A

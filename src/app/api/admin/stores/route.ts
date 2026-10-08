@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { isAdminRequest } from '@/lib/admin-auth';
-import { PLANS, normalisePlan, type PlanId } from '@/lib/plans';
+import { PLANS, normalisePlan, type PlanId, COMPLIMENTARY_KEY, parseComplimentary } from '@/lib/plans';
 
 /**
  * Every merchant, with the numbers an operator actually scans for: plan, activity,
@@ -74,13 +74,21 @@ export async function GET(request: NextRequest) {
   const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const stuckCutoff = new Date(now.getTime() - 60 * 60 * 1000);
   const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const [usageRows, productAgg, failedImportAgg, stuckImportAgg, questionAgg] = await Promise.all([
+  const [usageRows, productAgg, failedImportAgg, stuckImportAgg, questionAgg, compRows] = await Promise.all([
     db.storeSetting.findMany({ where: { storeId: { in: ids }, key: monthKey }, select: { storeId: true, value: true } }),
     db.product.groupBy({ by: ['storeId'], where: { storeId: { in: ids } }, _count: { _all: true } }),
     db.importJob.groupBy({ by: ['storeId'], where: { storeId: { in: ids }, status: 'failed', createdAt: { gte: d30 } }, _count: { _all: true } }),
     db.importJob.groupBy({ by: ['storeId'], where: { storeId: { in: ids }, status: 'processing', updatedAt: { lt: stuckCutoff } }, _count: { _all: true } }),
     db.question.groupBy({ by: ['storeId'], where: { storeId: { in: ids }, isPublished: false }, _count: { _all: true } }),
+    db.storeSetting.findMany({ where: { storeId: { in: ids }, key: COMPLIMENTARY_KEY }, select: { storeId: true, value: true } }),
   ]);
+  // Complimentary plans: shown in the table, and worth nothing in revenue.
+  const compByStore = new Map(
+    compRows.flatMap((r) => {
+      const c = parseComplimentary(r.value);
+      return c ? [[r.storeId, c.plan] as const] : [];
+    })
+  );
   const usageByStore = new Map(usageRows.map((r) => [r.storeId, Number(r.value) || 0]));
   const productsByStore = new Map(productAgg.map((r) => [r.storeId, r._count?._all ?? 0]));
   const failedByStore = new Map(failedImportAgg.map((r) => [r.storeId, r._count?._all ?? 0]));
@@ -105,9 +113,12 @@ export async function GET(request: NextRequest) {
       const used = usageByStore.get(s.id) ?? 0;
       const products = productsByStore.get(s.id) ?? 0;
       const reviewCount = countAll(reviews.get(s.id));
+      const complimentary = compByStore.get(s.id) ?? null;
       return {
       ...s,
-      mrr: PLANS[plan].price,
+      // A complimentary store pays nothing for the plan it was given.
+      mrr: complimentary && complimentary === plan ? 0 : PLANS[plan].price,
+      complimentary,
       quotaUsed: used,
       quotaCap: cap,
       quotaPct: cap == null ? null : Math.min(100, Math.round((used / cap) * 100)),

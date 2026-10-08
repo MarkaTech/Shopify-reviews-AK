@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { summariseImportFailures } from '@/lib/import-health';
 import { isAdminRequest } from '@/lib/admin-auth';
-import { PLANS, normalisePlan, type PlanId } from '@/lib/plans';
+import { PLANS, normalisePlan, type PlanId, COMPLIMENTARY_KEY, parseComplimentary } from '@/lib/plans';
 
 /**
  * Everything an operator needs on one screen, in four groups:
@@ -69,18 +69,28 @@ export async function GET(request: NextRequest) {
   ]);
 
   // ── Business ──
+  // Complimentary plans count in the plan mix but not in revenue: those stores pay nothing.
+  const compRows = await db.storeSetting.findMany({ where: { key: COMPLIMENTARY_KEY }, select: { storeId: true, value: true } });
+  const compByStore = new Map(
+    compRows.flatMap((r) => {
+      const c = parseComplimentary(r.value);
+      return c ? [[r.storeId, c.plan] as const] : [];
+    })
+  );
   const active = allStores.filter((s) => s.isActive);
+  const isComplimentary = (s: { id: string; plan: string | null }) => compByStore.get(s.id) === normalisePlan(s.plan);
   const byPlan: Record<string, number> = {};
   let mrr = 0;
   const revenueByPlan: Record<string, number> = {};
   for (const s of active) {
     const plan = normalisePlan(s.plan) as PlanId;
     byPlan[plan] = (byPlan[plan] ?? 0) + 1;
-    const price = PLANS[plan].price;
+    const price = isComplimentary(s) ? 0 : PLANS[plan].price;
     mrr += price;
     revenueByPlan[plan] = (revenueByPlan[plan] ?? 0) + price;
   }
-  const paidCount = active.filter((s) => normalisePlan(s.plan) !== 'free').length;
+  const complimentaryCount = active.filter(isComplimentary).length;
+  const paidCount = active.filter((s) => normalisePlan(s.plan) !== 'free' && !isComplimentary(s)).length;
 
   // ── Activation ──
   // An install that never collected a review is, for our purposes, a dead install. It is
@@ -145,6 +155,7 @@ export async function GET(request: NextRequest) {
       revenueByPlan,
       paidCount,
       paidShare: active.length > 0 ? paidCount / active.length : 0,
+      complimentaryCount,
       installs30,
       installsPrev30: installs30to60,
       uninstalled30,

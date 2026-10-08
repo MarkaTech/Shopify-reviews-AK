@@ -84,7 +84,10 @@ const tabTrigger = cn(
 interface Usage {
   plan: string;
   planLabel: string;
+  /** What the merchant pays: 0 on Free, and 0 on a complimentary plan. */
   price: number;
+  /** True when the plan was given free of charge by Marka. */
+  complimentary?: boolean;
   /** The meter: review request emails sent this calendar month. */
   requests: { used: number; limit: number | null; percentUsed: number; resetsAt: string };
   reviews: { used: number; limit: number | null; percentUsed: number };
@@ -394,6 +397,11 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   useEffect(load, [load]);
 
   const currentPlan = usage?.plan ?? 'free';
+  const complimentary = usage?.complimentary === true;
+  const PLAN_RANK: Record<string, number> = { free: 0, growth: 1, scale: 2 };
+  /** On a complimentary plan, the plans at or below it are already included, free. */
+  const includedFree = (planId: string) =>
+    complimentary && (PLAN_RANK[planId] ?? 0) <= (PLAN_RANK[currentPlan] ?? 0);
 
   /**
    * Entitled features that have somewhere to go, in the order a merchant meets them.
@@ -671,7 +679,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
 
     setUpgrading(planId);
     try {
-      const data = await apiFetch<{ confirmationUrl?: string; activated?: boolean }>('/api/billing', {
+      const data = await apiFetch<{ confirmationUrl?: string; activated?: boolean; plan?: string }>('/api/billing', {
         method: 'POST',
         body: JSON.stringify({ plan: planId }),
       });
@@ -687,7 +695,9 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
         return;
       }
       if (data.activated) {
-        toast.success(`Switched to the ${planId} plan.`);
+        // The plan the server settled on: choosing Free on top of a complimentary plan
+        // lands on the complimentary plan, not on Free.
+        toast.success(`Switched to the ${data.plan ?? planId} plan.`);
         setUsage(await apiFetch<Usage>('/api/usage'));
       }
     } catch (err) {
@@ -1488,9 +1498,11 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                   </h3>
                   <p className="tnum mt-1 text-[12.5px] text-ink-500">
                     {usage
-                      ? usage.price === 0
-                        ? 'No charge on this plan'
-                        : `$${usage.price.toFixed(2)}/month • billed through Shopify`
+                      ? complimentary
+                        ? 'Free of charge, from Marka. There is nothing to pay or renew.'
+                        : usage.price === 0
+                          ? 'No charge on this plan'
+                          : `$${usage.price.toFixed(2)}/month • billed through Shopify`
                       : 'Loading plan details…'}
                   </p>
                 </div>
@@ -1593,7 +1605,9 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
 
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="text-[15px] font-semibold text-ink-900 dark:text-white">{plan.name}</h3>
-                    {plan.id === currentPlan && <Pill tone="brand" icon={Check}>Current</Pill>}
+                    {plan.id === currentPlan && (
+                      <Pill tone="brand" icon={Check}>{complimentary ? 'Yours, free' : 'Current'}</Pill>
+                    )}
                   </div>
 
                   <div className="mt-2 flex items-baseline gap-1">
@@ -1623,11 +1637,13 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                     className="mt-5 w-full"
                     size="sm"
                     variant={plan.id === currentPlan ? 'soft' : plan.popular ? 'primary' : 'outline'}
-                    disabled={plan.id === currentPlan || upgrading !== null}
+                    disabled={plan.id === currentPlan || includedFree(plan.id) || upgrading !== null}
                     onClick={() => handleUpgrade(plan.id)}
                   >
                     {upgrading === plan.id && <Loader2 className="size-3.5 animate-spin" />}
-                    {plan.id === currentPlan
+                    {includedFree(plan.id)
+                      ? 'Included free'
+                      : plan.id === currentPlan
                       ? 'Current Plan'
                       : upgrading === plan.id
                         ? 'Redirecting…'
