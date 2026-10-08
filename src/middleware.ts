@@ -60,7 +60,8 @@ export function middleware(request: NextRequest) {
 }
 
 /**
- * Everything except static assets and the storefront-facing endpoints.
+ * Everything except static assets (brand/ holds the logo, badge and star images that
+ * emails load) and the storefront-facing endpoints.
  *
  * The `/api/storefront/*` routes are called cross-origin from a merchant's theme and the
  * public review form is opened directly by a buyer, so neither is framed and neither
@@ -69,6 +70,6 @@ export function middleware(request: NextRequest) {
  */
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|icon.svg|robots.txt|api/storefront|api/webhooks|api/cron|api/feeds|r/).*)',
+    '/((?!_next/static|_next/image|favicon.ico|icon.svg|brand/|fonts/|robots.txt|api/storefront|api/webhooks|api/cron|api/feeds|r/).*)',
   ],
 };

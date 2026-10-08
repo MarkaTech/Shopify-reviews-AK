@@ -11,11 +11,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Star, Search, RefreshCw, LogOut, PauseCircle, PlayCircle, X, Loader2,
+  Search, RefreshCw, LogOut, PauseCircle, PlayCircle, X, Loader2,
   ShieldCheck, Inbox, ChevronRight, ExternalLink, MailX, Eye, EyeOff, Boxes,
   Calculator, RotateCcw, Gift, StickyNote, Trash2, Send, Download, SlidersHorizontal,
   Clock, AlertTriangle, Webhook, Ban,
 } from 'lucide-react';
+import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
+import { MarkaLockup, Stars } from '@/components/app/ui-kit';
 
 /* ────────────────────────── types ────────────────────────── */
 
@@ -126,7 +128,7 @@ function Hero({ label, value, sub, delta }: {
             display-size number read loose, and a serif would read as decoration. */}
         <span className="display text-[40px] font-bold leading-none text-ink-900 dark:text-white">{value}</span>
         {delta && (
-          <span className={`text-[12.5px] font-semibold ${delta.n > 0 ? 'text-brand-600 dark:text-brand-400' : delta.n < 0 ? 'text-red-600' : 'text-ink-400'}`}>
+          <span className={`text-[12.5px] font-semibold ${delta.n > 0 ? 'text-emerald-700 dark:text-emerald-400' : delta.n < 0 ? 'text-red-600' : 'text-ink-400'}`}>
             {delta.n > 0 ? '+' : ''}{delta.n} {delta.label}
           </span>
         )}
@@ -152,7 +154,7 @@ function Attention({ items, onPick, onOpenPanel, active }: {
       <div className="flex items-center justify-between">
         <p className="text-[12px] font-semibold text-ink-700 dark:text-ink-200">Needs attention</p>
         {live.length === 0 && (
-          <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-brand-600 dark:text-brand-400">
+          <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-emerald-700 dark:text-emerald-400">
             <ShieldCheck className="size-3.5" /> All clear
           </span>
         )}
@@ -356,28 +358,36 @@ function Login({ onDone }: { onDone: () => void }) {
     else setError(res.status === 429 ? 'Too many attempts — wait fifteen minutes.' : 'Wrong password.');
   };
   return (
-    <div className="aurora flex min-h-screen items-center justify-center bg-background p-6">
-      <form onSubmit={submit} className="surface w-full max-w-sm rounded-2xl p-8">
-        <span className="tile tile-brand mx-auto mb-4 flex size-12 items-center justify-center">
-          <ShieldCheck className="size-6" />
-        </span>
-        <h1 className="text-center text-[16px] font-bold text-ink-900 dark:text-white">Operator portal</h1>
-        <p className="mt-1 text-center text-[12.5px] text-ink-400">ReviewMaster internal — not for merchants.</p>
+    <div className="marka-type aurora flex min-h-screen items-center justify-center bg-background p-6">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-[var(--elev-2)]">
+        <img src={BRAND_ASSETS.icon96} alt="" width={48} height={48} className="mx-auto mb-4 size-12 rounded-xl" />
+        <h1 className="text-center text-[22px] font-bold tracking-[-0.02em] text-ink-900 dark:text-white">Operator portal</h1>
+        <p className="mt-1 text-center text-[13px] text-ink-400">
+          <MarkaLockup size={13} /> internal. Not for merchants.
+        </p>
+        <label htmlFor="operator-password" className="mt-6 block text-[13px] font-semibold text-ink-900 dark:text-white">
+          Operator password
+        </label>
         <input
+          id="operator-password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Operator password"
           autoFocus
-          className="ring-focus mt-5 h-10 w-full rounded-xl border border-border bg-transparent px-3 text-[13px] text-ink-900 dark:text-white"
+          autoComplete="current-password"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? 'operator-password-error' : undefined}
+          className="ring-focus mt-1.5 h-11 w-full rounded-[10px] border border-[#7B8794] bg-white px-3 text-[15px] text-ink-900 dark:bg-transparent dark:text-white"
         />
-        {error && <p className="mt-2 text-[12px] font-medium text-red-600">{error}</p>}
+        {error && (
+          <p id="operator-password-error" role="alert" className="mt-2 text-[13px] font-medium text-red-600">{error}</p>
+        )}
         <button
           type="submit"
           disabled={busy || !password}
-          className="mt-4 flex h-10 w-full items-center justify-center rounded-xl bg-brand-600 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-50"
+          className="brand-fill ring-focus mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-[10px] text-[14px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : 'Sign in'}
+          {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
     </div>
@@ -624,7 +634,7 @@ function StoreDrawer({ storeId, onClose, onChanged }: { storeId: string; onClose
                   <tbody>
                     {detail.recentReviews.map((r) => (
                       <tr key={r.id} className="border-t border-border">
-                        <td className="tnum px-4 py-2 text-amber-500">{'★'.repeat(r.rating)}</td>
+                        <td className="px-4 py-2" aria-label={`${r.rating} out of 5`}><Stars rating={r.rating} size={11} /></td>
                         <td className="max-w-0 truncate px-2 py-2 text-ink-700 dark:text-ink-200">{r.title || '(no title)'}</td>
                         <td className="px-2 py-2 text-ink-400">{r.reviewerName || '—'}</td>
                         <td className="px-2 py-2"><span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-500 dark:bg-ink-700/60 dark:text-ink-300">{r.isPublished ? 'published' : 'pending'}</span></td>
@@ -1040,6 +1050,29 @@ export default function AdminPortal() {
   const tableRef = React.useRef<HTMLDivElement | null>(null);
   const suppressionRef = React.useRef<HTMLDivElement | null>(null);
   const [suppressionsOpen, setSuppressionsOpen] = useState(false);
+  /**
+   * Liquid Screen material: glass (the default) or solid. The guidelines ask for an explicit
+   * Solid mode wherever glass is used, because the system "reduce transparency" preference
+   * is supported in few browsers. A per-browser convenience, so localStorage is enough.
+   */
+  // Read once, lazily. Safe from a hydration mismatch: nothing that uses it renders until
+  // the session check has finished on the client.
+  const [material, setMaterial] = useState<'glass' | 'solid'>(() => {
+    if (typeof window === 'undefined') return 'glass';
+    try {
+      return window.localStorage.getItem('marka.material') === 'solid' ? 'solid' : 'glass';
+    } catch {
+      return 'glass'; // storage unavailable (private window); glass still falls back to opaque
+    }
+  });
+  const chooseMaterial = useCallback((m: 'glass' | 'solid') => {
+    setMaterial(m);
+    try {
+      window.localStorage.setItem('marka.material', m);
+    } catch {
+      // Not persisted; the choice still applies for this visit.
+    }
+  }, []);
   /** Bounce and suppression alerts have no per-merchant answer — they belong to the
    *  address, not the store — so they open the suppression list instead of filtering. */
   const openPanel = useCallback((panel: 'suppressions') => {
@@ -1148,7 +1181,7 @@ export default function AdminPortal() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `reviewmaster-merchants-${sorted.length}.csv`;
+    a.download = `marka-reviews-merchants-${sorted.length}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1167,47 +1200,69 @@ export default function AdminPortal() {
   };
 
   if (authed === null) {
-    return <div className="flex min-h-screen items-center justify-center"><Loader2 className="size-5 animate-spin text-ink-400" /></div>;
+    return (
+      <div role="status" className="marka-type flex min-h-screen items-center justify-center gap-2 text-[13px] text-ink-400">
+        <Loader2 className="size-4 animate-spin" /> Loading the operator portal…
+      </div>
+    );
   }
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
 
   const conv = overview?.requests.conversion30;
 
   return (
-    <div className="aurora min-h-screen bg-background">
-      <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-[1400px] items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <span className="tile tile-brand flex size-8 items-center justify-center"><Star className="size-4" fill="currentColor" strokeWidth={0} /></span>
+    <div className="marka-type aurora min-h-screen bg-background" data-material={material}>
+      {/* Liquid Screen L1: the one glass surface on this page, over the calm canvas. Opaque
+          where the browser cannot blur, under a "reduce transparency" preference, and in
+          the explicit Solid mode the toggle below offers. */}
+      <header className="glass sticky top-0 z-40 border-b border-border shadow-[inset_0_-1px_0_rgba(255,255,255,0.6)]">
+        <div className="mx-auto flex min-h-16 w-full max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-6">
+          <div className="flex items-center gap-3">
+            <img src={BRAND_ASSETS.icon} alt="" width={36} height={36} className="size-9 rounded-[10px]" />
             <div>
-              <p className="text-[13px] font-bold leading-tight text-ink-900 dark:text-white">ReviewMaster</p>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Operator portal</p>
+              <p className="leading-tight" aria-label={APP_NAME}><MarkaLockup size={15} /></p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-400">Operator portal</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div role="group" aria-label="Surface material" className="inline-flex rounded-[12px] border border-[#7B8794]/50 bg-card p-0.5">
+              {(['glass', 'solid'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={material === m}
+                  onClick={() => chooseMaterial(m)}
+                  className={`ring-focus h-9 rounded-[10px] px-3 text-[12.5px] font-semibold transition-colors ${
+                    material === m ? 'bg-[#1B3358] text-white' : 'text-ink-600 hover:text-ink-900 dark:text-ink-300'
+                  }`}
+                >
+                  {m === 'glass' ? 'Glass' : 'Solid'}
+                </button>
+              ))}
+            </div>
             <button
               onClick={runSweep}
               disabled={sweeping}
               title="Run the review-request sweep now instead of waiting for the hourly cron"
-              className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-600 hover:border-ink-300 disabled:opacity-50 dark:text-ink-300"
+              className="ring-focus inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-ink-700 hover:border-ink-300 disabled:opacity-50 dark:text-ink-300"
             >
               {sweeping ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Run sweep
             </button>
             <button
               onClick={exportCsv}
-              className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-600 hover:border-ink-300 dark:text-ink-300"
+              className="ring-focus inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-ink-700 hover:border-ink-300 dark:text-ink-300"
             >
               <Download className="size-3.5" /> Export CSV
             </button>
             <button
               onClick={loadAll}
-              className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-600 hover:border-ink-300 dark:text-ink-300"
+              className="ring-focus inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-ink-700 hover:border-ink-300 dark:text-ink-300"
             >
               <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
             </button>
             <button
               onClick={async () => { await fetch('/api/admin/login', { method: 'DELETE' }); setAuthed(false); }}
-              className="ring-focus inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-[12.5px] font-semibold text-ink-600 hover:border-ink-300 dark:text-ink-300"
+              className="ring-focus inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-ink-700 hover:border-ink-300 dark:text-ink-300"
             >
               <LogOut className="size-3.5" /> Sign out
             </button>
@@ -1413,10 +1468,14 @@ export default function AdminPortal() {
                       onClick={() => setOpenStore(s.id)}
                       className={`cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-ink-50/60 dark:hover:bg-white/[0.03] ${health ? 'bg-amber-50/40 dark:bg-amber-500/[0.04]' : ''}`}
                     >
-                      <td className="max-w-0 truncate px-4 py-2.5">
-                        <span className="font-semibold text-ink-800 dark:text-ink-100">{s.name}</span>
-                        <span className="ml-2 text-ink-400">{s.shopifyDomain}</span>
-                        {s.productCount === 0 && <span className="ml-2 text-[10px] font-semibold uppercase text-ink-300">no products</span>}
+                      {/* Names wrap rather than clip: an operator needs the whole name to know
+                          which merchant they are about to open. */}
+                      <td className="min-w-[13rem] px-4 py-2.5">
+                        <span className="block font-semibold text-ink-800 [overflow-wrap:anywhere] dark:text-ink-100">{s.name}</span>
+                        <span className="block text-[11.5px] text-ink-400 [overflow-wrap:anywhere]">
+                          {s.shopifyDomain}
+                          {s.productCount === 0 && <span className="ml-2 text-[10px] font-semibold uppercase text-ink-400">no products</span>}
+                        </span>
                       </td>
                       <td className="px-2 py-2.5"><PlanChip plan={s.plan} /></td>
                       <td className="tnum px-2 py-2.5 text-right text-ink-700 dark:text-ink-200">{s.mrr > 0 ? money(s.mrr) : '—'}</td>

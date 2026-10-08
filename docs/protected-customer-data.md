@@ -3,7 +3,7 @@
 Everything Shopify's *Data protection details* form asks, the answer to give, and where the
 evidence is if we are selected for a data protection review.
 
-**Where:** Partner Dashboard → Apps → ReviewMaster → **API access requests** → *Protected
+**Where:** Partner Dashboard → Apps → Marka Reviews (formerly ReviewMaster) → **API access requests** → *Protected
 customer data access*. Not the Dev Dashboard — listing, distribution and API access stayed in
 the Partner Dashboard when monitoring and configuration moved.
 

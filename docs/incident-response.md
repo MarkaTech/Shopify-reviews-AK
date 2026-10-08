@@ -6,7 +6,7 @@
 ## Scope
 
 Any event that may compromise the confidentiality, integrity or availability of personal data
-processed by ReviewMaster, or of the systems holding it. This covers suspected as well as
+processed by Marka Reviews (formerly ReviewMaster), or of the systems holding it. This covers suspected as well as
 confirmed events — the policy starts when there is a reason to worry, not when there is proof.
 
 ## Severity

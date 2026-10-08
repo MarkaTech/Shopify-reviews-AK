@@ -2,11 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — ReviewMaster',
-  description: 'How ReviewMaster collects, uses, discloses, stores and protects personal information.',
+  title: 'Privacy Policy — Marka Reviews',
+  description: 'How Marka Reviews collects, uses, discloses, stores and protects personal information.',
 };
 
-const LAST_UPDATED = '20 August 2026';
+const LAST_UPDATED = '8 October 2026';
 const CONTACT_EMAIL = 'tech@houseofmarka.com';
 
 /*
@@ -28,21 +28,25 @@ function H3({ children }: { children: React.ReactNode }) {
 
 export default function Privacy() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
-      <Link href="/" className="text-sm text-emerald-700 hover:underline dark:text-emerald-400">
-        &larr; Back to ReviewMaster
+    <main className="marka-type mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
+      <Link href="/" className="text-sm text-[#1B3358] underline underline-offset-2 hover:no-underline dark:text-[#FFC24B]">
+        &larr; Back to Marka Reviews
       </Link>
 
-      <h1 className="mt-6 text-3xl font-bold tracking-tight">ReviewMaster Privacy Policy</h1>
+      <h1 className="mt-6 text-3xl font-bold tracking-tight">Marka Reviews Privacy Policy</h1>
       <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Last updated: {LAST_UPDATED}</p>
 
       <div className="prose prose-slate dark:prose-invert mt-8 max-w-none space-y-4 text-[15px] leading-relaxed">
         <p>
           This Privacy Policy explains how <strong>Marka Modern Retail Private Limited</strong>,
-          operator of the ReviewMaster Shopify application (&ldquo;<strong>ReviewMaster</strong>&rdquo;,
+          operator of the Marka Reviews Shopify application (&ldquo;<strong>Marka Reviews</strong>&rdquo;,
           &ldquo;<strong>Marka</strong>&rdquo;, &ldquo;<strong>we</strong>&rdquo;, &ldquo;<strong>us</strong>&rdquo;,
           or &ldquo;<strong>our</strong>&rdquo;), collects, uses, discloses, stores and protects
           personal information.
+        </p>
+        <p>
+          Marka Reviews was called ReviewMaster until October 2026. Only the name changed: the
+          same company runs the same app, under this policy.
         </p>
         <p>
           <strong>Registered office:</strong> 1st Floor, Plot 558 P, Sector 27, Gurugram (Gurgaon),
@@ -52,21 +56,21 @@ export default function Privacy() {
         </p>
         <p>This Privacy Policy applies to:</p>
         <ol className="list-decimal pl-6">
-          <li>Shopify merchants and their personnel who install, configure or interact with ReviewMaster; and</li>
+          <li>Shopify merchants and their personnel who install, configure or interact with Marka Reviews; and</li>
           <li>
-            customers, reviewers and storefront visitors whose information ReviewMaster processes
+            customers, reviewers and storefront visitors whose information Marka Reviews processes
             through a Merchant&rsquo;s use of the App.
           </li>
         </ol>
 
         <H>1. Our Roles</H>
-        <p>ReviewMaster may act in different privacy roles depending on the processing.</p>
+        <p>Marka Reviews may act in different privacy roles depending on the processing.</p>
 
         <H3>1.1 Where Marka acts as a processor or service provider</H3>
         <p>
-          For personal information belonging to a Merchant&rsquo;s Customers that ReviewMaster
+          For personal information belonging to a Merchant&rsquo;s Customers that Marka Reviews
           processes according to the Merchant&rsquo;s instructions, the Merchant generally
-          determines the purposes and means of processing and ReviewMaster acts as the
+          determines the purposes and means of processing and Marka Reviews acts as the
           Merchant&rsquo;s <strong>processor</strong>, <strong>service provider</strong>, or
           equivalent role under Applicable Law.
         </p>
@@ -80,7 +84,7 @@ export default function Privacy() {
           <li>transmitting reviews to integrations enabled by the Merchant.</li>
         </ul>
         <p>
-          The ReviewMaster <Link href="/dpa">Data Processing Agreement</Link> governs that
+          The Marka Reviews <Link href="/dpa">Data Processing Agreement</Link> governs that
           processing.
         </p>
 
@@ -108,7 +112,7 @@ export default function Privacy() {
 
         <H>2. Information We Receive About Merchants</H>
         <p>
-          When a Merchant installs or uses ReviewMaster, Shopify or the Merchant may provide
+          When a Merchant installs or uses Marka Reviews, Shopify or the Merchant may provide
           information including:
         </p>
         <ul className="list-disc pl-6">
@@ -127,19 +131,19 @@ export default function Privacy() {
           <li>notification preferences;</li>
           <li>review configuration;</li>
           <li>feature usage and administrative activity;</li>
-          <li>communications sent to ReviewMaster support.</li>
+          <li>communications sent to Marka Reviews support.</li>
         </ul>
         <p>
           Shopify access credentials are used only as necessary to provide the App and are
           protected as described in this Policy and our security measures.
         </p>
         <p>
-          We do not obtain Merchant payment-card information through ReviewMaster. Paid App
+          We do not obtain Merchant payment-card information through Marka Reviews. Paid App
           billing is processed through Shopify.
         </p>
 
         <H>3. Shopify Data Access</H>
-        <p>ReviewMaster requests only Shopify permissions reasonably necessary for enabled functionality.</p>
+        <p>Marka Reviews requests only Shopify permissions reasonably necessary for enabled functionality.</p>
         <p>
           Depending on the current version and functionality used, these may include permissions
           relating to:
@@ -152,10 +156,10 @@ export default function Privacy() {
           <li>discount codes;</li>
           <li>subscription or billing status;</li>
           <li>metafields or metaobjects;</li>
-          <li>other Shopify resources required for approved ReviewMaster functionality.</li>
+          <li>other Shopify resources required for approved Marka Reviews functionality.</li>
         </ul>
         <p>
-          ReviewMaster uses Shopify data only for purposes reasonably necessary to provide,
+          Marka Reviews uses Shopify data only for purposes reasonably necessary to provide,
           operate, secure and support the App and as otherwise permitted by Applicable Law and
           Shopify requirements.
         </p>
@@ -164,7 +168,7 @@ export default function Privacy() {
         <H>4. Customer and Reviewer Information</H>
         <p>
           Depending on the Merchant&rsquo;s configuration and the Customer&rsquo;s interaction
-          with ReviewMaster, we may process:
+          with Marka Reviews, we may process:
         </p>
 
         <H3>Identity and contact information</H3>
@@ -188,7 +192,7 @@ export default function Privacy() {
           </li>
         </ul>
         <p>
-          We do not intentionally request postal addresses or telephone numbers for ReviewMaster
+          We do not intentionally request postal addresses or telephone numbers for Marka Reviews
           review functionality unless a future feature expressly requires and discloses them.
         </p>
 
@@ -233,12 +237,12 @@ export default function Privacy() {
         </p>
         <ul className="list-disc pl-6">
           <li>the media is stored by Shopify on the Merchant&rsquo;s behalf;</li>
-          <li>ReviewMaster may temporarily receive or validate the upload;</li>
-          <li>ReviewMaster may store the resulting Shopify media URL and related metadata.</li>
+          <li>Marka Reviews may temporarily receive or validate the upload;</li>
+          <li>Marka Reviews may store the resulting Shopify media URL and related metadata.</li>
         </ul>
         <p>
           The Merchant remains responsible for managing media stored in its Shopify account after
-          ReviewMaster is removed.
+          Marka Reviews is removed.
         </p>
 
         <H>5. Technical and Security Information</H>
@@ -272,7 +276,7 @@ export default function Privacy() {
         <H>6. How We Use Personal Information</H>
         <p>We process information where reasonably necessary to:</p>
         <ul className="list-disc pl-6">
-          <li>install and authenticate ReviewMaster;</li>
+          <li>install and authenticate Marka Reviews;</li>
           <li>provide Merchant-requested functionality;</li>
           <li>synchronize eligible Shopify data;</li>
           <li>collect and display reviews;</li>
@@ -314,7 +318,7 @@ export default function Privacy() {
           individuals, including:
         </p>
         <ul className="list-disc pl-6">
-          <li>securing ReviewMaster;</li>
+          <li>securing Marka Reviews;</li>
           <li>preventing fraud and abuse;</li>
           <li>preventing unwanted email after opt-out;</li>
           <li>maintaining deliverability;</li>
@@ -340,13 +344,13 @@ export default function Privacy() {
         </p>
         <p>Consent may be withdrawn where Applicable Law provides that right.</p>
         <p>
-          Where ReviewMaster acts only as a Merchant&rsquo;s processor, the Merchant is
+          Where Marka Reviews acts only as a Merchant&rsquo;s processor, the Merchant is
           responsible for identifying the lawful basis for its underlying Customer processing.
         </p>
 
         <H>8. Customer Communications</H>
         <p>
-          ReviewMaster may send review invitations, reminders or related messages to Customers{' '}
+          Marka Reviews may send review invitations, reminders or related messages to Customers{' '}
           <strong>
             only on behalf of and according to the configuration or instructions of a Merchant
           </strong>
@@ -356,7 +360,7 @@ export default function Privacy() {
           The Merchant is responsible for ensuring that it has a lawful basis, consent or other
           permission required under Applicable Law.
         </p>
-        <p>ReviewMaster may prevent communications to addresses that:</p>
+        <p>Marka Reviews may prevent communications to addresses that:</p>
         <ul className="list-disc pl-6">
           <li>unsubscribed;</li>
           <li>permanently bounced;</li>
@@ -366,7 +370,7 @@ export default function Privacy() {
 
         <H>9. Email Suppression Records</H>
         <p>
-          To avoid sending further ReviewMaster-enabled messages to persons who have opted out,
+          To avoid sending further Marka Reviews-enabled messages to persons who have opted out,
           reported spam or experienced permanent delivery failure, Marka may maintain a limited
           suppression record.
         </p>
@@ -378,7 +382,7 @@ export default function Privacy() {
         </ul>
         <p>
           Marka acts as controller for this limited processing where we determine that the record
-          must apply across the ReviewMaster platform.
+          must apply across the Marka Reviews platform.
         </p>
         <p>
           We retain suppression information for as long as reasonably necessary to ensure the
@@ -390,7 +394,7 @@ export default function Privacy() {
         </p>
 
         <H>10. Cookies and Browser Storage</H>
-        <p>ReviewMaster may use limited first-party cookies or browser storage necessary to:</p>
+        <p>Marka Reviews may use limited first-party cookies or browser storage necessary to:</p>
         <ul className="list-disc pl-6">
           <li>maintain Merchant sessions;</li>
           <li>prevent session abuse;</li>
@@ -398,7 +402,7 @@ export default function Privacy() {
           <li>prevent repeated &ldquo;helpful&rdquo; votes;</li>
           <li>remember that a storefront popup was dismissed during a visit.</li>
         </ul>
-        <p>We do not use ReviewMaster cookies for third-party behavioral advertising.</p>
+        <p>We do not use Marka Reviews cookies for third-party behavioral advertising.</p>
         <p>The Merchant session cookie currently in production is:</p>
         <ul className="list-disc pl-6">
           <li>
@@ -445,7 +449,7 @@ export default function Privacy() {
 
         <H>12. Review Integrations and Syndication</H>
         <p>
-          At a Merchant&rsquo;s instruction, ReviewMaster may transmit eligible review information
+          At a Merchant&rsquo;s instruction, Marka Reviews may transmit eligible review information
           to third-party services or platforms, including supported Shopify or Google
           functionality.
         </p>
@@ -465,12 +469,12 @@ export default function Privacy() {
           received.
         </p>
         <p>
-          ReviewMaster does not guarantee that a destination will accept, publish, rank, index or
+          Marka Reviews does not guarantee that a destination will accept, publish, rank, index or
           continue displaying any review.
         </p>
 
         <H>13. Service Providers and Subprocessors</H>
-        <p>We use service providers to operate ReviewMaster.</p>
+        <p>We use service providers to operate Marka Reviews.</p>
         <p>
           The authoritative current list of subprocessors that process personal data on our behalf
           is published at:
@@ -508,21 +512,21 @@ export default function Privacy() {
         </ul>
 
         <H>14. No Sale or Behavioral Advertising</H>
-        <p>ReviewMaster does not sell Customer personal information for money.</p>
-        <p>ReviewMaster does not use Customer review data for third-party behavioral advertising.</p>
+        <p>Marka Reviews does not sell Customer personal information for money.</p>
+        <p>Marka Reviews does not use Customer review data for third-party behavioral advertising.</p>
         <p>
-          ReviewMaster does not disclose Merchant or Customer information to advertisers for
+          Marka Reviews does not disclose Merchant or Customer information to advertisers for
           cross-context behavioral advertising.
         </p>
         <p>
           Where a particular privacy law defines &ldquo;sale&rdquo; or &ldquo;sharing&rdquo; more
           broadly, we intend not to engage in activities that constitute sale or sharing for
-          cross-context behavioral advertising through ReviewMaster.
+          cross-context behavioral advertising through Marka Reviews.
         </p>
 
         <H>15. AI and Automated Content</H>
         <p>
-          ReviewMaster does not use Customer review text to train Marka-owned general-purpose
+          Marka Reviews does not use Customer review text to train Marka-owned general-purpose
           artificial-intelligence models.
         </p>
         <p>
@@ -533,7 +537,7 @@ export default function Privacy() {
         <H>16. International Processing and Transfers</H>
         <p>Marka is established in India.</p>
         <p>
-          ReviewMaster may process personal information in countries other than the country where
+          Marka Reviews may process personal information in countries other than the country where
           a Merchant or Customer is located.
         </p>
         <p>
@@ -590,7 +594,7 @@ export default function Privacy() {
 
         <H3>Merchant data</H3>
         <p>
-          While ReviewMaster remains installed, data required to provide the service may be
+          While Marka Reviews remains installed, data required to provide the service may be
           retained for the duration of the relationship.
         </p>
 
@@ -604,7 +608,7 @@ export default function Privacy() {
 
         <H3>Reviews</H3>
         <p>
-          Published review information may be retained while ReviewMaster is installed and the
+          Published review information may be retained while Marka Reviews is installed and the
           Merchant requires the review to be provided through the service.
         </p>
 
@@ -639,20 +643,20 @@ export default function Privacy() {
 
         <H>19. Shopify Privacy Webhooks and Deletion</H>
         <p>
-          ReviewMaster supports Shopify&rsquo;s applicable mandatory privacy/compliance
+          Marka Reviews supports Shopify&rsquo;s applicable mandatory privacy/compliance
           mechanisms.
         </p>
 
         <H3>Customer data requests</H3>
         <p>
-          Where Shopify or a Merchant forwards an eligible Customer data request, ReviewMaster
+          Where Shopify or a Merchant forwards an eligible Customer data request, Marka Reviews
           will provide information reasonably necessary for the Merchant to respond, subject to
           Applicable Law and the <Link href="/dpa">DPA</Link>.
         </p>
 
         <H3>Customer redaction</H3>
         <p>
-          When ReviewMaster receives an enforceable Customer deletion/redaction instruction, we
+          When Marka Reviews receives an enforceable Customer deletion/redaction instruction, we
           delete or irreversibly anonymize Customer personal data as required.
         </p>
         <p>
@@ -668,18 +672,18 @@ export default function Privacy() {
           require deletion or additional anonymization.
         </p>
         <p>
-          ReviewMaster may retain only information independently permitted or required to be
+          Marka Reviews may retain only information independently permitted or required to be
           retained, such as an applicable suppression record.
         </p>
 
         <H3>Shop redaction / uninstall</H3>
         <p>
           Following uninstall, applicable Merchant Data is deleted within Shopify&rsquo;s required
-          period and ordinarily substantially sooner through ReviewMaster&rsquo;s uninstall and
+          period and ordinarily substantially sooner through Marka Reviews&rsquo; uninstall and
           redaction processes.
         </p>
         <p>
-          Credentials enabling ReviewMaster to access the Merchant store are deleted, revoked or
+          Credentials enabling Marka Reviews to access the Merchant store are deleted, revoked or
           rendered unusable when no longer authorized.
         </p>
 
@@ -704,7 +708,7 @@ export default function Privacy() {
         </p>
         <p>You should normally submit your request to the Merchant first.</p>
         <p>
-          ReviewMaster will assist the Merchant according to our <Link href="/dpa">DPA</Link> and
+          Marka Reviews will assist the Merchant according to our <Link href="/dpa">DPA</Link> and
           Applicable Law.
         </p>
         <p>
@@ -733,13 +737,13 @@ export default function Privacy() {
           honour legally applicable rights.
         </p>
         <p>
-          Where ReviewMaster acts as a processor/service provider for a Merchant, the Merchant is
-          responsible for receiving applicable consumer requests and ReviewMaster will assist as
+          Where Marka Reviews acts as a processor/service provider for a Merchant, the Merchant is
+          responsible for receiving applicable consumer requests and Marka Reviews will assist as
           required by the <Link href="/dpa">DPA</Link>.
         </p>
         <p>
-          ReviewMaster does not use Customer personal information for targeted advertising or sell
-          Customer personal information through ReviewMaster.
+          Marka Reviews does not use Customer personal information for targeted advertising or sell
+          Customer personal information through Marka Reviews.
         </p>
 
         <H>23. India Privacy Requirements</H>
@@ -759,24 +763,24 @@ export default function Privacy() {
 
         <H>24. Children&rsquo;s Information</H>
         <p>
-          ReviewMaster is intended for use in connection with ordinary ecommerce reviews and is
+          Marka Reviews is intended for use in connection with ordinary ecommerce reviews and is
           not directed to children.
         </p>
         <p>
-          We do not knowingly design ReviewMaster to solicit personal information directly from
+          We do not knowingly design Marka Reviews to solicit personal information directly from
           children under <strong>16</strong>.
         </p>
         <p>
-          Merchants must not knowingly use ReviewMaster to collect children&rsquo;s personal data
+          Merchants must not knowingly use Marka Reviews to collect children&rsquo;s personal data
           where doing so would violate Applicable Law.
         </p>
         <p>
           If you believe a child has submitted personal information unlawfully through
-          ReviewMaster, contact the relevant Merchant or email us at {CONTACT_EMAIL}.
+          Marka Reviews, contact the relevant Merchant or email us at {CONTACT_EMAIL}.
         </p>
 
         <H>25. Business Transfers</H>
-        <p>If Marka or ReviewMaster is involved in a:</p>
+        <p>If Marka or Marka Reviews is involved in a:</p>
         <ul className="list-disc pl-6">
           <li>merger;</li>
           <li>acquisition;</li>
@@ -811,7 +815,7 @@ export default function Privacy() {
         </p>
 
         <H>27. Changes to this Privacy Policy</H>
-        <p>We may update this Policy as ReviewMaster changes.</p>
+        <p>We may update this Policy as Marka Reviews changes.</p>
         <p>
           If a change materially affects how personal information is processed, we will use
           commercially reasonable means to inform affected installed Merchants where required.
@@ -823,7 +827,7 @@ export default function Privacy() {
         <p>
           <strong>Marka Modern Retail Private Limited</strong>
           <br />
-          ReviewMaster
+          Marka Reviews
           <br />
           1st Floor, Plot 558 P, Sector 27, Gurugram (Gurgaon), Haryana 122009, India
           <br />

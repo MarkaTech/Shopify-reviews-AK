@@ -215,11 +215,11 @@ async function deliverDataRequest(
     subject,
     text:
       `Shopify forwarded a data request for ${customerEmail ?? 'a customer'} on ${shop}.\n\n` +
-      `Everything ReviewMaster holds about them is below (${total} record(s)).\n\n` +
+      `Everything Marka Reviews holds about them is below (${total} record(s)).\n\n` +
       `${summary}\n\n----\n\n${body}\n`,
     html:
       `<p>Shopify forwarded a data request for <strong>${escapeHtml(customerEmail ?? 'a customer')}</strong> on ${escapeHtml(shop)}.</p>` +
-      `<p>Everything ReviewMaster holds about them is below (${total} record(s)).</p>` +
+      `<p>Everything Marka Reviews holds about them is below (${total} record(s)).</p>` +
       `<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px">${escapeHtml(body)}</pre>`,
   });
 

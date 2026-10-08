@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     email: {
       provider,
-      from: from || 'ReviewMaster <onboarding@resend.dev>  (default — not configured)',
+      from: from || 'Marka Reviews <onboarding@resend.dev>  (default — not configured)',
       configured: Boolean(provider),
       usingSharedTestSender,
       warning: !provider

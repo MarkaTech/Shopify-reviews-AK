@@ -3,12 +3,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   ShoppingBag, MessageSquarePlus, Palette, Mail, CheckCircle2, Gift,
-  Check, X, ArrowRight, ChevronRight, Sparkles, Star, BadgeCheck, Clock, Zap,
+  Check, X, ArrowRight, ChevronRight, Sparkles, BadgeCheck, Clock, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { ActionButton, Pill, type TileTone, TILE_TONE } from './ui-kit';
+import { ActionButton, Pill, RatingStar, VerifiedMark, type TileTone, TILE_TONE } from './ui-kit';
 import type { PageId } from './TopNav';
 
 /**
@@ -134,8 +134,10 @@ export default function OnboardingFlow({
     apiFetch<Progress>('/api/onboarding')
       .then(setData)
       .catch(() => setData(null));
-    apiFetch<{ delayDays?: number }>('/api/request-settings')
-      .then((r) => setDelayDays(typeof r.delayDays === 'number' ? r.delayDays : null))
+    // The route answers { settings: { delayDays, ... } }; reading r.delayDays found nothing,
+    // so the card always fell back to "You choose the timing".
+    apiFetch<{ settings?: { delayDays?: number } }>('/api/request-settings')
+      .then((r) => setDelayDays(typeof r.settings?.delayDays === 'number' ? r.settings.delayDays : null))
       .catch(() => undefined);
   }, []);
 
@@ -166,8 +168,8 @@ export default function OnboardingFlow({
         className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
         style={{
           background:
-            'radial-gradient(46rem 22rem at 12% -10%, rgba(16,183,133,0.16), transparent 68%),' +
-            'radial-gradient(38rem 20rem at 88% 0%, rgba(99,102,241,0.12), transparent 66%)',
+            'radial-gradient(46rem 22rem at 12% -10%, rgba(255,194,75,0.14), transparent 68%),' +
+            'radial-gradient(38rem 20rem at 88% 0%, rgba(27,51,88,0.06), transparent 66%)',
         }}
       />
       <div className="grid-lines pointer-events-none absolute inset-x-0 top-0 h-[420px] opacity-50" />
@@ -183,7 +185,7 @@ export default function OnboardingFlow({
       {/* ── Hero ── */}
       <div className="relative grid gap-8 px-8 pb-8 pt-10 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-10 lg:pt-12">
         <div className="min-w-0">
-          <Pill tone={allDone ? 'brand' : 'amber'} icon={allDone ? BadgeCheck : Sparkles}>
+          <Pill tone={allDone ? 'success' : 'cream'} icon={allDone ? BadgeCheck : Sparkles}>
             {allDone ? 'Setup complete' : `Step ${data.completed + 1} of ${data.total}`}
           </Pill>
 
@@ -194,7 +196,7 @@ export default function OnboardingFlow({
               </>
             ) : (
               <>
-                Let&apos;s get {storeName ? <em className="italic">{storeName}</em> : 'your store'}
+                Let&apos;s get {storeName ? <span className="text-brand-600">{storeName}</span> : 'your store'}
                 <br />
                 selling with proof<span className="text-brand-600">.</span>
               </>
@@ -223,16 +225,13 @@ export default function OnboardingFlow({
             </div>
             <div
               className="h-2 w-full overflow-hidden rounded-full bg-ink-100 dark:bg-white/8"
-              style={{ boxShadow: 'inset 0 1px 2px rgba(11,18,32,.1)' }}
+              style={{ boxShadow: 'inset 0 1px 2px rgba(27,51,88,.1)' }}
             >
               <div
-                className="h-full rounded-full transition-[width] duration-700 ease-out"
+                className="h-full rounded-full transition-[width] duration-200 ease-out"
                 style={{
                   width: `${pct}%`,
-                  backgroundImage: allDone
-                    ? 'linear-gradient(90deg, var(--brand-400), var(--brand-600))'
-                    : 'linear-gradient(90deg, #fbbf24, var(--brand-500))',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,.4)',
+                  background: allDone ? '#19734B' : '#1B3358',
                 }}
               />
             </div>
@@ -379,21 +378,16 @@ function ResultPreview({
                 <span className="display text-[30px] font-bold leading-none text-ink-900 dark:text-white">
                   4.8
                 </span>
-                <div className="flex gap-px">
+                <div className="flex gap-0.5">
                   {[0, 1, 2, 3, 4].map((i) => (
-                    <Star
-                      key={i}
-                      className="size-3.5 text-amber-400"
-                      fill="currentColor"
-                      strokeWidth={0}
-                    />
+                    <RatingStar key={i} size={14} />
                   ))}
                 </div>
               </div>
               <p className="mt-1 text-[11.5px] text-ink-400">from 1,284 reviews</p>
             </div>
             <span className="tile tile-brand size-9">
-              <Star className="size-4" fill="currentColor" strokeWidth={0} />
+              <RatingStar size={16} color="#FFC24B" />
             </span>
           </div>
         </div>
@@ -405,16 +399,19 @@ function ResultPreview({
               M
             </span>
             <span className="text-[12.5px] font-semibold text-ink-900 dark:text-white">Maya R.</span>
-            <Pill tone="brand" icon={BadgeCheck}>Verified</Pill>
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#1B3358] px-2 py-0.5 text-[11px] font-semibold text-[#FDF1DE]">
+              <VerifiedMark size={11} color="#E8871E" />
+              Verified
+            </span>
           </div>
           <p className="mt-2 text-[12px] leading-relaxed text-ink-600 dark:text-ink-300">
             Exactly as pictured and the finish is beautiful. Second one I&apos;ve bought.
           </p>
           <div className="mt-2.5 flex gap-1.5">
             {[
-              'linear-gradient(140deg,#a7f3d4,#059468)',
-              'linear-gradient(140deg,#bfdbfe,#4f46e5)',
-              'linear-gradient(140deg,#fde68a,#d97706)',
+              'linear-gradient(140deg,#FFE3A8,#E8871E)',
+              'linear-gradient(140deg,#C5D0E1,#1B3358)',
+              'linear-gradient(140deg,#FDF1DE,#FFC24B)',
             ].map((bg, i) => (
               <div
                 key={i}

@@ -2,11 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Data Processing Agreement — ReviewMaster',
-  description: 'The data processing terms that apply when ReviewMaster processes customer personal data on behalf of a Shopify merchant.',
+  title: 'Data Processing Agreement — Marka Reviews',
+  description: 'The data processing terms that apply when Marka Reviews processes customer personal data on behalf of a Shopify merchant.',
 };
 
-const LAST_UPDATED = '20 August 2026';
+const LAST_UPDATED = '8 October 2026';
 const CONTACT_EMAIL = 'tech@houseofmarka.com';
 
 /*
@@ -28,35 +28,40 @@ function H3({ children }: { children: React.ReactNode }) {
 
 export default function Dpa() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
-      <Link href="/" className="text-sm text-emerald-700 hover:underline dark:text-emerald-400">
-        &larr; Back to ReviewMaster
+    <main className="marka-type mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
+      <Link href="/" className="text-sm text-[#1B3358] underline underline-offset-2 hover:no-underline dark:text-[#FFC24B]">
+        &larr; Back to Marka Reviews
       </Link>
 
       <h1 className="mt-6 text-3xl font-bold tracking-tight">
-        ReviewMaster Data Processing Agreement
+        Marka Reviews Data Processing Agreement
       </h1>
       <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Last updated: {LAST_UPDATED}</p>
 
       <div className="prose prose-slate dark:prose-invert mt-8 max-w-none space-y-4 text-[15px] leading-relaxed">
         <p>
           This Data Processing Agreement (&ldquo;<strong>DPA</strong>&rdquo;) forms part of the
-          ReviewMaster <Link href="/terms">Terms of Service</Link> between:
+          Marka Reviews <Link href="/terms">Terms of Service</Link> between:
         </p>
         <p>
-          <strong>Marka Modern Retail Private Limited</strong>, operator of ReviewMaster,
+          <strong>Marka Modern Retail Private Limited</strong>, operator of Marka Reviews,
           established in India (&ldquo;<strong>Processor</strong>&rdquo;,
-          &ldquo;<strong>ReviewMaster</strong>&rdquo;, &ldquo;<strong>Marka</strong>&rdquo;,
+          &ldquo;<strong>Marka Reviews</strong>&rdquo;, &ldquo;<strong>Marka</strong>&rdquo;,
           &ldquo;<strong>we</strong>&rdquo;, &ldquo;<strong>us</strong>&rdquo;);
         </p>
         <p>and</p>
         <p>
-          the Shopify merchant that installs or uses ReviewMaster
+          the Shopify merchant that installs or uses Marka Reviews
           (&ldquo;<strong>Controller</strong>&rdquo;, &ldquo;<strong>Merchant</strong>&rdquo;,
           &ldquo;<strong>you</strong>&rdquo;).
         </p>
         <p>
-          This DPA applies automatically where ReviewMaster processes Customer Personal Data on
+          Marka Reviews was called ReviewMaster until October 2026. The new name changes nothing
+          in this DPA, and a reference to ReviewMaster in an earlier version of it means Marka
+          Reviews.
+        </p>
+        <p>
+          This DPA applies automatically where Marka Reviews processes Customer Personal Data on
           the Merchant&rsquo;s behalf.
         </p>
         <p>No separate signature is required unless Applicable Law requires otherwise.</p>
@@ -76,11 +81,11 @@ export default function Dpa() {
             the meanings given under Applicable Data Protection Law.
           </li>
           <li>
-            <strong>Customer Personal Data</strong> means Personal Data processed by ReviewMaster
-            on behalf of the Merchant through ReviewMaster.
+            <strong>Customer Personal Data</strong> means Personal Data processed by Marka Reviews
+            on behalf of the Merchant through Marka Reviews.
           </li>
           <li>
-            <strong>Subprocessor</strong> means a third party engaged by ReviewMaster to Process
+            <strong>Subprocessor</strong> means a third party engaged by Marka Reviews to Process
             Customer Personal Data on behalf of the Merchant.
           </li>
           <li>
@@ -97,30 +102,30 @@ export default function Dpa() {
         <p>For Customer Personal Data governed by this DPA:</p>
         <ul className="list-disc pl-6">
           <li>the Merchant is the Controller or acts on behalf of the relevant Controller;</li>
-          <li>ReviewMaster is the Processor.</li>
+          <li>Marka Reviews is the Processor.</li>
         </ul>
         <p>
           The Merchant determines the purposes for which Customer Personal Data is processed
-          through enabled ReviewMaster functionality.
+          through enabled Marka Reviews functionality.
         </p>
-        <p>ReviewMaster processes Customer Personal Data only:</p>
+        <p>Marka Reviews processes Customer Personal Data only:</p>
         <ul className="list-disc pl-6">
           <li>on documented instructions from the Merchant;</li>
-          <li>as necessary to provide ReviewMaster;</li>
+          <li>as necessary to provide Marka Reviews;</li>
           <li>as required by Applicable Law.</li>
         </ul>
         <p>
-          Installing ReviewMaster, selecting settings, enabling integrations, activating
+          Installing Marka Reviews, selecting settings, enabling integrations, activating
           communications, issuing instructions through the dashboard and otherwise using
-          ReviewMaster constitute documented instructions.
+          Marka Reviews constitute documented instructions.
         </p>
         <p>
-          If ReviewMaster is required by law to Process Customer Personal Data other than on the
+          If Marka Reviews is required by law to Process Customer Personal Data other than on the
           Merchant&rsquo;s instructions, we will inform the Merchant before Processing unless
           Applicable Law prohibits that notice.
         </p>
         <p>
-          ReviewMaster will immediately inform the Merchant if, in our reasonable opinion, an
+          Marka Reviews will immediately inform the Merchant if, in our reasonable opinion, an
           instruction infringes Applicable Data Protection Law, unless prohibited from doing so.
         </p>
 
@@ -132,14 +137,14 @@ export default function Dpa() {
 
         <H3>3.1 Subject matter</H3>
         <p>
-          Providing ReviewMaster&rsquo;s product-review, review-request, moderation, display,
+          Providing Marka Reviews&rsquo; product-review, review-request, moderation, display,
           verification, questions-and-answers, analytics, incentive and enabled review-integration
           functionality.
         </p>
 
         <H3>3.2 Duration</H3>
         <p>
-          For the period during which ReviewMaster is installed and used, plus the limited
+          For the period during which Marka Reviews is installed and used, plus the limited
           deletion and backup periods described in this DPA.
         </p>
 
@@ -170,34 +175,34 @@ export default function Dpa() {
           <li>it has a valid lawful basis for the Processing it instructs;</li>
           <li>it has provided all privacy notices required by Applicable Data Protection Law;</li>
           <li>it has obtained consent wherever consent is legally required;</li>
-          <li>it is legally entitled to disclose Customer Personal Data to ReviewMaster;</li>
+          <li>it is legally entitled to disclose Customer Personal Data to Marka Reviews;</li>
           <li>its instructions comply with Applicable Data Protection Law;</li>
           <li>
             its use of review invitations, reminders and incentives complies with applicable
             privacy, consumer-protection and electronic-marketing laws;
           </li>
           <li>
-            it will not instruct ReviewMaster to collect or use Personal Data that is unnecessary
-            for ReviewMaster&rsquo;s functions;
+            it will not instruct Marka Reviews to collect or use Personal Data that is unnecessary
+            for Marka Reviews&rsquo; functions;
           </li>
           <li>
-            it will not intentionally use ReviewMaster to solicit special-category/sensitive
+            it will not intentionally use Marka Reviews to solicit special-category/sensitive
             Personal Data unless the parties have expressly agreed appropriate safeguards
             beforehand.
           </li>
         </ol>
         <p>
           The Merchant remains responsible for the accuracy, quality, legality and lawful
-          acquisition of Customer Personal Data supplied to ReviewMaster.
+          acquisition of Customer Personal Data supplied to Marka Reviews.
         </p>
         <p>
           The legal classification of a review invitation or reminder varies by jurisdiction and
-          content. ReviewMaster does not warrant that such communications are universally
+          content. Marka Reviews does not warrant that such communications are universally
           transactional or exempt from marketing law.
         </p>
 
-        <H>5. ReviewMaster Processor Obligations</H>
-        <p>ReviewMaster will:</p>
+        <H>5. Marka Reviews Processor Obligations</H>
+        <p>Marka Reviews will:</p>
         <ol className="list-decimal pl-6">
           <li>
             process Customer Personal Data only on documented instructions, except where legally
@@ -214,7 +219,7 @@ export default function Dpa() {
             provide reasonable assistance with the Merchant&rsquo;s security,
             breach-notification, data-protection impact assessment and prior-consultation
             obligations, taking into account the nature of Processing and information available
-            to ReviewMaster;
+            to Marka Reviews;
           </li>
           <li>
             delete or return Customer Personal Data at the end of Processing as described in
@@ -277,7 +282,7 @@ export default function Dpa() {
         </ul>
         <p>
           Where media is uploaded to Shopify Files, Shopify stores the underlying media for the
-          Merchant and ReviewMaster may retain related URLs or metadata.
+          Merchant and Marka Reviews may retain related URLs or metadata.
         </p>
 
         <H3>Questions and answers</H3>
@@ -308,12 +313,12 @@ export default function Dpa() {
         <p>
           Raw shopper IP addresses are not persistently stored. Where used for abuse prevention,
           an IP address may be transformed into a non-reversible or limited-purpose value, as
-          described in the ReviewMaster <Link href="/privacy">Privacy Policy</Link>.
+          described in the Marka Reviews <Link href="/privacy">Privacy Policy</Link>.
         </p>
 
         <H>8. Special-Category and Sensitive Data</H>
         <p>
-          ReviewMaster does <strong>not intentionally request or solicit</strong> special-category
+          Marka Reviews does <strong>not intentionally request or solicit</strong> special-category
           Personal Data, including information concerning:
         </p>
         <ul className="list-disc pl-6">
@@ -333,16 +338,16 @@ export default function Dpa() {
         </p>
         <p>
           The Merchant must not intentionally solicit unnecessary special-category or sensitive
-          Personal Data through ReviewMaster.
+          Personal Data through Marka Reviews.
         </p>
         <p>
-          If ReviewMaster becomes aware of such information, we may take reasonable steps to
+          If Marka Reviews becomes aware of such information, we may take reasonable steps to
           restrict or delete it where appropriate and legally permitted.
         </p>
 
         <H>9. Subprocessors</H>
         <p>
-          The Merchant gives ReviewMaster <strong>general written authorization</strong> to engage
+          The Merchant gives Marka Reviews <strong>general written authorization</strong> to engage
           Subprocessors.
         </p>
         <p>The current Subprocessor List is maintained at:</p>
@@ -355,19 +360,19 @@ export default function Dpa() {
         </p>
         <p>That list forms part of this DPA.</p>
         <p>
-          ReviewMaster will ensure each Subprocessor that Processes Customer Personal Data is
+          Marka Reviews will ensure each Subprocessor that Processes Customer Personal Data is
           subject to written data-protection obligations that provide a level of protection
-          appropriate to the Processing and materially consistent with ReviewMaster&rsquo;s
+          appropriate to the Processing and materially consistent with Marka Reviews&rsquo;
           applicable obligations under this DPA.
         </p>
         <p>
-          ReviewMaster remains responsible for its Subprocessors to the extent required by
+          Marka Reviews remains responsible for its Subprocessors to the extent required by
           Applicable Data Protection Law.
         </p>
 
         <H3>9.1 Changes to Subprocessors</H3>
         <p>
-          ReviewMaster will provide at least <strong>30 days&rsquo; prior notice</strong> of a new
+          Marka Reviews will provide at least <strong>30 days&rsquo; prior notice</strong> of a new
           or replacement Subprocessor that will materially Process Customer Personal Data, unless
           an urgent change is reasonably required to address a security incident, legal
           requirement or service continuity issue.
@@ -382,28 +387,28 @@ export default function Dpa() {
           <li>the objection is reasonable;</li>
           <li>the parties cannot resolve it;</li>
           <li>
-            ReviewMaster cannot reasonably provide the relevant functionality without the
+            Marka Reviews cannot reasonably provide the relevant functionality without the
             Subprocessor,
           </li>
         </ul>
         <p>
           the Merchant&rsquo;s sole remedy in relation to that Subprocessor change is to
-          discontinue the affected functionality or terminate ReviewMaster without penalty for
+          discontinue the affected functionality or terminate Marka Reviews without penalty for
           future subscription periods.
         </p>
 
         <H>10. Data Subject Requests</H>
         <p>
-          Taking into account the nature of Processing, ReviewMaster will provide reasonable
+          Taking into account the nature of Processing, Marka Reviews will provide reasonable
           assistance to enable the Merchant to respond to Data Subject rights requests.
         </p>
         <p>
           Where Shopify provides an applicable privacy webhook or other approved mechanism,
-          ReviewMaster may use that mechanism to process the request.
+          Marka Reviews may use that mechanism to process the request.
         </p>
         <p>
-          If ReviewMaster receives a request directly from a Customer concerning Customer Personal
-          Data Processed on behalf of a Merchant, ReviewMaster will ordinarily:
+          If Marka Reviews receives a request directly from a Customer concerning Customer Personal
+          Data Processed on behalf of a Merchant, Marka Reviews will ordinarily:
         </p>
         <ol className="list-decimal pl-6">
           <li>identify the relevant Merchant where reasonably possible;</li>
@@ -415,18 +420,18 @@ export default function Dpa() {
           </li>
         </ol>
         <p>
-          Nothing prevents ReviewMaster from acting directly where Marka independently acts as
+          Nothing prevents Marka Reviews from acting directly where Marka independently acts as
           controller for a particular category of Personal Data.
         </p>
 
         <H>11. Return, Export and Deletion</H>
         <p>
-          At the end of the Processing relationship, and subject to Applicable Law, ReviewMaster
+          At the end of the Processing relationship, and subject to Applicable Law, Marka Reviews
           will at the Merchant&rsquo;s choice <strong>delete or return</strong> Customer Personal
           Data.
         </p>
         <p>
-          Because Shopify uninstall may rapidly revoke ReviewMaster&rsquo;s access to the store,
+          Because Shopify uninstall may rapidly revoke Marka Reviews&rsquo; access to the store,
           the Merchant should use available export functionality or request an export{' '}
           <strong>before uninstalling</strong> where the Merchant wishes to retain a copy.
         </p>
@@ -441,7 +446,7 @@ export default function Dpa() {
             rendered unusable;
           </li>
           <li>
-            Customer Personal Data in ReviewMaster&rsquo;s active systems will be deleted in
+            Customer Personal Data in Marka Reviews&rsquo; active systems will be deleted in
             accordance with Shopify requirements and Applicable Law;
           </li>
           <li>
@@ -456,14 +461,14 @@ export default function Dpa() {
           </li>
         </ul>
         <p>
-          ReviewMaster may retain information where required by Applicable Law, provided that such
+          Marka Reviews may retain information where required by Applicable Law, provided that such
           retained information remains appropriately protected and is not used for unrelated
           purposes.
         </p>
 
         <H>12. Customer Deletion and Anonymization</H>
         <p>
-          ReviewMaster will not assume that review text becomes anonymous merely because the
+          Marka Reviews will not assume that review text becomes anonymous merely because the
           reviewer&rsquo;s name or email address has been removed.
         </p>
         <p>Where a valid deletion/redaction instruction applies:</p>
@@ -493,10 +498,10 @@ export default function Dpa() {
 
         <H>13. Audits and Demonstration of Compliance</H>
         <p>
-          On reasonable written request, ReviewMaster will make available information reasonably
+          On reasonable written request, Marka Reviews will make available information reasonably
           necessary to demonstrate compliance with applicable processor obligations.
         </p>
-        <p>ReviewMaster may satisfy audit-information requests initially through:</p>
+        <p>Marka Reviews may satisfy audit-information requests initially through:</p>
         <ul className="list-disc pl-6">
           <li>security documentation;</li>
           <li>questionnaires;</li>
@@ -517,27 +522,27 @@ export default function Dpa() {
           <li>audits may occur no more than once in any 12-month period;</li>
           <li>at least 30 days&rsquo; written notice must be provided;</li>
           <li>audits must occur during normal business hours;</li>
-          <li>the audit must not unreasonably interfere with ReviewMaster operations;</li>
-          <li>the auditor must not be a direct competitor of ReviewMaster;</li>
+          <li>the audit must not unreasonably interfere with Marka Reviews operations;</li>
+          <li>the auditor must not be a direct competitor of Marka Reviews;</li>
           <li>the auditor must sign reasonable confidentiality obligations;</li>
           <li>the audit must not access another Merchant&rsquo;s data;</li>
           <li>
-            ReviewMaster may restrict access to information that would create material security
+            Marka Reviews may restrict access to information that would create material security
             risk.
           </li>
         </ul>
         <p>The Merchant bears its own audit costs.</p>
         <p>
-          Where an audit imposes substantial assistance requirements beyond ReviewMaster&rsquo;s
-          ordinary compliance obligations, ReviewMaster may charge reasonable documented
-          assistance costs unless the audit establishes ReviewMaster&rsquo;s material breach of
+          Where an audit imposes substantial assistance requirements beyond Marka Reviews&rsquo;
+          ordinary compliance obligations, Marka Reviews may charge reasonable documented
+          assistance costs unless the audit establishes Marka Reviews&rsquo; material breach of
           this DPA.
         </p>
         <p>Nothing in this section limits a Supervisory Authority&rsquo;s lawful powers.</p>
 
         <H>14. Security</H>
         <p>
-          ReviewMaster maintains technical and organizational measures designed to provide a level
+          Marka Reviews maintains technical and organizational measures designed to provide a level
           of security appropriate to the risk.
         </p>
         <p>Measures are described in Annex 2 and may be updated where:</p>
@@ -547,13 +552,13 @@ export default function Dpa() {
           <li>equivalent or better safeguards are adopted.</li>
         </ul>
         <p>
-          ReviewMaster will not materially reduce the overall security of Customer Personal Data
+          Marka Reviews will not materially reduce the overall security of Customer Personal Data
           during the term without reasonable justification.
         </p>
 
         <H>15. Personal Data Breach</H>
         <p>
-          ReviewMaster will notify the Merchant <strong>without undue delay</strong> after
+          Marka Reviews will notify the Merchant <strong>without undue delay</strong> after
           becoming aware of a Personal Data Breach affecting Customer Personal Data.
         </p>
         <p>We will provide information reasonably available to us, which may include:</p>
@@ -567,7 +572,7 @@ export default function Dpa() {
           <li>contact information for follow-up.</li>
         </ul>
         <p>
-          Where all information is not immediately available, ReviewMaster may provide information
+          Where all information is not immediately available, Marka Reviews may provide information
           in phases rather than delaying the initial notice.
         </p>
         <p>The Merchant remains responsible for determining whether it must notify:</p>
@@ -577,16 +582,16 @@ export default function Dpa() {
           <li>customers;</li>
           <li>other regulators,</li>
         </ul>
-        <p>except where ReviewMaster independently has such an obligation.</p>
+        <p>except where Marka Reviews independently has such an obligation.</p>
         <p>
-          ReviewMaster maintains a separate incident-response obligation to notify Shopify of
+          Marka Reviews maintains a separate incident-response obligation to notify Shopify of
           qualifying actual or suspected compromise of Shopify Merchant Data within
           Shopify&rsquo;s required timeframe.
         </p>
 
         <H>16. International Transfers</H>
         <p>
-          Marka is established in India and ReviewMaster may use infrastructure or Subprocessors
+          Marka is established in India and Marka Reviews may use infrastructure or Subprocessors
           located outside the country in which Customer Personal Data originated.
         </p>
         <p>
@@ -603,7 +608,7 @@ export default function Dpa() {
         <p>Where:</p>
         <ul className="list-disc pl-6">
           <li>the Merchant exports Personal Data protected by the EU GDPR;</li>
-          <li>ReviewMaster is the data importer;</li>
+          <li>Marka Reviews is the data importer;</li>
           <li>the transfer requires an Article 46 GDPR safeguard,</li>
         </ul>
         <p>
@@ -614,24 +619,24 @@ export default function Dpa() {
           are incorporated by reference.
         </p>
         <p>
-          For the Merchant-to-ReviewMaster relationship, unless another module is legally more
+          For the Merchant-to-Marka Reviews relationship, unless another module is legally more
           appropriate:
         </p>
         <p>
           <strong>Module Two — Controller to Processor</strong> applies.
         </p>
         <p>
-          For ReviewMaster-to-Subprocessor transfers requiring SCCs, the applicable
+          For Marka Reviews-to-Subprocessor transfers requiring SCCs, the applicable
           processor-to-processor mechanism, including <strong>Module Three</strong>, may be used
-          between ReviewMaster and the relevant Subprocessor.
+          between Marka Reviews and the relevant Subprocessor.
         </p>
-        <p>For Module Two between Merchant and ReviewMaster:</p>
+        <p>For Module Two between Merchant and Marka Reviews:</p>
         <ul className="list-disc pl-6">
           <li>
             the Merchant is the <strong>data exporter</strong>;
           </li>
           <li>
-            ReviewMaster is the <strong>data importer</strong>;
+            Marka Reviews is the <strong>data importer</strong>;
           </li>
           <li>Annex 1 of this DPA supplies the processing description to the extent sufficient;</li>
           <li>Annex 2 supplies technical and organizational measures;</li>
@@ -685,19 +690,19 @@ export default function Dpa() {
 
         <H>20. Government Requests</H>
         <p>
-          Where legally permitted, ReviewMaster will notify the Merchant if ReviewMaster receives
+          Where legally permitted, Marka Reviews will notify the Merchant if Marka Reviews receives
           a binding governmental demand specifically seeking Customer Personal Data Processed on
           the Merchant&rsquo;s behalf.
         </p>
         <p>
-          ReviewMaster may challenge or narrow a request where we reasonably believe there are
+          Marka Reviews may challenge or narrow a request where we reasonably believe there are
           lawful grounds to do so.
         </p>
         <p>We will disclose only information reasonably required by the legally binding request.</p>
 
         <H>21. Data Protection Impact Assessments</H>
         <p>
-          Taking into account the nature of Processing and information available to ReviewMaster,
+          Taking into account the nature of Processing and information available to Marka Reviews,
           we will provide reasonable assistance requested by the Merchant in relation to:
         </p>
         <ul className="list-disc pl-6">
@@ -705,9 +710,9 @@ export default function Dpa() {
           <li>prior consultation with a Supervisory Authority.</li>
         </ul>
         <p>
-          ReviewMaster may charge reasonable fees for substantial assistance that is specific to
+          Marka Reviews may charge reasonable fees for substantial assistance that is specific to
           the Merchant and materially exceeds ordinary support, unless the assistance is required
-          because of ReviewMaster&rsquo;s breach of this DPA.
+          because of Marka Reviews&rsquo; breach of this DPA.
         </p>
 
         <H>22. Controller Processing by Marka</H>
@@ -720,19 +725,19 @@ export default function Dpa() {
           <li>platform-wide email suppression records.</li>
         </ul>
         <p>
-          Such Processing is governed by the ReviewMaster{' '}
+          Such Processing is governed by the Marka Reviews{' '}
           <Link href="/privacy">Privacy Policy</Link> and Applicable Data Protection Law.
         </p>
 
         <H>23. India Data Protection</H>
         <p>
-          ReviewMaster complies with applicable Indian privacy, cybersecurity and data-protection
+          Marka Reviews complies with applicable Indian privacy, cybersecurity and data-protection
           requirements.
         </p>
         <p>
           References to the <strong>Digital Personal Data Protection Act, 2023</strong> and
           related rules apply only to the extent and from the dates the relevant provisions are
-          legally in force and applicable to ReviewMaster&rsquo;s Processing.
+          legally in force and applicable to Marka Reviews&rsquo; Processing.
         </p>
         <p>
           Nothing in this DPA represents that provisions not yet commenced have already become
@@ -742,7 +747,7 @@ export default function Dpa() {
         <H>24. Liability</H>
         <p>
           Liability between the parties arising under this DPA is subject to the limitations and
-          exclusions in the ReviewMaster <Link href="/terms">Terms of Service</Link>,{' '}
+          exclusions in the Marka Reviews <Link href="/terms">Terms of Service</Link>,{' '}
           <strong>
             except to the extent Applicable Data Protection Law, the SCCs, UK Addendum or another
             mandatory transfer instrument prohibits such limitation
@@ -761,11 +766,11 @@ export default function Dpa() {
 
         <H>26. Term and Termination</H>
         <p>
-          This DPA begins when ReviewMaster first Processes Customer Personal Data on behalf of
+          This DPA begins when Marka Reviews first Processes Customer Personal Data on behalf of
           the Merchant.
         </p>
         <p>
-          It continues until ReviewMaster no longer Processes Customer Personal Data on the
+          It continues until Marka Reviews no longer Processes Customer Personal Data on the
           Merchant&rsquo;s behalf, except provisions that must survive to protect retained
           Personal Data.
         </p>
@@ -776,12 +781,12 @@ export default function Dpa() {
         <p>
           <strong>Data exporter</strong>
           <br />
-          The Shopify Merchant using ReviewMaster.
+          The Shopify Merchant using Marka Reviews.
           <br />
           <strong>Role:</strong> Controller or party acting on behalf of the applicable
           Controller.
           <br />
-          <strong>Contact:</strong> Merchant contact details held in Shopify/ReviewMaster account
+          <strong>Contact:</strong> Merchant contact details held in Shopify/Marka Reviews account
           records.
         </p>
         <p>
@@ -789,7 +794,7 @@ export default function Dpa() {
           <br />
           <strong>Marka Modern Retail Private Limited</strong>
           <br />
-          Operator of ReviewMaster
+          Operator of Marka Reviews
           <br />
           1st Floor, Plot 558 P, Sector 27, Gurugram (Gurgaon), Haryana 122009, India
           <br />
@@ -841,7 +846,7 @@ export default function Dpa() {
 
         <H3>E. Frequency</H3>
         <p>
-          Processing occurs on a continuous or event-driven basis while ReviewMaster is installed
+          Processing occurs on a continuous or event-driven basis while Marka Reviews is installed
           and enabled.
         </p>
 
@@ -864,10 +869,10 @@ export default function Dpa() {
         </ul>
 
         <H3>G. Purposes</H3>
-        <p>Providing the ReviewMaster services configured by the Merchant.</p>
+        <p>Providing the Marka Reviews services configured by the Merchant.</p>
 
         <H3>H. Retention</H3>
-        <p>As stated in Section 11 and the ReviewMaster <Link href="/privacy">Privacy Policy</Link>.</p>
+        <p>As stated in Section 11 and the Marka Reviews <Link href="/privacy">Privacy Policy</Link>.</p>
         <p>
           Residual backup copies are deleted or overwritten within no more than{' '}
           <strong>35 days</strong> after applicable production deletion, unless legally required
@@ -886,7 +891,7 @@ export default function Dpa() {
 
         <H>ANNEX 2 — TECHNICAL AND ORGANIZATIONAL SECURITY MEASURES</H>
         <p>
-          ReviewMaster maintains security measures appropriate to the nature, scope and risk of
+          Marka Reviews maintains security measures appropriate to the nature, scope and risk of
           the Processing.
         </p>
         <p>These may include:</p>
@@ -920,8 +925,8 @@ export default function Dpa() {
 
         <H3>5. Data Minimization</H3>
         <p>
-          ReviewMaster seeks to request and retain only Shopify information reasonably necessary
-          for ReviewMaster functionality.
+          Marka Reviews seeks to request and retain only Shopify information reasonably necessary
+          for Marka Reviews functionality.
         </p>
 
         <H3>6. Media Controls</H3>
@@ -952,7 +957,7 @@ export default function Dpa() {
         </p>
 
         <H3>9. Incident Response</H3>
-        <p>ReviewMaster maintains procedures to:</p>
+        <p>Marka Reviews maintains procedures to:</p>
         <ul className="list-disc pl-6">
           <li>identify;</li>
           <li>investigate;</li>
@@ -964,7 +969,7 @@ export default function Dpa() {
 
         <H3>10. Software and Infrastructure Maintenance</H3>
         <p>
-          ReviewMaster uses reasonable processes appropriate to the size and risk of the service
+          Marka Reviews uses reasonable processes appropriate to the size and risk of the service
           for:
         </p>
         <ul className="list-disc pl-6">

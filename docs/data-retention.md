@@ -1,7 +1,7 @@
 # Data retention policy
 
 **Owner:** Marka Modern Retail Private Limited
-**Applies to:** all personal data processed by ReviewMaster
+**Applies to:** all personal data processed by Marka Reviews (formerly ReviewMaster)
 **Last reviewed:** 1 August 2026 · **Review cycle:** annually, or on any change to what the App collects
 
 The enforcing code is `src/lib/retention.ts`, run nightly by `.github/workflows/retention.yml`

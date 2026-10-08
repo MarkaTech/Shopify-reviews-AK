@@ -50,14 +50,24 @@
   {%- endcomment -%}
   {%- liquid
     assign star_style = ''
-    if block.settings.star_color != blank and block.settings.star_color != '#f5a623'
+    comment
+      #e8871e is the default (Marka Orange); #f5a623 is the default before the rebrand. A block
+      holding either was never changed, so the app's colour applies.
+    endcomment
+    if block.settings.star_color != blank and block.settings.star_color != '#e8871e' and block.settings.star_color != '#f5a623'
       assign star_style = '--rm-star-color:' | append: block.settings.star_color | append: ';'
     endif
   -%}
 
+  {%- comment -%}
+    The star shape. "app" (and a block saved before this setting existed) leaves it to
+    Settings -> Display, which the review widget publishes on the page; a block on a page
+    with no widget then shows the Marka tick-star, the default. Picking a shape here wins.
+  {%- endcomment -%}
   <div
     class="rm-stars rm-stars--{{ block.settings.size }}"
     style="{{ star_style }}"
+    {%- if block.settings.star_shape == 'tick' or block.settings.star_shape == 'classic' %} data-rm-stars="{{ block.settings.star_shape }}"{% endif %}
     {{ block.shopify_attributes }}
   >
     {%- comment -%}
@@ -73,6 +83,15 @@
       {%- if remainder >= 0.25 -%}<span class="rm-star rm-star--half" aria-hidden="true">★</span>{%- endif -%}
       {%- for i in (1..empty_stars) -%}<span class="rm-star rm-star--empty" aria-hidden="true">★</span>{%- endfor -%}
     </span>
+
+    {%- comment -%}
+      The average as text, beside the stars and the count: the guidelines ask for rating,
+      scale and count together, and it is the rating for anyone who cannot make out the
+      stars. A block saved before this setting existed has no value, so blank counts as on.
+    {%- endcomment -%}
+    {%- if block.settings.show_value != false -%}
+      <span class="rm-stars__value">{{ value | round: 1 }}</span>
+    {%- endif -%}
 
     {%- if block.settings.show_count -%}
       <a class="rm-stars__count" href="#reviewmaster-reviews">
@@ -116,7 +135,26 @@
       "type": "color",
       "id": "star_color",
       "label": "Star colour",
-      "default": "#F5A623"
+      "default": "#E8871E"
+    },
+    {
+      "type": "select",
+      "id": "star_shape",
+      "label": "Star shape",
+      "default": "app",
+      "options": [
+        { "value": "app", "label": "Same as the app" },
+        { "value": "tick", "label": "Marka tick-star" },
+        { "value": "classic", "label": "Classic star" }
+      ],
+      "info": "Same as the app follows Settings → Display in Marka Reviews."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_value",
+      "label": "Show the average rating",
+      "default": true,
+      "info": "The number beside the stars, such as 4.8."
     },
     {
       "type": "checkbox",

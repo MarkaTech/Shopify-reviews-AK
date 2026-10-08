@@ -771,7 +771,7 @@ const PLAN_PRICES: Record<string, number> = {
 export function planDisplayName(plan: string): string {
   const label = plan.charAt(0).toUpperCase() + plan.slice(1);
   const price = PLAN_PRICES[plan];
-  return price ? `ReviewMaster ${label} ($${price}/month)` : `ReviewMaster ${label}`;
+  return price ? `Marka Reviews ${label} ($${price}/month)` : `Marka Reviews ${label}`;
 }
 
 /**

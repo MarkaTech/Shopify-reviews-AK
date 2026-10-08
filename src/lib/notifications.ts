@@ -24,7 +24,8 @@
  */
 
 import { db } from './db';
-import { sendEmail, emailProvider, type SendResult } from './email';
+import { sendEmail, emailProvider, brandImageUrl, type SendResult } from './email';
+import { APP_NAME, BRAND, BRAND_ASSETS } from './brand';
 
 const PREFIX = 'notify.';
 
@@ -124,17 +125,41 @@ function esc(s: unknown): string {
 }
 
 function shell(title: string, inner: string, footer: string): string {
-  return `<!doctype html><html><body style="margin:0;padding:24px;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1f2937">
-  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e7eb">
+  // The brand badge heads every merchant email. Left out, rather than broken, when there is
+  // no public app URL to load it from.
+  const badge = brandImageUrl(BRAND_ASSETS.badgePng);
+  const header = badge
+    ? `<img src="${badge}" width="150" height="50" alt="Verified by Marka" style="display:block;width:150px;height:50px;border:0;outline:none;margin:0 0 22px;border-radius:8px">`
+    : '';
+  return `<!doctype html><html><body style="margin:0;padding:24px;background:#FAF6F0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1B3358">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #E4DED4">
+    ${header}
     <h1 style="margin:0 0 16px;font-size:18px;font-weight:700">${esc(title)}</h1>
     ${inner}
-    <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280">${footer}</p>
+    <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #E4DED4;font-size:12px;color:#5A6675">${footer}</p>
   </div>
 </body></html>`;
 }
 
 function starRow(rating: number): string {
   return '★'.repeat(rating) + '☆'.repeat(Math.max(0, 5 - rating));
+}
+
+/**
+ * The rating as five tick-stars, for the HTML part. Images, because mail clients render
+ * neither SVG nor CSS masks; each one's alt text is the plain star, so a client that blocks
+ * images still shows the rating.
+ */
+function starRowHtml(rating: number): string {
+  const on = brandImageUrl(BRAND_ASSETS.starPng);
+  const off = brandImageUrl(BRAND_ASSETS.starEmptyPng);
+  if (!on || !off) {
+    return `<span style="font-size:18px;color:${BRAND.orange};letter-spacing:2px">${starRow(rating)}</span>`;
+  }
+  return Array.from({ length: 5 }, (_, i) => {
+    const filled = i < rating;
+    return `<img src="${filled ? on : off}" width="18" height="18" alt="${filled ? '★' : '☆'}" style="display:inline-block;width:18px;height:18px;border:0;margin:0 2px 0 0;vertical-align:middle">`;
+  }).join('');
 }
 
 export interface ReviewNotice {
@@ -184,22 +209,22 @@ export async function notifyNewReview(
       : `New ${review.rating}-star review awaiting approval`;
 
     const productLine = review.productTitle
-      ? `<p style="margin:0 0 4px;font-size:13px;color:#6b7280">on <strong>${esc(review.productTitle)}</strong></p>`
+      ? `<p style="margin:0 0 4px;font-size:13px;color:#5A6675">on <strong>${esc(review.productTitle)}</strong></p>`
       : '';
 
     const urgency = isNegative
-      ? `<p style="margin:0 0 16px;padding:10px 12px;background:#FEF2F2;border-left:3px solid #DC2626;font-size:13px;color:#991B1B">A public reply within a few hours is the single most effective response to a review like this.</p>`
+      ? `<p style="margin:0 0 16px;padding:10px 12px;background:#FEF3F2;border-left:3px solid #B42318;font-size:13px;color:#912018">A public reply within a few hours is the single most effective response to a review like this.</p>`
       : '';
 
     const inner = `${urgency}
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:16px">
-      <p style="margin:0 0 6px;font-size:18px;color:#F5A623;letter-spacing:2px">${starRow(review.rating)}</p>
+    <div style="border:1px solid #E4DED4;border-radius:8px;padding:16px">
+      <p style="margin:0 0 8px;line-height:18px">${starRowHtml(review.rating)}</p>
       ${review.title ? `<p style="margin:0 0 6px;font-size:15px;font-weight:600">${esc(review.title)}</p>` : ''}
       <p style="margin:0 0 10px;font-size:14px;line-height:1.55;white-space:pre-wrap">${esc(review.body.slice(0, 1200))}</p>
-      <p style="margin:0 0 2px;font-size:13px;color:#374151">— ${esc(review.reviewerName)}</p>
+      <p style="margin:0 0 2px;font-size:13px;color:#3E4A5C">— ${esc(review.reviewerName)}</p>
       ${productLine}
     </div>
-    <p style="margin:18px 0 0;font-size:13px;color:#374151">${
+    <p style="margin:18px 0 0;font-size:13px;color:#3E4A5C">${
       review.isPublished
         ? 'It is already live on your storefront.'
         : 'It is waiting in your moderation queue and is not visible to shoppers yet.'
@@ -224,7 +249,7 @@ export async function notifyNewReview(
     return await sendEmail({
       to,
       subject,
-      html: shell(subject, inner, `ReviewMaster · ${esc(store?.name || store?.shopifyDomain || '')}`),
+      html: shell(subject, inner, `${APP_NAME} · ${esc(store?.name || store?.shopifyDomain || '')}`),
       text,
     });
   } catch (error) {
@@ -290,22 +315,22 @@ export async function sendWeeklySummary(
 
     const subject = `${stats.total} new review${stats.total === 1 ? '' : 's'} this week`;
 
-    const cell = (label: string, value: string, color = '#111827') =>
-      `<td style="padding:12px;border:1px solid #e5e7eb;border-radius:8px;text-align:center">
+    const cell = (label: string, value: string, color = '#1B3358') =>
+      `<td style="padding:12px;border:1px solid #E4DED4;border-radius:8px;text-align:center">
          <div style="font-size:22px;font-weight:700;color:${color}">${esc(value)}</div>
-         <div style="font-size:11px;color:#6b7280;margin-top:2px">${esc(label)}</div>
+         <div style="font-size:11px;color:#5A6675;margin-top:2px">${esc(label)}</div>
        </td>`;
 
     const inner = `<table style="width:100%;border-collapse:separate;border-spacing:6px"><tr>
       ${cell('new reviews', String(stats.total))}
-      ${cell('avg rating', stats.average.toFixed(1), '#F5A623')}
-      ${cell('awaiting approval', String(stats.pending), stats.pending ? '#B45309' : '#111827')}
-      ${cell('1–2 star', String(stats.negative), stats.negative ? '#DC2626' : '#111827')}
+      ${cell('avg rating', stats.average.toFixed(1), BRAND.orange)}
+      ${cell('awaiting approval', String(stats.pending), stats.pending ? '#8A5000' : '#1B3358')}
+      ${cell('1–2 star', String(stats.negative), stats.negative ? '#B42318' : '#1B3358')}
     </tr></table>
     ${
       stats.pending
-        ? `<p style="margin:18px 0 0;font-size:13px;color:#374151">${stats.pending} review${stats.pending === 1 ? ' is' : 's are'} still waiting for approval and not visible to shoppers.</p>`
-        : `<p style="margin:18px 0 0;font-size:13px;color:#374151">Your moderation queue is clear.</p>`
+        ? `<p style="margin:18px 0 0;font-size:13px;color:#3E4A5C">${stats.pending} review${stats.pending === 1 ? ' is' : 's are'} still waiting for approval and not visible to shoppers.</p>`
+        : `<p style="margin:18px 0 0;font-size:13px;color:#3E4A5C">Your moderation queue is clear.</p>`
     }`;
 
     const text = `${subject}
@@ -318,7 +343,7 @@ Awaiting approval: ${stats.pending}
     return await sendEmail({
       to,
       subject,
-      html: shell(subject, inner, `ReviewMaster · ${esc(store?.name || store?.shopifyDomain || '')}`),
+      html: shell(subject, inner, `${APP_NAME} · ${esc(store?.name || store?.shopifyDomain || '')}`),
       text,
     });
   } catch (error) {
@@ -348,17 +373,17 @@ export async function notifyNewQuestion(
     const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true, shopifyDomain: true } });
     const subject = 'A shopper asked a question';
     const productLine = q.productTitle
-      ? `<p style="margin:0 0 4px;font-size:13px;color:#6b7280">about <strong>${esc(q.productTitle)}</strong></p>`
+      ? `<p style="margin:0 0 4px;font-size:13px;color:#5A6675">about <strong>${esc(q.productTitle)}</strong></p>`
       : '';
     const inner = `
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:16px">
+    <div style="border:1px solid #E4DED4;border-radius:8px;padding:16px">
       <p style="margin:0 0 10px;font-size:14px;line-height:1.55;white-space:pre-wrap">${esc(q.body.slice(0, 1200))}</p>
-      <p style="margin:0 0 2px;font-size:13px;color:#374151">— ${esc(q.askerName)}</p>
+      <p style="margin:0 0 2px;font-size:13px;color:#3E4A5C">— ${esc(q.askerName)}</p>
       ${productLine}
     </div>
-    <p style="margin:18px 0 0;font-size:13px;color:#374151">Answer it from the Questions screen in ReviewMaster. Your answer is published on the product page for every future shopper, and the person who asked is emailed if they left an address.</p>`;
-    const text = [subject, '', q.body.slice(0, 1200), `— ${q.askerName}`, q.productTitle ? `about ${q.productTitle}` : '', '', 'Answer it from the Questions screen in ReviewMaster.'].filter(Boolean).join('\n');
-    return await sendEmail({ to, subject, html: shell(subject, inner, `ReviewMaster · ${esc(store?.name || store?.shopifyDomain || '')}`), text });
+    <p style="margin:18px 0 0;font-size:13px;color:#3E4A5C">Answer it from the Questions screen in Marka Reviews. Your answer is published on the product page for every future shopper, and the person who asked is emailed if they left an address.</p>`;
+    const text = [subject, '', q.body.slice(0, 1200), `— ${q.askerName}`, q.productTitle ? `about ${q.productTitle}` : '', '', 'Answer it from the Questions screen in Marka Reviews.'].filter(Boolean).join('\n');
+    return await sendEmail({ to, subject, html: shell(subject, inner, `${APP_NAME} · ${esc(store?.name || store?.shopifyDomain || '')}`), text });
   } catch (error) {
     console.error('[notifications] notifyNewQuestion failed:', error);
     return { sent: false, reason: 'failed', detail: String(error) };

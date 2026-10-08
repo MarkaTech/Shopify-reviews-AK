@@ -122,7 +122,7 @@ async function handle(request: NextRequest): Promise<NextResponse> {
 
   return page(
     'You will not hear from us again',
-    'That address has been removed from all review invitations, from every store using ReviewMaster.',
+    'That address has been removed from all review invitations, from every store using Marka Reviews.',
     true
   );
 }

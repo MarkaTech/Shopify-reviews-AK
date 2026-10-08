@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "29b49298063da4f8633daaeb2e652e39"
-name = "ReviewMaster"
+name = "Marka Reviews"
 application_url = "https://reviewmaster-app.azurewebsites.net"
 embedded = true
 handle = "reviewmaster-reviews"

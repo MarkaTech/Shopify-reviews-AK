@@ -254,7 +254,7 @@ export default function BulkUploadPage() {
               <p className="mt-3 text-[13.5px] font-semibold text-ink-900 dark:text-white">{s.label}</p>
               <p className="mt-0.5 text-[11.5px] leading-snug text-ink-500">{s.blurb}</p>
               {s.id === 'etsy' && etsy?.connected && (
-                <Pill tone="brand" className="mt-2">Connected</Pill>
+                <Pill tone="success" className="mt-2">Connected</Pill>
               )}
             </button>
           );

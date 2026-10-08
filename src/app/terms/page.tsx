@@ -2,11 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Terms of Service — ReviewMaster',
-  description: 'The merchant agreement governing use of the ReviewMaster Shopify application.',
+  title: 'Terms of Service — Marka Reviews',
+  description: 'The merchant agreement governing use of the Marka Reviews Shopify application.',
 };
 
-const LAST_UPDATED = '20 August 2026';
+const LAST_UPDATED = '8 October 2026';
 
 /*
  * This page is the binding version of the Terms. It was finalised from the 20 August 2026
@@ -21,23 +21,28 @@ function H({ children }: { children: React.ReactNode }) {
 
 export default function Terms() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
-      <Link href="/" className="text-sm text-emerald-700 hover:underline dark:text-emerald-400">
-        &larr; Back to ReviewMaster
+    <main className="marka-type mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
+      <Link href="/" className="text-sm text-[#1B3358] underline underline-offset-2 hover:no-underline dark:text-[#FFC24B]">
+        &larr; Back to Marka Reviews
       </Link>
 
-      <h1 className="mt-6 text-3xl font-bold tracking-tight">ReviewMaster Terms of Service</h1>
+      <h1 className="mt-6 text-3xl font-bold tracking-tight">Marka Reviews Terms of Service</h1>
       <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Last updated: {LAST_UPDATED}</p>
 
       <div className="prose prose-slate dark:prose-invert mt-8 max-w-none space-y-4 text-[15px] leading-relaxed">
         <p>
           These Terms of Service constitute a legally binding merchant agreement between{' '}
           <strong>Marka Modern Retail Private Limited</strong>, a company incorporated under the
-          laws of India and operator of ReviewMaster (&ldquo;<strong>ReviewMaster</strong>&rdquo;,
+          laws of India and operator of Marka Reviews (&ldquo;<strong>Marka Reviews</strong>&rdquo;,
           &ldquo;<strong>Marka</strong>&rdquo;, &ldquo;<strong>we</strong>&rdquo;, &ldquo;<strong>us</strong>&rdquo;,
           or &ldquo;<strong>our</strong>&rdquo;), and the person or entity that installs, accesses,
-          subscribes to, or uses the ReviewMaster application (&ldquo;<strong>Merchant</strong>&rdquo;,
+          subscribes to, or uses the Marka Reviews application (&ldquo;<strong>Merchant</strong>&rdquo;,
           &ldquo;<strong>you</strong>&rdquo;, or &ldquo;<strong>your</strong>&rdquo;).
+        </p>
+        <p>
+          Marka Reviews was called ReviewMaster until October 2026. The new name changes nothing
+          in these Terms. A reference to ReviewMaster in an earlier version of them, or in the
+          name of an existing subscription, means Marka Reviews.
         </p>
         <p>
           <strong>Registered office:</strong> 1st Floor, Plot 558 P, Sector 27, Gurugram (Gurgaon),
@@ -46,22 +51,22 @@ export default function Terms() {
           <strong>Legal/Support contact:</strong> tech@houseofmarka.com
         </p>
         <p>
-          By installing or using ReviewMaster, you confirm that you have read, understood, and
+          By installing or using Marka Reviews, you confirm that you have read, understood, and
           agreed to these Terms, our <Link href="/privacy">Privacy Policy</Link>, and our{' '}
           <Link href="/dpa">Data Processing Agreement</Link> (&ldquo;DPA&rdquo;), each as amended
           from time to time.
         </p>
         <p>
-          If you are installing or using ReviewMaster on behalf of a company or other entity, you
+          If you are installing or using Marka Reviews on behalf of a company or other entity, you
           represent that you have authority to bind that entity.
         </p>
-        <p>If you do not agree to these Terms, do not install or use ReviewMaster.</p>
+        <p>If you do not agree to these Terms, do not install or use Marka Reviews.</p>
 
         <H>1. Definitions</H>
         <p>For these Terms:</p>
         <ul>
           <li>
-            <strong>App</strong> or <strong>ReviewMaster</strong> means the ReviewMaster Shopify
+            <strong>App</strong> or <strong>Marka Reviews</strong> means the Marka Reviews Shopify
             application and related services, APIs, dashboards, widgets, integrations,
             documentation and features made available by Marka.
           </li>
@@ -91,8 +96,8 @@ export default function Terms() {
           </li>
         </ul>
 
-        <H>2. The ReviewMaster Service</H>
-        <p>ReviewMaster provides tools that may allow Merchants to:</p>
+        <H>2. The Marka Reviews Service</H>
+        <p>Marka Reviews provides tools that may allow Merchants to:</p>
         <ul>
           <li>collect customer product reviews;</li>
           <li>request reviews from eligible customers;</li>
@@ -121,32 +126,32 @@ export default function Terms() {
 
         <H>3. Relationship with Shopify</H>
         <p>
-          ReviewMaster is developed, operated and supported by{' '}
+          Marka Reviews is developed, operated and supported by{' '}
           <strong>Marka Modern Retail Private Limited</strong>, independently from Shopify.
         </p>
         <p>
-          Marka, and not Shopify, is responsible for ReviewMaster, including its development,
+          Marka, and not Shopify, is responsible for Marka Reviews, including its development,
           operation, maintenance, support, marketing and our handling of Merchant Data through the
           App.
         </p>
         <p>To the maximum extent permitted by Applicable Law:</p>
         <ul>
-          <li>Shopify is not responsible for any fault, error, interruption or defect in ReviewMaster;</li>
-          <li>Shopify is not responsible for harm arising from the installation or use of ReviewMaster;</li>
+          <li>Shopify is not responsible for any fault, error, interruption or defect in Marka Reviews;</li>
+          <li>Shopify is not responsible for harm arising from the installation or use of Marka Reviews;</li>
           <li>
             except where Shopify expressly states otherwise, Shopify does not provide support for
-            ReviewMaster;
+            Marka Reviews;
           </li>
-          <li>disputes concerning ReviewMaster are between the Merchant and Marka;</li>
+          <li>disputes concerning Marka Reviews are between the Merchant and Marka;</li>
           <li>
             Marka is responsible for liabilities arising from its development, operation and
-            provision of ReviewMaster and its access to or storage of Merchant Data, subject to
+            provision of Marka Reviews and its access to or storage of Merchant Data, subject to
             these Terms and Applicable Law.
           </li>
         </ul>
         <p>
           Shopify may modify, suspend or discontinue APIs, permissions, programs, services or
-          features on which ReviewMaster depends. Such changes may affect the functionality or
+          features on which Marka Reviews depends. Such changes may affect the functionality or
           availability of the App.
         </p>
         <p>
@@ -155,7 +160,7 @@ export default function Terms() {
         </p>
 
         <H>4. Merchant Account and Authority</H>
-        <p>Access to ReviewMaster is associated with your Shopify store.</p>
+        <p>Access to Marka Reviews is associated with your Shopify store.</p>
         <p>You are responsible for:</p>
         <ul>
           <li>ensuring that persons using your Shopify account are authorized;</li>
@@ -166,7 +171,7 @@ export default function Terms() {
         </ul>
         <p>
           You must promptly notify us if you reasonably believe that unauthorized access to
-          ReviewMaster has occurred.
+          Marka Reviews has occurred.
         </p>
 
         <H>5. Plans, Charges and Billing</H>
@@ -192,7 +197,7 @@ export default function Terms() {
         </p>
         <p>
           You may upgrade, downgrade or cancel through the mechanisms made available by Shopify or
-          ReviewMaster.
+          Marka Reviews.
         </p>
         <h3 className="mt-6 text-lg font-semibold">5.1 Trials</h3>
         <p>If a trial is offered, its duration and conditions will be displayed before activation.</p>
@@ -214,10 +219,10 @@ export default function Terms() {
         </p>
 
         <H>6. Customer Review Requests</H>
-        <p>ReviewMaster may enable a Merchant to configure review invitations and follow-up reminders.</p>
+        <p>Marka Reviews may enable a Merchant to configure review invitations and follow-up reminders.</p>
         <p>
           By activating such functionality, the Merchant specifically instructs and authorizes
-          ReviewMaster to communicate with eligible Customers{' '}
+          Marka Reviews to communicate with eligible Customers{' '}
           <strong>
             on the Merchant&rsquo;s behalf and for the configured review-request purposes
           </strong>
@@ -225,7 +230,7 @@ export default function Terms() {
         </p>
         <p>The Merchant represents and warrants that:</p>
         <ul>
-          <li>it has the right and lawful basis to provide the relevant Customer information to ReviewMaster;</li>
+          <li>it has the right and lawful basis to provide the relevant Customer information to Marka Reviews;</li>
           <li>any consent or other permission legally required to send the communication has been obtained;</li>
           <li>its privacy notice adequately discloses relevant processing;</li>
           <li>
@@ -236,7 +241,7 @@ export default function Terms() {
         <p>
           The legal classification of review invitations, reminders and incentive-related
           communications varies by jurisdiction and may depend on the content of the message.
-          ReviewMaster does not represent that any particular communication is universally
+          Marka Reviews does not represent that any particular communication is universally
           &ldquo;transactional,&rdquo; &ldquo;service&rdquo; or exempt from marketing laws.
         </p>
         <p>
@@ -255,7 +260,7 @@ export default function Terms() {
 
         <H>7. Review Integrity and Authenticity Rules</H>
         <p>
-          The Merchant must use ReviewMaster in a manner that accurately represents genuine
+          The Merchant must use Marka Reviews in a manner that accurately represents genuine
           customer opinion and reviewer experience.
         </p>
         <p>You must not:</p>
@@ -291,21 +296,21 @@ export default function Terms() {
           </li>
           <li>use AI, automation or other means to fabricate customer experiences or identities;</li>
           <li>
-            use ReviewMaster to engage in review gating or other deceptive review-selection
+            use Marka Reviews to engage in review gating or other deceptive review-selection
             practices prohibited by Applicable Law or relevant platform rules.
           </li>
         </ol>
         <p>
-          ReviewMaster may establish additional review-integrity procedures, technical controls,
+          Marka Reviews may establish additional review-integrity procedures, technical controls,
           disclosure requirements or moderation requirements where reasonably necessary to comply
           with law or third-party platform policies.
         </p>
 
         <H>8. Verified Purchase Status</H>
         <p>
-          A &ldquo;Verified Purchase&rdquo; designation may be shown only where ReviewMaster&rsquo;s
+          A &ldquo;Verified Purchase&rdquo; designation may be shown only where Marka Reviews&rsquo;
           records support an association between the review and an eligible Shopify order or other
-          verification method expressly supported by ReviewMaster.
+          verification method expressly supported by Marka Reviews.
         </p>
         <p>
           Imported, manually entered or storefront-submitted reviews must not be represented as
@@ -316,12 +321,12 @@ export default function Terms() {
           underlying verification is incomplete, inaccurate, manipulated or no longer reliable.
         </p>
         <p>
-          The Merchant must not attempt to bypass or falsify ReviewMaster&rsquo;s verification
+          The Merchant must not attempt to bypass or falsify Marka Reviews&rsquo; verification
           controls.
         </p>
 
         <H>9. Review Incentives</H>
-        <p>Where ReviewMaster permits incentives, the following rules apply:</p>
+        <p>Where Marka Reviews permits incentives, the following rules apply:</p>
         <ul>
           <li>
             an incentive must not depend, expressly or implicitly, on a positive or negative
@@ -334,11 +339,11 @@ export default function Terms() {
             review will appear;
           </li>
           <li>
-            ReviewMaster may mark incentivized content and may prevent the Merchant from removing
+            Marka Reviews may mark incentivized content and may prevent the Merchant from removing
             a required disclosure;
           </li>
           <li>
-            ReviewMaster may exclude incentivized reviews from platforms or syndication
+            Marka Reviews may exclude incentivized reviews from platforms or syndication
             destinations whose policies prohibit or restrict them.
           </li>
         </ul>
@@ -349,7 +354,7 @@ export default function Terms() {
           and third-party platform policies.
         </p>
         <p>
-          ReviewMaster may restrict or disable any incentive configuration that we reasonably
+          Marka Reviews may restrict or disable any incentive configuration that we reasonably
           believe creates legal, regulatory, platform-policy, fraud or consumer-protection risk.
         </p>
 
@@ -360,7 +365,7 @@ export default function Terms() {
         </p>
         <p>The Merchant is responsible for the Merchant&rsquo;s moderation decisions.</p>
         <p>
-          However, ReviewMaster may, but is not obligated to, restrict, label, refuse, suspend,
+          However, Marka Reviews may, but is not obligated to, restrict, label, refuse, suspend,
           unpublish, quarantine or remove content where we reasonably believe that it:
         </p>
         <ul>
@@ -370,7 +375,7 @@ export default function Terms() {
           <li>is unlawful;</li>
           <li>creates security or technical risk;</li>
           <li>violates applicable third-party platform requirements;</li>
-          <li>exposes ReviewMaster, Shopify or another person to material legal or reputational risk.</li>
+          <li>exposes Marka Reviews, Shopify or another person to material legal or reputational risk.</li>
         </ul>
         <p>
           Our exercise of these rights does not make us responsible for reviewing or pre-approving
@@ -381,14 +386,14 @@ export default function Terms() {
         <p>The Merchant represents and warrants that:</p>
         <ol>
           <li>it has authority to enter into these Terms;</li>
-          <li>its use of ReviewMaster will comply with Applicable Law;</li>
+          <li>its use of Marka Reviews will comply with Applicable Law;</li>
           <li>
             it owns, controls or has obtained all rights, licences, permissions, consents and
             lawful bases necessary for Merchant Content and Customer information supplied to
-            ReviewMaster;
+            Marka Reviews;
           </li>
           <li>
-            ReviewMaster&rsquo;s processing of Merchant Content according to the Merchant&rsquo;s
+            Marka Reviews&rsquo; processing of Merchant Content according to the Merchant&rsquo;s
             instructions will not knowingly infringe third-party rights;
           </li>
           <li>
@@ -396,14 +401,14 @@ export default function Terms() {
             processed for the functions enabled by the Merchant;
           </li>
           <li>
-            it will not use ReviewMaster to mislead Customers about the authenticity, source,
+            it will not use Marka Reviews to mislead Customers about the authenticity, source,
             verification, independence or sentiment of reviews;
           </li>
           <li>
             it will comply with applicable platform rules for Google, Shopify, Shop and other
             enabled destinations;
           </li>
-          <li>it will not use ReviewMaster for unlawful discrimination, harassment, fraud or deception.</li>
+          <li>it will not use Marka Reviews for unlawful discrimination, harassment, fraud or deception.</li>
         </ol>
 
         <H>12. Merchant Content</H>
@@ -420,7 +425,7 @@ export default function Terms() {
           The Merchant grants Marka a worldwide, non-exclusive, royalty-free licence, for the
           duration reasonably required to provide the App, to: host; store; reproduce; format;
           process; cache; transmit; display; publish; syndicate; and back up Merchant Content
-          solely as reasonably necessary to operate, secure, support and provide ReviewMaster and
+          solely as reasonably necessary to operate, secure, support and provide Marka Reviews and
           enabled integrations.
         </p>
         <p>
@@ -430,23 +435,23 @@ export default function Terms() {
 
         <H>13. Review Media</H>
         <p>
-          Where ReviewMaster uploads review photos or videos to the Merchant&rsquo;s own Shopify
+          Where Marka Reviews uploads review photos or videos to the Merchant&rsquo;s own Shopify
           Files account, such media may continue to exist in the Merchant&rsquo;s Shopify
-          environment after ReviewMaster is uninstalled.
+          environment after Marka Reviews is uninstalled.
         </p>
         <p>
           The Merchant is responsible for deleting those files from Shopify where desired or
           legally required.
         </p>
         <p>
-          ReviewMaster may retain identifiers, URLs or metadata relating to such files only for as
+          Marka Reviews may retain identifiers, URLs or metadata relating to such files only for as
           long as reasonably necessary to provide the App and in accordance with our Privacy
           Policy and DPA.
         </p>
 
-        <H>14. ReviewMaster Intellectual Property</H>
+        <H>14. Marka Reviews Intellectual Property</H>
         <p>
-          Marka and its licensors own all rights, title and interest in and to ReviewMaster,
+          Marka and its licensors own all rights, title and interest in and to Marka Reviews,
           including: software; source code and object code; databases and schemas; algorithms;
           APIs; interfaces; widgets; layouts; trademarks; branding; documentation; designs;
           systems; analytics methods; improvements; updates; and derivative works.
@@ -460,9 +465,9 @@ export default function Terms() {
           <li>reverse engineer or attempt to derive source code;</li>
           <li>copy substantial elements of the App;</li>
           <li>bypass access, security, billing or usage controls;</li>
-          <li>scrape or systematically extract ReviewMaster proprietary data;</li>
+          <li>scrape or systematically extract Marka Reviews proprietary data;</li>
           <li>sublicense, resell or redistribute the App;</li>
-          <li>use ReviewMaster confidential information to create a competing copy;</li>
+          <li>use Marka Reviews confidential information to create a competing copy;</li>
           <li>remove Marka proprietary notices.</li>
         </ul>
         <p>
@@ -473,7 +478,7 @@ export default function Terms() {
 
         <H>15. Feedback</H>
         <p>
-          If you voluntarily provide suggestions, ideas or feedback concerning ReviewMaster, you
+          If you voluntarily provide suggestions, ideas or feedback concerning Marka Reviews, you
           grant Marka a perpetual, worldwide, irrevocable, transferable, sublicensable and
           royalty-free right to use that feedback without restriction or compensation, provided
           that we do not publicly identify you as its source without permission.
@@ -488,9 +493,9 @@ export default function Terms() {
           .
         </p>
         <p>
-          Where ReviewMaster processes Customer personal data on the Merchant&rsquo;s behalf, the{' '}
+          Where Marka Reviews processes Customer personal data on the Merchant&rsquo;s behalf, the{' '}
           <Link href="/dpa">
-            <strong>ReviewMaster Data Processing Agreement</strong>
+            <strong>Marka Reviews Data Processing Agreement</strong>
           </Link>{' '}
           applies and forms part of these Terms.
         </p>
@@ -517,7 +522,7 @@ export default function Terms() {
         </p>
         <p>
           You must not perform penetration testing, vulnerability scanning or similar security
-          testing against ReviewMaster without prior written authorization, except where a
+          testing against Marka Reviews without prior written authorization, except where a
           non-waivable law expressly permits it.
         </p>
         <p>
@@ -528,19 +533,19 @@ export default function Terms() {
         <p>You must not:</p>
         <ul>
           <li>access another Merchant&rsquo;s data without authorization;</li>
-          <li>interfere with or overload ReviewMaster infrastructure;</li>
+          <li>interfere with or overload Marka Reviews infrastructure;</li>
           <li>distribute malware or harmful code;</li>
           <li>bypass technical limitations;</li>
           <li>use automated methods that materially degrade the service;</li>
-          <li>use ReviewMaster for fraud or unlawful activity;</li>
+          <li>use Marka Reviews for fraud or unlawful activity;</li>
           <li>impersonate another person;</li>
-          <li>use Merchant or Customer data obtained through ReviewMaster for an unauthorized purpose;</li>
+          <li>use Merchant or Customer data obtained through Marka Reviews for an unauthorized purpose;</li>
           <li>violate third-party intellectual-property, privacy or publicity rights;</li>
           <li>attempt unauthorized access to systems or accounts.</li>
         </ul>
 
         <H>19. Third-Party Services and Integrations</H>
-        <p>ReviewMaster depends on Third-Party Services that are outside Marka&rsquo;s control.</p>
+        <p>Marka Reviews depends on Third-Party Services that are outside Marka&rsquo;s control.</p>
         <p>We do not guarantee that:</p>
         <ul>
           <li>a third-party API will remain available;</li>
@@ -553,7 +558,7 @@ export default function Terms() {
           <li>a Shopify theme or third-party theme will remain compatible after it changes.</li>
         </ul>
         <p>Third parties may alter their APIs, policies, eligibility rules and features at any time.</p>
-        <p>ReviewMaster may modify or discontinue affected functionality in response.</p>
+        <p>Marka Reviews may modify or discontinue affected functionality in response.</p>
 
         <H>20. Service Availability and Changes</H>
         <p>The App is provided on an &ldquo;<strong>as available</strong>&rdquo; basis.</p>
@@ -576,7 +581,7 @@ export default function Terms() {
 
         <H>21. Suspension and Termination</H>
         <p>
-          You may terminate use of ReviewMaster by uninstalling the App and cancelling applicable
+          You may terminate use of Marka Reviews by uninstalling the App and cancelling applicable
           subscriptions.
         </p>
         <p>We may suspend, limit or terminate access immediately where we reasonably believe that:</p>
@@ -606,11 +611,11 @@ export default function Terms() {
         <H>22. Export and Deletion</H>
         <p>
           Where export functionality is available, the Merchant should export required data{' '}
-          <strong>before uninstalling</strong> ReviewMaster.
+          <strong>before uninstalling</strong> Marka Reviews.
         </p>
         <p>Following uninstall:</p>
         <ul>
-          <li>ReviewMaster&rsquo;s authorization to access the store is revoked or disabled;</li>
+          <li>Marka Reviews&rsquo; authorization to access the store is revoked or disabled;</li>
           <li>applicable tokens and credentials will be deleted or rendered unusable;</li>
           <li>
             Merchant Data will be deleted in accordance with Shopify requirements, the Privacy
@@ -651,7 +656,7 @@ export default function Terms() {
 
         <H>24. Disclaimer of Warranties</H>
         <p>
-          To the maximum extent permitted by Applicable Law, ReviewMaster is provided
+          To the maximum extent permitted by Applicable Law, Marka Reviews is provided
           &ldquo;<strong>as is</strong>&rdquo; and &ldquo;<strong>as available.</strong>&rdquo;
         </p>
         <p>
@@ -660,7 +665,7 @@ export default function Terms() {
           uninterrupted availability; error-free operation; compatibility; and commercial results.
         </p>
         <p>
-          We do not guarantee that ReviewMaster will increase revenue, conversion, search
+          We do not guarantee that Marka Reviews will increase revenue, conversion, search
           visibility, customer trust, rankings or sales.
         </p>
         <p>Nothing in these Terms excludes a warranty or right that cannot legally be excluded.</p>
@@ -678,12 +683,12 @@ export default function Terms() {
         </p>
         <p>
           Except for liability that cannot lawfully be limited, Marka&rsquo;s aggregate liability
-          arising out of or relating to ReviewMaster or these Terms will not exceed the greater
+          arising out of or relating to Marka Reviews or these Terms will not exceed the greater
           of:
         </p>
         <ol>
           <li>
-            the fees actually paid by the Merchant to Marka for ReviewMaster during the{' '}
+            the fees actually paid by the Merchant to Marka for Marka Reviews during the{' '}
             <strong>12 months immediately preceding the event giving rise to the claim</strong>; or
           </li>
           <li>
@@ -796,7 +801,7 @@ export default function Terms() {
           necessary.
         </p>
         <p>
-          Continued use of ReviewMaster after an updated version becomes effective constitutes
+          Continued use of Marka Reviews after an updated version becomes effective constitutes
           acceptance to the extent permitted by law.
         </p>
 
@@ -805,13 +810,13 @@ export default function Terms() {
         <p>
           Marka may assign or transfer these Terms, in whole or in part: to an affiliate; in
           connection with a merger, restructuring, acquisition or sale of assets; or to a
-          successor to the ReviewMaster business.
+          successor to the Marka Reviews business.
         </p>
 
         <H>32. Entire Agreement and Order of Precedence</H>
         <p>
           These Terms, the Privacy Policy, the DPA and commercial terms approved through Shopify
-          constitute the agreement governing ReviewMaster.
+          constitute the agreement governing Marka Reviews.
         </p>
         <p>If there is a conflict:</p>
         <ul>
@@ -839,7 +844,7 @@ export default function Terms() {
           agency relationship between Marka and the Merchant.
         </p>
         <p>
-          ReviewMaster acts as a service provider to the Merchant except where expressly stated
+          Marka Reviews acts as a service provider to the Merchant except where expressly stated
           otherwise.
         </p>
 
@@ -856,7 +861,7 @@ export default function Terms() {
         <p>
           <strong>Marka Modern Retail Private Limited</strong>
           <br />
-          ReviewMaster
+          Marka Reviews
           <br />
           1st Floor, Plot 558 P, Sector 27, Gurugram (Gurgaon), Haryana 122009, India
           <br />

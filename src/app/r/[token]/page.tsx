@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, use, useRef } from 'react';
+import { RatingStar } from '@/components/app/ui-kit';
+import { BRAND_ASSETS, type StarStyle } from '@/lib/brand';
 
 /**
  * Public review submission page.
@@ -28,6 +30,9 @@ interface RequestData {
   items: Item[];
   allowPhotos?: boolean;
   allowVideo?: boolean;
+  /** The store's star shape and colour, so this page matches its storefront widget. */
+  starStyle?: string;
+  starColor?: string;
 }
 
 interface Attachment { file: File; url: string; isVideo: boolean }
@@ -116,10 +121,12 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
   if (loading) {
     return (
       <Shell>
-        <div className="space-y-4">
-          <div className="h-6 w-2/3 animate-pulse rounded-lg bg-slate-100" />
-          <div className="h-4 w-1/2 animate-pulse rounded-lg bg-slate-100" />
-          <div className="h-40 animate-pulse rounded-2xl bg-slate-100" />
+        {/* A static skeleton with a status line (Marka guidelines: no looping motion). */}
+        <div className="space-y-4" role="status" aria-busy="true">
+          <span className="sr-only">Loading your order…</span>
+          <div className="h-6 w-2/3 rounded-lg bg-slate-100" />
+          <div className="h-4 w-1/2 rounded-lg bg-slate-100" />
+          <div className="h-40 rounded-2xl bg-slate-100" />
         </div>
       </Shell>
     );
@@ -129,15 +136,9 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
     return (
       <Shell>
         <div className="py-8 text-center">
-          <div className="relative mx-auto mb-5 w-fit">
-            <div className="absolute inset-0 rounded-full bg-emerald-400/30 blur-2xl" />
-            <div
-              className="relative flex size-16 items-center justify-center rounded-2xl text-white"
-              style={{
-                backgroundImage: 'linear-gradient(160deg,#34d3a0,#059468)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,.3), 0 10px 24px -8px rgba(5,148,104,.55)',
-              }}
-            >
+          <div className="mx-auto mb-5 w-fit">
+            {/* Success: the guideline green, with the tick and the heading below saying it too. */}
+            <div className="flex size-16 items-center justify-center rounded-2xl bg-[#19734B] text-white">
               <svg viewBox="0 0 24 24" className="size-8" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20 6 9 17l-5-5" />
               </svg>
@@ -173,20 +174,18 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
   const allowVideo = data.allowVideo !== false;
   const allowMedia = allowPhotos || allowVideo;
   const ready = Object.values(forms).some(f => f.body.trim());
+  const starVariant: StarStyle = data.starStyle === 'classic' ? 'classic' : 'tick';
 
   return (
     <Shell>
       <div className="text-center">
-        <div
-          className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl text-white"
-          style={{
-            backgroundImage: 'linear-gradient(160deg,#34d3a0,#059468)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,.3), 0 8px 20px -8px rgba(5,148,104,.5)',
-          }}
-        >
-          <svg viewBox="0 0 24 24" className="size-6" fill="currentColor">
-            <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
+        {/* The store's star, as on its storefront: the Marka tick-star unless it chose the classic one. */}
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-[#1B3358]">
+          {starVariant === 'classic' ? (
+            <RatingStar size={26} color="#FFC24B" variant="classic" />
+          ) : (
+            <img src={BRAND_ASSETS.tickStar} alt="" width={30} height={30} className="size-[30px]" />
+          )}
         </div>
         <h1 className="text-[24px] font-bold leading-tight tracking-tight text-slate-900">
           How was your order?
@@ -240,7 +239,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
 
               {/* ── Rating ── */}
               <div className="mt-4">
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   {[1, 2, 3, 4, 5].map(n => (
                     <button
                       key={n}
@@ -248,18 +247,14 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
                       aria-label={`${n} star${n === 1 ? '' : 's'}`}
                       aria-pressed={n === f.rating}
                       onClick={() => set({ rating: n })}
-                      className="rounded p-0.5 transition-transform duration-150 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+                      className="ring-focus rounded-md p-1.5"
                     >
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="size-8 transition-colors"
-                        fill={n <= f.rating ? '#fbbf24' : '#e2e8f0'}
-                      >
-                        <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                      </svg>
+                      <RatingStar size={32} fill={n <= f.rating ? 1 : 0} variant={starVariant} color={data.starColor} />
                     </button>
                   ))}
-                  <span className="ml-2 text-[13px] font-medium text-slate-500">
+                  {/* Kept on one line; on a narrow phone it moves under the stars instead of
+                      breaking mid-phrase. Announced, since the stars change it. */}
+                  <span aria-live="polite" className="ml-2 whitespace-nowrap text-[13px] font-medium text-slate-600">
                     {RATING_WORDS[f.rating]}
                   </span>
                 </div>
@@ -270,7 +265,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
                 onChange={e => set({ title: e.target.value })}
                 placeholder="Sum it up in a few words (optional)"
                 maxLength={200}
-                className="mt-4 h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className="mt-4 h-11 w-full rounded-xl border border-slate-400 px-3.5 text-[14px] text-slate-900 placeholder:text-slate-500 focus:border-[#1B3358] focus:outline-none focus:ring-2 focus:ring-[#FFC24B]"
               />
               <textarea
                 value={f.body}
@@ -278,7 +273,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
                 placeholder="What did you think? What would you tell a friend who was considering it?"
                 rows={4}
                 maxLength={5000}
-                className="mt-2.5 w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-[14px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className="mt-2.5 w-full resize-y rounded-xl border border-slate-400 px-3.5 py-3 text-[14px] leading-relaxed text-slate-900 placeholder:text-slate-500 focus:border-[#1B3358] focus:outline-none focus:ring-2 focus:ring-[#FFC24B]"
               />
 
               {allowMedia && (
@@ -298,11 +293,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
       <button
         onClick={submit}
         disabled={submitting || !ready}
-        className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
-        style={{
-          backgroundImage: 'linear-gradient(180deg,#10b785,#059468)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,.28), 0 6px 18px -6px rgba(5,148,104,.5)',
-        }}
+        className="brand-fill ring-focus mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
       >
         {submitting ? (
           <>
@@ -426,7 +417,7 @@ function MediaPicker({
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="flex size-[68px] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 transition-colors hover:border-emerald-400 hover:bg-emerald-50/50 hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          className="flex size-[68px] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 transition-colors hover:border-[#1B3358] hover:bg-[#FDF1DE] hover:text-[#1B3358] ring-focus"
         >
           <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
             <rect x="3" y="6" width="18" height="14" rx="2" />
@@ -455,7 +446,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         className="pointer-events-none fixed inset-0 -z-10"
         style={{
           background:
-            'radial-gradient(50rem 32rem at 15% -5%, rgba(16,183,133,0.12), transparent 60%), radial-gradient(44rem 30rem at 100% 5%, rgba(99,102,241,0.09), transparent 60%)',
+            'radial-gradient(50rem 32rem at 15% -5%, rgba(255,194,75,0.12), transparent 60%), radial-gradient(44rem 30rem at 100% 5%, rgba(27,51,88,0.06), transparent 60%)',
         }}
       />
       <div
@@ -467,9 +458,15 @@ function Shell({ children }: { children: React.ReactNode }) {
       >
         {children}
       </div>
-      <p className="mt-6 text-center text-[11px] text-slate-400">
-        Powered by ReviewMaster
-      </p>
+      {/* The brand badge. Reviews written here come from a real order, which is exactly
+          what it stands for. */}
+      <img
+        src={BRAND_ASSETS.badge}
+        alt="Verified by Marka"
+        width={96}
+        height={32}
+        className="mx-auto mt-6 block h-8 w-auto rounded-md opacity-90"
+      />
     </main>
   );
 }

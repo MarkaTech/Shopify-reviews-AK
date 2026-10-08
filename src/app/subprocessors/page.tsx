@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Sub-processors — ReviewMaster',
+  title: 'Sub-processors — Marka Reviews',
   description:
-    'The third parties ReviewMaster uses to process merchant customer data, what each one does, and where it is located.',
+    'The third parties Marka Reviews uses to process merchant customer data, what each one does, and where it is located.',
 };
 
 const LAST_UPDATED = '20 August 2026';
@@ -45,9 +45,9 @@ const SUBPROCESSORS: SubProcessor[] = [
 
 export default function SubProcessors() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
-      <Link href="/" className="text-sm text-emerald-700 hover:underline dark:text-emerald-400">
-        &larr; Back to ReviewMaster
+    <main className="marka-type mx-auto max-w-3xl px-6 py-16 text-slate-800 dark:text-slate-200">
+      <Link href="/" className="text-sm text-[#1B3358] underline underline-offset-2 hover:no-underline dark:text-[#FFC24B]">
+        &larr; Back to Marka Reviews
       </Link>
 
       <h1 className="mt-6 text-3xl font-bold tracking-tight">Sub-processors</h1>
@@ -57,7 +57,7 @@ export default function SubProcessors() {
         <p>
           These are the third parties that process your customers&apos; personal data on our
           behalf. The list forms part of the{' '}
-          <Link href="/dpa" className="text-emerald-700 hover:underline dark:text-emerald-400">Data Processing Agreement</Link>,
+          <Link href="/dpa" className="text-[#1B3358] underline underline-offset-2 hover:no-underline dark:text-[#FFC24B]">Data Processing Agreement</Link>,
           and we give at least <strong>30 days&apos; notice</strong> before adding to it.
         </p>
 
@@ -116,7 +116,7 @@ export default function SubProcessors() {
           <p>
             If you object to a new sub-processor on reasonable data protection grounds, write
             to{' '}
-            <a href={`mailto:${CONTACT_EMAIL}`} className="text-emerald-700 hover:underline dark:text-emerald-400">{CONTACT_EMAIL}</a>{' '}
+            <a href={`mailto:${CONTACT_EMAIL}`} className="text-[#1B3358] underline underline-offset-2 hover:no-underline dark:text-[#FFC24B]">{CONTACT_EMAIL}</a>{' '}
             within the notice period. We will propose an alternative where one exists, and
             where none does you may uninstall without penalty.
           </p>

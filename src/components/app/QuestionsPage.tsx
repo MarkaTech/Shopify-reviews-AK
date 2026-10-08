@@ -403,7 +403,7 @@ export default function QuestionsPage({
                               {a.authorName}
                               {a.authorType === 'merchant' && <Pill tone="brand">Store</Pill>}
                               <span className="font-normal text-brand-600/70 dark:text-brand-300/60">
-                                {new Date(a.createdAt).toLocaleDateString()}
+                                {new Date(a.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
                               </span>
                             </p>
                             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-700 dark:text-ink-200">

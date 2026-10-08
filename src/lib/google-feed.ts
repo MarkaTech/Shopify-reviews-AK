@@ -81,7 +81,7 @@ export function buildProductReviewsFeed(store: FeedStore, reviews: FeedReview[])
   parts.push('<?xml version="1.0" encoding="UTF-8"?>');
   parts.push('<feed xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" xsi:noNamespaceSchemaLocation="http://www.google.com/shopping/reviews/schema/product/2.3/product_reviews.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">');
   parts.push('<version>2.3</version>');
-  parts.push(`<aggregator><name>${xmlEscape(store.name || 'ReviewMaster')}</name></aggregator>`);
+  parts.push(`<aggregator><name>${xmlEscape(store.name || 'Marka Reviews')}</name></aggregator>`);
   parts.push(`<publisher><name>${xmlEscape(store.name || 'Store')}</name><favicon>${xmlEscape(siteUrl)}/favicon.ico</favicon></publisher>`);
   parts.push('<reviews>');
 

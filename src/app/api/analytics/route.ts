@@ -69,7 +69,9 @@ export async function GET(request: Request) {
       db.review.groupBy({ by: ['rating'], where: { storeId }, _count: { _all: true } }),
       db.review.groupBy({ by: ['source'], where: { storeId }, _count: { _all: true } }),
 
-      db.review.count({ where: { storeId, verifiedPurchase: true } }),
+      // "Verified buyers" counts the authoritative status, not the legacy boolean, which can
+      // be true with no matched order: the same rule the storefront badge follows.
+      db.review.count({ where: { storeId, verificationStatus: 'verified_buyer' } }),
       // Not just `not: null`. The review editor supports clearing a reply back to an
       // empty string, and the old JS counted `reply` by truthiness — so a merchant who
       // deleted a reply used to see their response rate fall, and briefly did not.

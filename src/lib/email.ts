@@ -10,7 +10,7 @@
  *   RESEND_API_KEY    — https://resend.com
  *   SENDGRID_API_KEY  — https://sendgrid.com
  * Plus:
- *   EMAIL_FROM        — e.g. "ReviewMaster <reviews@yourdomain.com>"
+ *   EMAIL_FROM        — e.g. "Marka Reviews <reviews@yourdomain.com>"
  *
  * With none set, sending is skipped and reported as such. The review request is still
  * created and its link still works, so nothing is lost — it just has to be shared manually.
@@ -119,8 +119,20 @@ export interface EmailMessage {
   unsubscribeUrl?: string;
 }
 
+/**
+ * Absolute URL for an image in public/brand, for use in email.
+ *
+ * Mail clients fetch images from the open internet, so a relative path is useless there.
+ * Null when there is no https app URL to point at (local dev, tests): the caller leaves the
+ * image out rather than sending a broken one.
+ */
+export function brandImageUrl(path: string): string | null {
+  const base = (process.env.SHOPIFY_APP_URL || '').trim().replace(/\/+$/, '');
+  return /^https:\/\//.test(base) ? `${base}${path}` : null;
+}
+
 function fromAddress(): string {
-  return process.env.EMAIL_FROM?.trim() || 'ReviewMaster <onboarding@resend.dev>';
+  return process.env.EMAIL_FROM?.trim() || 'Marka Reviews <onboarding@resend.dev>';
 }
 
 export function emailProvider(): 'ses' | 'resend' | 'sendgrid' | null {
@@ -423,6 +435,12 @@ export interface ReviewRequestEmailInput {
   reviewUrl: string;
   /** Softer copy for the second and third touch. Same single CTA, no pressure tactics. */
   isReminder?: boolean;
+  /**
+   * The small "Verified by Marka" mark under the email. Free plan only, like the widget's
+   * attribution line; a white-label plan sends the merchant's email with nothing of ours.
+   * Truthful here: a review written from this link is tied to the order it came from.
+   */
+  showBadge?: boolean;
 }
 
 /**
@@ -438,41 +456,49 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
   const orderRef = input.orderNumber ? ` #${escapeHtml(input.orderNumber)}` : '';
   const store = escapeHtml(input.storeName);
 
+  const badgeUrl = input.showBadge ? brandImageUrl('/brand/verified-by-marka.png') : null;
+  const badgeHtml = badgeUrl
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px auto 0;">
+        <tr><td align="center"><img src="${badgeUrl}" width="96" height="32" alt="Verified by Marka" style="display:block;width:96px;height:32px;border:0;outline:none;border-radius:5px;"></td></tr>
+      </table>`
+    : '';
+
   const itemsHtml = input.itemTitles
     .slice(0, 8)
-    .map(t => `<li style="margin:0 0 6px;color:#374151;">${escapeHtml(t)}</li>`)
+    .map(t => `<li style="margin:0 0 6px;color:#3E4A5C;">${escapeHtml(t)}</li>`)
     .join('');
 
   const html = `<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#f6f7f9;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 12px;">
+<html><body style="margin:0;padding:0;background:#FAF6F0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAF6F0;padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
         <tr><td>
-          <p style="margin:0 0 16px;font-size:15px;color:#111827;">${escapeHtml(greeting)}</p>
-          <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
+          <p style="margin:0 0 16px;font-size:15px;color:#1B3358;">${escapeHtml(greeting)}</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#3E4A5C;">
             ${escapeHtml(intro)}${orderRef} from <strong>${store}</strong>.
             ${input.isReminder ? 'It takes about a minute and genuinely helps other shoppers.' : 'Now that it has arrived, would you share what you thought? It takes about a minute and genuinely helps other shoppers.'}
           </p>
           ${itemsHtml ? `<ul style="margin:0 0 20px;padding-left:20px;font-size:14px;">${itemsHtml}</ul>` : ''}
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px;">
-            <tr><td style="border-radius:8px;background:#059669;">
+            <tr><td style="border-radius:8px;background:#1B3358;">
               <a href="${input.reviewUrl}" style="display:inline-block;padding:12px 24px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
                 Write a review
               </a>
             </td></tr>
           </table>
-          <p style="margin:0 0 6px;font-size:12px;color:#6b7280;">Or paste this into your browser:</p>
-          <p style="margin:0 0 20px;font-size:12px;color:#6b7280;word-break:break-all;">${input.reviewUrl}</p>
-          <p style="margin:0 0 10px;font-size:12px;color:#9ca3af;line-height:1.5;">
+          <p style="margin:0 0 6px;font-size:12px;color:#5A6675;">Or paste this into your browser:</p>
+          <p style="margin:0 0 20px;font-size:12px;color:#5A6675;word-break:break-all;">${input.reviewUrl}</p>
+          <p style="margin:0 0 10px;font-size:12px;color:#5A6675;line-height:1.5;">
             You received this because you bought from ${store}. This link is personal to your order —
             please don't forward it.
           </p>
-          ${input.unsubscribeUrl ? `<p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">
-            Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a>.
+          ${input.unsubscribeUrl ? `<p style="margin:0;font-size:12px;color:#5A6675;line-height:1.5;">
+            Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#5A6675;">Unsubscribe</a>.
           </p>` : ''}
         </td></tr>
       </table>
+      ${badgeHtml}
     </td></tr>
   </table>
 </body></html>`;
@@ -556,27 +582,27 @@ export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
   });
 
   const html = `<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#f6f7f9;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 12px;">
+<html><body style="margin:0;padding:0;background:#FAF6F0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAF6F0;padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
         <tr><td>
-          <p style="margin:0 0 16px;font-size:15px;color:#111827;">${escapeHtml(greeting)}</p>
-          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#374151;">
+          <p style="margin:0 0 16px;font-size:15px;color:#1B3358;">${escapeHtml(greeting)}</p>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#3E4A5C;">
             Thank you for reviewing your purchase from <strong>${store}</strong>.
             As promised, here is your reward — <strong>${escapeHtml(reward)}</strong> your next order:
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
-            <tr><td align="center" style="background:#f0fdf4;border:1px dashed #059669;border-radius:8px;padding:16px;">
-              <span style="font-size:20px;font-weight:700;letter-spacing:1px;color:#065f46;font-family:ui-monospace,Menlo,monospace;">${escapeHtml(input.code)}</span>
+            <tr><td align="center" style="background:#FDF1DE;border:1px dashed #E8871E;border-radius:8px;padding:16px;">
+              <span style="font-size:20px;font-weight:700;letter-spacing:1px;color:#1B3358;font-family:ui-monospace,Menlo,monospace;">${escapeHtml(input.code)}</span>
             </td></tr>
           </table>
-          <p style="margin:0 0 20px;font-size:13px;color:#6b7280;">
+          <p style="margin:0 0 20px;font-size:13px;color:#5A6675;">
             Enter this code at checkout. It can be used once and expires on ${escapeHtml(expires)}.
           </p>
-          <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">${escapeHtml(input.disclosureText)}</p>
-          ${input.unsubscribeUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">
-            Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a>.
+          <p style="margin:0;font-size:12px;color:#5A6675;line-height:1.5;">${escapeHtml(input.disclosureText)}</p>
+          ${input.unsubscribeUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#5A6675;line-height:1.5;">
+            Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#5A6675;">Unsubscribe</a>.
           </p>` : ''}
         </td></tr>
       </table>
@@ -638,22 +664,22 @@ export function renderAnswerEmail(input: AnswerEmailInput): EmailMessage {
   const store = escapeHtml(input.storeName);
   const where = input.productTitle
     ? input.productUrl
-      ? `<a href="${escapeHtml(input.productUrl)}" style="color:#059669">${escapeHtml(input.productTitle)}</a>`
+      ? `<a href="${escapeHtml(input.productUrl)}" style="color:#1B3358">${escapeHtml(input.productTitle)}</a>`
       : escapeHtml(input.productTitle)
     : 'a product';
   const html = `<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#f6f7f9;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 12px;">
+<html><body style="margin:0;padding:0;background:#FAF6F0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAF6F0;padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
         <tr><td>
-          <p style="margin:0 0 16px;font-size:15px;color:#111827;">${escapeHtml(greeting)}</p>
-          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#374151;"><strong>${store}</strong> answered the question you asked about ${where}.</p>
-          <p style="margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;">You asked</p>
-          <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(input.question)}</p>
-          <p style="margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;">${escapeHtml(input.answeredBy)} answered</p>
-          <p style="margin:0 0 20px;padding:12px 14px;background:#f0fdf4;border-left:3px solid #059669;font-size:14px;line-height:1.6;color:#065f46;white-space:pre-wrap;">${escapeHtml(input.answer)}</p>
-          ${input.unsubscribeUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#6b7280;">Unsubscribe</a>.</p>` : ''}
+          <p style="margin:0 0 16px;font-size:15px;color:#1B3358;">${escapeHtml(greeting)}</p>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#3E4A5C;"><strong>${store}</strong> answered the question you asked about ${where}.</p>
+          <p style="margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#5A6675;">You asked</p>
+          <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#3E4A5C;white-space:pre-wrap;">${escapeHtml(input.question)}</p>
+          <p style="margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#5A6675;">${escapeHtml(input.answeredBy)} answered</p>
+          <p style="margin:0 0 20px;padding:12px 14px;background:#FDF1DE;border-left:3px solid #E8871E;font-size:14px;line-height:1.6;color:#1B3358;white-space:pre-wrap;">${escapeHtml(input.answer)}</p>
+          ${input.unsubscribeUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#5A6675;line-height:1.5;">Prefer not to receive these? <a href="${input.unsubscribeUrl}" style="color:#5A6675;">Unsubscribe</a>.</p>` : ''}
         </td></tr>
       </table>
     </td></tr>

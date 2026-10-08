@@ -31,11 +31,12 @@
 
     These defaults must match the schema below. Change one, change both.
   endcomment
-  assign default_accent = '#059669'
+  assign default_accent = '#1b3358'
+  assign legacy_accent = '#059669'
   assign default_radius = 8
 
   assign style = ''
-  if block.settings.accent_color != blank and block.settings.accent_color != default_accent
+  if block.settings.accent_color != blank and block.settings.accent_color != default_accent and block.settings.accent_color != legacy_accent
     assign style = style | append: '--rm-accent:' | append: block.settings.accent_color | append: ';'
   endif
   if block.settings.corner_radius != default_radius
@@ -165,7 +166,7 @@
       "content": "Appearance",
       "info": "Overrides the colours set in the app, for this placement only. Leave at the defaults to use your app-wide settings."
     },
-    { "type": "color", "id": "accent_color", "label": "Accent colour", "default": "#059669" },
+    { "type": "color", "id": "accent_color", "label": "Accent colour", "default": "#1B3358" },
     {
       "type": "range",
       "id": "corner_radius",
@@ -188,7 +189,7 @@
       "id": "app_url",
       "label": "App URL",
       "default": "https://reviewmaster-app.azurewebsites.net",
-      "info": "Leave this alone unless ReviewMaster support asks you to change it."
+      "info": "Leave this alone unless Marka Reviews support asks you to change it."
     }
   ]
 }

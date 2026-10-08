@@ -14,7 +14,23 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { Panel, PanelHeader, Pill, ActionButton, EmptyState, Skeleton } from './ui-kit';
+import { Panel, PanelHeader, Pill, ActionButton, EmptyState, Skeleton, Stars as KitStars, RatingStar, VerifiedMark } from './ui-kit';
+import { DEFAULT_STAR_COLOR, type StarStyle } from '@/lib/brand';
+
+/**
+ * The account-wide look from Settings -> Display: star shape, badge icon, font and the star
+ * colour a widget without its own colour inherits. The preview reads it so it shows what
+ * the storefront will, not the Marka defaults regardless of what the merchant chose.
+ */
+interface Look { starStyle: StarStyle; badgeIcon: 'tick' | 'none'; fontFamily: string; starColor: string }
+const DEFAULT_LOOK: Look = { starStyle: 'tick', badgeIcon: 'tick', fontFamily: '', starColor: DEFAULT_STAR_COLOR };
+const LookContext = React.createContext<Look>(DEFAULT_LOOK);
+
+/** The storefront font from Settings, or the admin's own when the widget follows the theme. */
+function PreviewFont({ children }: { children: React.ReactNode }) {
+  const { fontFamily } = React.useContext(LookContext);
+  return <div style={fontFamily ? { fontFamily } : undefined}>{children}</div>;
+}
 import { THEME_EXT_UUID } from '@/lib/theme-ext';
 
 /**
@@ -84,9 +100,13 @@ const DEFAULT_WIDGET_CONFIG: WidgetConfigShape = {
   showSource: false,
   showReply: true,
   showHelpful: true,
-  starColor: '#F5A623',
-  backgroundColor: '#FFFFFF',
-  textColor: '#1F2937',
+  // Empty means "not set here": the storefront uses Settings → Display (and, for card and
+  // text, the theme). These used to default to concrete colours, which every untouched
+  // widget saved and which then overrode the account colours, despite the hint saying
+  // they would be inherited.
+  starColor: '',
+  backgroundColor: '',
+  textColor: '',
   sortBy: 'recent',
 };
 
@@ -100,6 +120,11 @@ interface Widget {
   createdAt: string;
 }
 
+/** A saved colour, or '' when it is the designer's old untouched default. */
+function chosenColor(v: unknown, legacyDefault: string): string {
+  return typeof v === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(v) && v.toLowerCase() !== legacyDefault ? v : '';
+}
+
 const SAMPLE = [
   { name: 'Sarah M.', rating: 5, title: 'Absolutely love this', body: 'Exceeded my expectations. The quality is outstanding and it looks even better in person.', verified: true, date: '2 days ago' },
   { name: 'James K.', rating: 4, title: 'Great value', body: 'Good quality for the price. Works as described and shipping was fast.', verified: true, date: '5 days ago' },
@@ -107,14 +132,10 @@ const SAMPLE = [
   { name: 'Michael T.', rating: 5, title: 'Highly recommend', body: 'Best purchase this year. Already recommended it to friends.', verified: true, date: '2 weeks ago' },
 ];
 
+/** The storefront's rating star, in the colour being designed. */
 function Stars({ rating, color, size = 12 }: { rating: number; color: string; size?: number }) {
-  return (
-    <span style={{ letterSpacing: '1px', fontSize: size, lineHeight: 1 }}>
-      {[1, 2, 3, 4, 5].map(s => (
-        <span key={s} style={{ color: s <= rating ? color : '#d4d4d8' }}>★</span>
-      ))}
-    </span>
-  );
+  const look = React.useContext(LookContext);
+  return <KitStars rating={rating} color={color} size={size} variant={look.starStyle} />;
 }
 
 /**
@@ -124,7 +145,16 @@ function Stars({ rating, color, size = 12 }: { rating: number; color: string; si
  * count and toggle below feeds this, so a merchant can see the effect of a change before
  * committing it to a live storefront.
  */
-function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; device: 'desktop' | 'mobile' }) {
+function Preview({ type, cfg: raw, device }: { type: string; cfg: WidgetConfigShape; device: 'desktop' | 'mobile' }) {
+  // What an unset colour looks like in the preview: the star colour from Settings, a white
+  // card and dark text, the common case for a theme the preview cannot see.
+  const look = React.useContext(LookContext);
+  const cfg = {
+    ...raw,
+    starColor: raw.starColor || look.starColor,
+    backgroundColor: raw.backgroundColor || '#FFFFFF',
+    textColor: raw.textColor || '#1F2937',
+  };
   const columns = device === 'mobile' ? 1 : USES_COLUMNS.has(type) ? cfg.columns : 1;
 
   const card = (r: typeof SAMPLE[number], i: number, extra: React.CSSProperties = {}) => (
@@ -144,7 +174,12 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
         <Stars rating={r.rating} color={cfg.starColor} />
         <span className="text-[11px] font-semibold">{r.name}</span>
         {cfg.showVerified && r.verified && (
-          <span className="text-[9px] px-1.5 py-px rounded-full bg-brand-50 text-brand-700">Verified</span>
+          // The storefront's default verified badge: navy, cream label, and the tick-star
+          // unless Settings -> Display turns the icon off.
+          <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-px rounded-full bg-[#1B3358] text-[#FDF1DE]">
+            {look.badgeIcon === 'tick' && <VerifiedMark size={9} color={cfg.starColor} />}
+            Verified
+          </span>
         )}
         {cfg.showSource && <span className="text-[9px] px-1.5 py-px rounded-full bg-ink-100 text-ink-500">Import</span>}
         <span className="text-[9px] opacity-50 ml-auto">{r.date}</span>
@@ -159,8 +194,8 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
         </div>
       )}
       {cfg.showReply && i === 1 && (
-        // The storefront draws this rule in the accent colour (--rm-accent, #059669).
-        <div className="mt-1.5 pl-2 border-l-2 text-[10px] opacity-75" style={{ borderLeftColor: '#059669' }}>
+        // The storefront draws this rule in the accent colour (--rm-accent, default Marka Navy).
+        <div className="mt-1.5 pl-2 border-l-2 text-[10px] opacity-75" style={{ borderLeftColor: '#1B3358' }}>
           <strong>Store response</strong>
           <p className="mt-px">Thanks James — glad it arrived quickly.</p>
         </div>
@@ -184,7 +219,7 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
         <div className="flex-1 min-w-[160px] space-y-1">
           {[[5, 65], [4, 22], [3, 8], [2, 3], [1, 2]].map(([s, pct]) => (
             <div key={s} className="flex items-center gap-2">
-              <span className="tnum text-[10px] w-4">{s}★</span>
+              <span className="tnum inline-flex w-6 items-center gap-0.5 text-[10px]">{s}<RatingStar size={9} color={cfg.starColor} variant={look.starStyle} /></span>
               <div className="flex-1 h-1.5 bg-ink-100 rounded-full overflow-hidden">
                 <div className="h-full rounded-full" style={{ width: `${pct}%`, background: cfg.starColor }} />
               </div>
@@ -242,8 +277,9 @@ function Preview({ type, cfg, device }: { type: string; cfg: WidgetConfigShape; 
               <p className="text-[11px] font-bold mb-2">Customer reviews</p>
               <div className="space-y-2">{SAMPLE.slice(0, 2).map((r, i) => card(r, i))}</div>
             </div>
-            <div className="absolute right-3 bottom-3 px-3 py-1.5 rounded-full text-[10px] text-white shadow-lg" style={{ background: '#059669' }}>
-              ★ See all reviews
+            <div className="absolute right-3 bottom-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] text-white shadow-lg" style={{ background: '#1B3358' }}>
+              <RatingStar size={11} color={cfg.starColor} variant={look.starStyle} />
+              See all reviews
             </div>
           </>
         )}
@@ -362,9 +398,11 @@ function PreviewStage({
           </span>
         </div>
 
-        <div className={cn('relative p-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
-          <Preview type={selectedType} cfg={cfg} device={device} />
-        </div>
+        <PreviewFont>
+          <div className={cn('relative p-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
+            <Preview type={selectedType} cfg={cfg} device={device} />
+          </div>
+        </PreviewFont>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -387,7 +425,33 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 
+/**
+ * Loads the account-wide look once for every preview on the page. A failure leaves the
+ * Marka defaults, which is what a store that never opened Settings -> Display has anyway.
+ */
 export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = {}) {
+  const [look, setLook] = useState<Look>(DEFAULT_LOOK);
+  useEffect(() => {
+    apiFetch<{ config: { colors: Record<string, string | null>; layout: Record<string, unknown> } }>('/api/storefront-config')
+      .then(({ config }) => {
+        const L = config.layout ?? {};
+        setLook({
+          starStyle: L.starStyle === 'classic' ? 'classic' : 'tick',
+          badgeIcon: L.badgeIcon === 'none' ? 'none' : 'tick',
+          fontFamily: typeof L.fontFamily === 'string' ? L.fontFamily : '',
+          starColor: config.colors?.star || DEFAULT_STAR_COLOR,
+        });
+      })
+      .catch(() => {});
+  }, []);
+  return (
+    <LookContext.Provider value={look}>
+      <WidgetsPageInner storeDomain={storeDomain} />
+    </LookContext.Provider>
+  );
+}
+
+function WidgetsPageInner({ storeDomain }: { storeDomain?: string }) {
   const confirm = useConfirm();
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [loading, setLoading] = useState(true);
@@ -499,6 +563,11 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
       columns: Number(parsed.columns) || DEFAULT_WIDGET_CONFIG.columns,
       borderRadius: Number(parsed.borderRadius ?? DEFAULT_WIDGET_CONFIG.borderRadius),
       popupDelay: Number(parsed.popupDelay ?? DEFAULT_WIDGET_CONFIG.popupDelay),
+      // Colours equal to the designer's old saved defaults were never chosen: show them as
+      // unset, so saving again stops them overriding Settings → Display.
+      starColor: chosenColor(parsed.starColor, '#f5a623'),
+      backgroundColor: chosenColor(parsed.backgroundColor, '#ffffff'),
+      textColor: chosenColor(parsed.textColor, '#1f2937'),
     });
   };
 
@@ -753,17 +822,22 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
                     {/* Real swatch: the native picker sits invisibly on top of it. */}
                     <span
                       className="relative size-9 shrink-0 overflow-hidden rounded-xl ring-1 ring-inset ring-ink-900/12 shadow-[inset_0_1px_0_rgba(255,255,255,.45)] dark:ring-white/15"
-                      style={{ background: cfg[key] }}
+                      style={{ background: cfg[key] || 'repeating-linear-gradient(45deg,#F3EEE6 0 4px,#FFFFFF 4px 8px)' }}
                     >
-                      <input type="color" value={cfg[key]} onChange={e => set(key, e.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" aria-label={label} />
+                      <input type="color" value={cfg[key] || (key === 'starColor' ? DEFAULT_STAR_COLOR : key === 'backgroundColor' ? '#FFFFFF' : '#1F2937')} onChange={e => set(key, e.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" aria-label={label} />
                     </span>
-                    <Input className="h-9 min-w-0 flex-1 rounded-xl font-mono text-[12px]" value={cfg[key]} onChange={e => set(key, e.target.value)} spellCheck={false} />
+                    <Input className="h-9 min-w-0 flex-1 rounded-xl font-mono text-[12px]" value={cfg[key]} placeholder="From Settings" onChange={e => set(key, e.target.value)} spellCheck={false} />
+                    {cfg[key] && (
+                      <button type="button" onClick={() => set(key, '')} className="ring-focus shrink-0 rounded-lg px-1.5 text-[11.5px] font-medium text-ink-500 hover:text-ink-900">
+                        Clear
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
             <p className="mt-3 text-[11.5px] leading-snug text-ink-400">
-              Leave them alone to inherit Settings → Display.
+              Empty fields follow Settings → Display, and your theme for card and text.
             </p>
           </div>
         </Panel>
@@ -873,7 +947,7 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
                         </p>
                       </div>
                       {isGoverning && (
-                        <Pill tone="brand" icon={CheckCircle2}>Live</Pill>
+                        <Pill tone="success" icon={CheckCircle2}>Live</Pill>
                       )}
                       <Switch checked={w.isActive} onCheckedChange={() => toggleActive(w)} aria-label="Active" />
                       <ActionButton

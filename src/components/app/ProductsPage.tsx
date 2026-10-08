@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShoppingBag, Search, RefreshCw, Star, MessageSquare, ArrowDownToLine,
-  ExternalLink, BarChart3, ImageIcon, Plus,
+  ExternalLink, BarChart3, ImageIcon, Plus, Loader2,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { adminUrl } from '@/lib/admin-links';
 import {
-  Panel, StatCard, Stars, Pill, EmptyState, ActionButton, Skeleton, Meter,
+  Panel, StatCard, Stars, Pill, EmptyState, ActionButton, Skeleton, Meter, RatingStar,
 } from './ui-kit';
 
 interface Product {
@@ -245,7 +245,8 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
             Refresh
           </ActionButton>
           <ActionButton size="sm" onClick={handleSync} disabled={syncing}>
-            <ArrowDownToLine className={cn('size-3.5', syncing && 'animate-bounce')} />
+            {/* A discreet progress indicator while syncing; the icon no longer bounces. */}
+            {syncing ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowDownToLine className="size-3.5" />}
             {syncing ? 'Syncing…' : 'Sync from Shopify'}
           </ActionButton>
         </div>
@@ -274,7 +275,7 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
             description={
               search
                 ? 'Try a shorter search, or clear it to see your whole catalogue.'
-                : 'ReviewMaster syncs your catalogue automatically at install. If nothing appeared, pull it in manually.'
+                : 'Marka Reviews syncs your catalogue automatically at install. If nothing appeared, pull it in manually.'
             }
             action={
               search ? (
@@ -300,7 +301,7 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
 
                 {product.reviewCount > 0 && (
                   <div className="absolute left-2.5 top-2.5 flex items-center gap-1 rounded-lg bg-white/92 px-2 py-1 backdrop-blur-sm dark:bg-ink-900/85">
-                    <Star className="size-3 text-amber-400" fill="currentColor" strokeWidth={0} />
+                    <RatingStar size={12} />
                     <span className="tnum text-[11px] font-bold text-ink-900 dark:text-white">
                       {product.averageRating.toFixed(1)}
                     </span>
@@ -342,7 +343,7 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
                       <Meter value={(product.averageRating / 5) * 100} tone="amber" height={5} />
                     </>
                   ) : (
-                    <p className="text-[11.5px] italic text-ink-400">No reviews yet</p>
+                    <p className="text-[11.5px] text-ink-400">No reviews yet</p>
                   )}
                 </div>
 
@@ -439,14 +440,12 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
                     key={n}
                     type="button"
                     aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                    aria-pressed={n === form.rating}
                     onClick={() => setForm(f => ({ ...f, rating: n }))}
-                    className="ring-focus rounded p-0.5 transition-transform hover:scale-110"
+                    className="ring-focus rounded-md p-1"
                   >
-                    <Star
-                      className={cn('size-6 transition-colors', n <= form.rating ? 'text-amber-400' : 'text-ink-200 dark:text-white/15')}
-                      fill="currentColor"
-                      strokeWidth={0}
-                    />
+                    {/* The Marka rating star. Stars never animate. */}
+                    <RatingStar size={24} fill={n <= form.rating ? 1 : 0} />
                   </button>
                 ))}
                 <span className="ml-2 text-[12px] text-ink-500">{form.rating} of 5</span>

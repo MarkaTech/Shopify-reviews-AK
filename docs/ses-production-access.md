@@ -33,7 +33,7 @@ here — this is usually the slow part and it is already behind you.
 Set in Azure app settings:
 
 ```
-EMAIL_FROM = ReviewMaster <reviews@aavyro.com>
+EMAIL_FROM = Marka Reviews <reviews@aavyro.com>
 ```
 
 Nothing sends until this is set — `emailProvider()` returns SES because the AWS keys are

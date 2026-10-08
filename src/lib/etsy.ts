@@ -21,7 +21,7 @@ import { encryptToken, decryptToken } from './crypto';
  * Etsy has no equivalent of a public app store install: API access needs the MERCHANT's
  * own Etsy developer keystring (etsy.com/developers, a short approval). So v1 is
  * bring-your-own-key: paste keystring + shop, click Connect, approve on Etsy, sync. A
- * shared ReviewMaster Etsy app can replace the keystring step later without changing
+ * shared Marka Reviews Etsy app can replace the keystring step later without changing
  * anything below.
  *
  * Tokens are encrypted at rest with the same helper as the Shopify access token. The

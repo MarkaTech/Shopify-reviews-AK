@@ -1,4 +1,4 @@
-# ReviewMaster — Deployment Runbook
+# Marka Reviews (formerly ReviewMaster) — Deployment Runbook
 
 Everything below runs in **your Terminal**, from the project folder:
 
@@ -36,7 +36,7 @@ az webapp config appsettings set \
     CRON_SECRET='<CRON_SECRET>' \
     EMAIL_PROVIDER='resend' \
     RESEND_API_KEY='<RESEND_API_KEY>' \
-    EMAIL_FROM='ReviewMaster <reviews@yourdomain.com>' \
+    EMAIL_FROM='Marka Reviews <reviews@yourdomain.com>' \
   --output none
 ```
 

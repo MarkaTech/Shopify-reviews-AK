@@ -1,4 +1,4 @@
-# ReviewMaster theme app extension
+# Marka Reviews theme app extension (formerly ReviewMaster; the handle keeps the old name)
 #
 # This replaces ScriptTag injection. Three reasons that is not optional:
 #
@@ -18,5 +18,5 @@ uid = "8c1bed51-dc77-ef46-87d8-28bfba7405dfdc3dc115"
 
 [[extensions]]
 type = "theme"
-name = "ReviewMaster Reviews"
+name = "Marka Reviews"
 handle = "reviewmaster"

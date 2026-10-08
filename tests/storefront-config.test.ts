@@ -16,6 +16,9 @@ import {
   DEFAULT_CONFIG,
   VALID_KEYS,
   LAYOUTS,
+  STAR_STYLES,
+  BADGE_ICONS,
+  FONT_FAMILY,
 } from '../src/lib/storefront-config';
 
 let passed = 0;
@@ -154,6 +157,39 @@ test('VALID_KEYS rejects anything outside the namespace', () => {
 test('the thank-you copy does not promise moderation when auto-publish is on', () => {
   assert.ok(/approval/i.test(DEFAULT_CONFIG.text.thankYou));
   assert.ok(!/approval/i.test(DEFAULT_CONFIG.text.thankYouPublished));
+});
+
+// ── The Marka look: the default, and every part of it the merchant's to change ──
+
+test('the default look is Marka: tick-star ratings, tick-star badge icon, theme font', () => {
+  assert.strictEqual(DEFAULT_CONFIG.layout.starStyle, 'tick');
+  assert.strictEqual(DEFAULT_CONFIG.layout.badgeIcon, 'tick');
+  assert.strictEqual(DEFAULT_CONFIG.layout.fontFamily, '');
+  assert.ok((STAR_STYLES as readonly string[]).includes('classic'));
+  assert.ok((BADGE_ICONS as readonly string[]).includes('none'));
+});
+
+test('a font family a merchant types is accepted when it is only a name', () => {
+  for (const ok of ['Georgia', 'Playfair Display, serif', 'Open-Sans', 'Inter, Helvetica, Arial, sans-serif']) {
+    assert.ok(FONT_FAMILY.test(ok), ok);
+  }
+});
+
+test('a font family that could escape its CSS declaration is refused', () => {
+  for (const bad of [
+    'Georgia; background: url(https://evil.example)',
+    'x}body{display:none',
+    '"Georgia"',
+    "'Georgia'",
+    'Georgia)',
+    'a\\62 ody',
+    '<script>',
+    '1Georgia',
+    ' Georgia',
+    'A'.repeat(81),
+  ]) {
+    assert.ok(!FONT_FAMILY.test(bad), bad);
+  }
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

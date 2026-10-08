@@ -1,5 +1,5 @@
 /**
- * ReviewMaster storefront widget.
+ * Marka Reviews storefront widget.
  *
  * Budget: Shopify recommends theme app extension JavaScript stay under 10 KB, and the
  * storefront Lighthouse score is weighted 83% toward product and collection pages — the
@@ -108,6 +108,22 @@
         document.documentElement.style.setProperty(map[k], v);
       }
     });
+  }
+
+  /**
+   * Star shape, the verified badge's icon and the font, from Settings -> Display. Published
+   * on the document root like the colours, so a Liquid-only star block on the same page
+   * matches; a star block that picked its own shape in the theme editor keeps it, since the
+   * stylesheet resolves the nearest choice. Only known values are written: the font becomes
+   * a custom property, so it is held to the same pattern the server enforces.
+   */
+  function applyMarks(L) {
+    var d = document.documentElement;
+    if (L.starStyle === 'tick' || L.starStyle === 'classic') d.setAttribute('data-rm-stars', L.starStyle);
+    if (L.badgeIcon === 'tick' || L.badgeIcon === 'none') d.setAttribute('data-rm-badge-icon', L.badgeIcon);
+    if (typeof L.fontFamily === 'string' && /^[A-Za-z][A-Za-z0-9 ,-]{0,79}$/.test(L.fontFamily)) {
+      d.style.setProperty('--rm-font', L.fontFamily);
+    }
   }
 
   /**
@@ -363,21 +379,23 @@
   };
 
   /**
-   * "Reviews by ReviewMaster", on the free plan only.
+   * The free plan's attribution: the Marka Reviews icon, 20 px, linking to the listing.
    *
-   * The trade the free tier makes. Paid plans get `whiteLabel` and this never renders —
-   * which is the first time that feature has removed anything, because until now the
-   * widget carried no attribution on any plan.
+   * The trade the free tier makes. Paid plans get `whiteLabel` and this never renders.
    *
-   * Deliberately quiet: small, muted, below the reviews, and it inherits the merchant's
-   * own border colour rather than introducing one of ours. A storefront belongs to the
-   * merchant, and an attribution line that fights the design is one they will find a way
-   * to delete — via custom CSS, or by leaving.
+   * An icon, not a line of text, because Shopify's App Store requirement 5.1 (revised
+   * November 2025) limits app branding in a theme extension to the standard attribution:
+   * 24 x 24 px for any image or text. The words live in the accessible name and the
+   * tooltip only. It reads as the app's mark and nothing more: it never says "verified",
+   * since it sits under every review, verified or not.
+   *
+   * Loaded from the app's own host (public/brand), only on free stores, lazily. Quiet on
+   * purpose, below the reviews: a storefront belongs to the merchant.
    *
    * `rel="noopener"` because it opens in a new tab, and `nofollow` because a link on
    * every free store is exactly the footprint search engines treat as a link scheme.
-   * Built with createElement and textContent, like everything else here: this runs on a
-   * merchant's storefront and must not be an innerHTML path.
+   * Built with createElement, like everything else here: this runs on a merchant's
+   * storefront and must not be an innerHTML path.
    */
   Widget.prototype.applyBranding = function (show) {
     var existing = this.root.querySelector('.rm-branding');
@@ -385,13 +403,23 @@
     // change between loads. Clearing first means it never doubles up or lingers after an
     // upgrade.
     if (existing) existing.parentNode.removeChild(existing);
-    if (!show) return;
+    if (!show || !this.appUrl) return;
 
     var wrap = el('div', 'rm-branding');
-    var link = el('a', 'rm-branding__link', 'Reviews by ReviewMaster');
+    var link = el('a', 'rm-branding__link');
     link.href = 'https://apps.shopify.com/reviewmaster';
     link.target = '_blank';
     link.rel = 'noopener nofollow';
+    link.title = 'Powered by Marka Reviews';
+    link.setAttribute('aria-label', 'Powered by Marka Reviews');
+    var icon = el('img', 'rm-branding__icon');
+    icon.src = this.appUrl + '/brand/marka-reviews-icon-64.png';
+    icon.width = 20;
+    icon.height = 20;
+    icon.alt = '';
+    icon.loading = 'lazy';
+    icon.decoding = 'async';
+    link.appendChild(icon);
     wrap.appendChild(link);
     this.root.appendChild(wrap);
   };
@@ -664,7 +692,13 @@
       var row = el('button', 'rm-hist__row');
       row.type = 'button';
       row.setAttribute('aria-label', s + ' star reviews: ' + n);
-      row.appendChild(el('span', 'rm-hist__label', s + '★'));
+      // "5 ★": the number, then the glyph. Where masks work the CSS hides the glyph and
+      // draws the Marka star after the number instead (.rm-hist__label::after).
+      var label = el('span', 'rm-hist__label', String(s));
+      var glyph = el('span', 'rm-hist__glyph', '★');
+      glyph.setAttribute('aria-hidden', 'true');
+      label.appendChild(glyph);
+      row.appendChild(label);
       var track = el('span', 'rm-hist__track');
       var fill = el('span', 'rm-hist__fill');
       fill.style.width = pct + '%';
@@ -830,6 +864,7 @@
     var L = CONFIG.layout;
     var root = this.root;
     this.layout = L.type || 'list';
+    applyMarks(L);
 
     root.classList.add('rm-widget--' + this.layout);
     if (L.theme) root.classList.add('rm-theme--' + L.theme);

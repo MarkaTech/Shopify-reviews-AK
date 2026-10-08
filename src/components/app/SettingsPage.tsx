@@ -18,7 +18,8 @@ import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import type { PageId } from './TopNav';
 import { adminUrl, navigateTop } from '@/lib/admin-links';
-import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton } from './ui-kit';
+import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton, Stars, VerifiedMark } from './ui-kit';
+import { BRAND, contrastRatio, FONT_FAMILY_PATTERN as FONT_FAMILY } from '@/lib/brand';
 
 // Mirrors src/lib/plans.ts. Prices and limits must match the server, which is what
 // actually enforces them — this list is presentation only.
@@ -56,7 +57,7 @@ const plans = [
       // to a paying merchant that nothing in the product can keep. It goes back on this
       // list the day the programme approval lands.
       'Google Shopping star ratings',
-      'ReviewMaster branding removed',
+      'Marka Reviews branding removed',
     ],
     color: 'is-selected', popular: true,
   },
@@ -211,6 +212,63 @@ function ColorRow({
           spellCheck={false}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Contrast checks for the storefront colours, with a one-click fix for each.
+ *
+ * The brand guidelines ask for a "fixable contrast warning" wherever a merchant can restyle
+ * a widget: customising must not leave text unreadable. Text pairs are held to WCAG's
+ * 4.5:1. The labels on buttons are always white, so the accent is checked against white.
+ */
+function ContrastNotes({
+  colors,
+  onFix,
+}: {
+  colors: StorefrontConfig['colors'];
+  onFix: (changes: Array<[string, string | null]>) => void;
+}) {
+  const issues: Array<{ what: string; ratio: number; fix: string; changes: Array<[string, string | null]> }> = [];
+  const button = contrastRatio('#FFFFFF', colors.accent);
+  if (button != null && button < 4.5) {
+    issues.push({ what: 'White button labels on your accent colour', ratio: button, fix: 'Use Marka Navy', changes: [['accent', BRAND.navy]] });
+  }
+  const badge = contrastRatio(colors.verifiedText, colors.verifiedBg);
+  if (badge != null && badge < 4.5) {
+    issues.push({ what: 'The "Verified Purchase" label on its badge colour', ratio: badge, fix: 'Use Marka Navy', changes: [['verifiedBg', BRAND.navy]] });
+  }
+  if (colors.cardBg && colors.cardText) {
+    const card = contrastRatio(colors.cardText, colors.cardBg);
+    if (card != null && card < 4.5) {
+      issues.push({ what: 'Review text on your card background', ratio: card, fix: 'Use theme colours', changes: [['cardBg', null], ['cardText', null]] });
+    }
+  }
+  if (!issues.length) return null;
+  return (
+    <div role="status" className="mt-4 space-y-2">
+      {issues.map((i) => (
+        <div
+          key={i.what}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-700/30 bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-800"
+        >
+          <span className="flex min-w-0 items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              <strong className="font-semibold">Hard to read:</strong> {i.what} measure{' '}
+              <span className="tnum">{i.ratio.toFixed(1)}:1</span>; text needs 4.5:1.
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => onFix(i.changes)}
+            className="ring-focus cream-fill h-8 shrink-0 rounded-lg px-3 text-[12px] font-semibold"
+          >
+            {i.fix}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -397,6 +455,12 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   };
+
+  // The storefront's star shape, badge icon and font: the Marka look unless changed.
+  const starStyle: 'tick' | 'classic' = String(config?.layout.starStyle ?? 'tick') === 'classic' ? 'classic' : 'tick';
+  const badgeIcon: 'tick' | 'none' = String(config?.layout.badgeIcon ?? 'tick') === 'none' ? 'none' : 'tick';
+  const fontFamily = String(config?.layout.fontFamily ?? '');
+  const fontInvalid = fontFamily.trim() !== '' && !FONT_FAMILY.test(fontFamily.trim());
 
   const hasChanges =
     Object.keys(dirty).length > 0 ||
@@ -673,10 +737,8 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
   const SaveBar = (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
       <div className="animate-rise surface-float pointer-events-auto flex items-center gap-4 rounded-2xl py-2.5 pl-4 pr-2.5">
-        <span className="relative flex size-2 shrink-0">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-60" />
-          <span className="relative inline-flex size-2 rounded-full bg-amber-500" />
-        </span>
+        {/* A still dot: the sentence beside it carries the meaning, so it does not pulse. */}
+        <span className="inline-flex size-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
         <div className="min-w-0">
           <p className="text-[13px] font-semibold leading-tight text-ink-900 dark:text-white">
             You have unsaved changes
@@ -752,7 +814,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                       value={b('autoPublish') ? 'auto' : 'moderated'}
                       onValueChange={v => setBehaviour('autoPublish', v === 'auto')}
                     >
-                      <SelectTrigger className="h-9 w-[268px] rounded-xl text-[13px]" aria-label="New reviews are"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-10 w-auto min-w-[268px] max-w-full rounded-xl text-[13px]" aria-label="New reviews are"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="moderated">Held for your approval (recommended)</SelectItem>
                         <SelectItem value="auto">Published immediately</SelectItem>
@@ -813,11 +875,18 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                   checked={b('allowPhotos')}
                   onChange={v => setBehaviour('allowPhotos', v)}
                 />
+                {/* On a plan without video the server ignores this switch, so it shows off
+                    and locked, and says why, rather than "on" with no effect. */}
                 <ToggleRow
                   title="Video uploads"
-                  description="One video per review, up to 50MB. Growth plan and above."
-                  checked={b('allowVideo')}
+                  description={
+                    usage?.features?.videoReviews === false
+                      ? 'One video per review, up to 50MB. Comes with the Growth plan; upgrade under Plan to turn it on.'
+                      : 'One video per review, up to 50MB. Growth plan and above.'
+                  }
+                  checked={usage?.features?.videoReviews === false ? false : b('allowVideo')}
                   onChange={v => setBehaviour('allowVideo', v)}
+                  disabled={usage?.features?.videoReviews === false}
                 />
               </div>
             </Panel>
@@ -877,9 +946,14 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                   <ColorRow label="Stars" value={config.colors.star} onChange={v => setColor('star', v)} />
                   <ColorRow label="Card background" value={config.colors.cardBg} onChange={v => setColor('cardBg', v)} inheritable />
                   <ColorRow label="Card text" value={config.colors.cardText} onChange={v => setColor('cardText', v)} inheritable />
-                  <ColorRow label="Borders" value={config.colors.border} onChange={v => setColor('border', v)} />
+                  <ColorRow label="Borders" value={config.colors.border} onChange={v => setColor('border', v)} inheritable />
                   <ColorRow label="Verified badge" value={config.colors.verifiedBg} onChange={v => setColor('verifiedBg', v)} />
                 </div>
+
+                <ContrastNotes
+                  colors={config.colors}
+                  onFix={changes => changes.forEach(([field, value]) => setColor(field, value))}
+                />
 
                 {/* A preview beats a hex code. This is the actual card, with the actual values. */}
                 <div className="mt-5 rounded-xl border border-border bg-ink-50 p-4 dark:bg-white/[0.03]">
@@ -893,15 +967,18 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                       color: config.colors.cardText ?? undefined,
                       borderColor: config.colors.border,
                       borderRadius: `${num(config.layout.borderRadius, 8)}px`,
+                      // Only a valid family reaches the preview, as on the storefront.
+                      fontFamily: fontFamily.trim() && !fontInvalid ? fontFamily.trim() : undefined,
                     }}
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <span style={{ color: config.colors.star, letterSpacing: '1px' }}>★★★★★</span>
+                      <Stars rating={5} size={15} color={config.colors.star} variant={starStyle} />
                       <span className="text-[12.5px] font-semibold">Sarah M.</span>
                       <span
-                        className="rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold"
+                        className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold"
                         style={{ background: config.colors.verifiedBg, color: config.colors.verifiedText }}
                       >
+                        {badgeIcon === 'tick' && <VerifiedMark size={11} color={config.colors.star} />}
                         Verified Purchase
                       </span>
                     </div>
@@ -923,12 +1000,67 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                 icon={SlidersHorizontal}
                 tone="cyan"
                 title="Style"
-                description="The shape and character of every widget"
+                description="Stars, badge icon, font and shape. Each starts on the Marka look; change any of them."
               />
               <div className="divide-y divide-border border-t border-border">
+                <SettingRow title="Star style" description="Used for every rating on your storefront.">
+                  <div role="radiogroup" aria-label="Star style" className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-ink-50 p-1 dark:bg-white/[0.04]">
+                    {([['tick', 'Marka tick-star'], ['classic', 'Classic star']] as const).map(([value, label]) => {
+                      const on = starStyle === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          onClick={() => setLayout('starStyle', value)}
+                          className={cn(
+                            'ring-focus flex min-h-11 items-center gap-2 rounded-[10px] px-3 text-[12.5px] font-semibold transition-colors',
+                            on ? 'bg-card text-ink-900 shadow-[var(--elev-1)] dark:text-white' : 'text-ink-500 hover:text-ink-800 dark:hover:text-ink-200'
+                          )}
+                        >
+                          <Stars rating={5} size={13} color={config.colors.star} variant={value} />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </SettingRow>
+                <SettingRow title="Verified badge icon" description="The mark before “Verified Purchase”. The words stay either way.">
+                  <Select value={badgeIcon} onValueChange={v => setLayout('badgeIcon', v)}>
+                    <SelectTrigger className="h-10 w-[220px] rounded-xl text-[13px]" aria-label="Verified badge icon"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tick">Marka tick-star</SelectItem>
+                      <SelectItem value="none">No icon</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingRow>
+                <SettingRow
+                  htmlFor="fontFamily"
+                  title="Font"
+                  description="Leave empty to use your theme’s font. To use another, type the name of a font your theme already loads."
+                >
+                  <div className="grid gap-1.5">
+                    <Input
+                      id="fontFamily"
+                      className="h-10 w-[240px] rounded-xl text-[13px]"
+                      placeholder="Your theme’s font"
+                      maxLength={80}
+                      value={fontFamily}
+                      aria-invalid={fontInvalid}
+                      aria-describedby={fontInvalid ? 'fontFamily-error' : undefined}
+                      onChange={e => setLayout('fontFamily', e.target.value)}
+                    />
+                    {fontInvalid && (
+                      <p id="fontFamily-error" className="max-w-[240px] text-[11.5px] leading-snug text-error">
+                        Use letters, numbers, spaces, commas and hyphens, starting with a letter.
+                      </p>
+                    )}
+                  </div>
+                </SettingRow>
                 <SettingRow title="Widget theme">
                   <Select value={String(config.layout.theme || 'modern')} onValueChange={v => setLayout('theme', v)}>
-                    <SelectTrigger className="h-9 w-[268px] rounded-xl text-[13px]" aria-label="Widget theme"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-10 w-auto min-w-[268px] max-w-full rounded-xl text-[13px]" aria-label="Widget theme"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="modern">Modern — rounded cards, soft borders</SelectItem>
                       <SelectItem value="classic">Classic — serif titles, square edges</SelectItem>
@@ -1124,6 +1256,15 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
                     <Loader2 className="size-3.5 animate-spin" />
                     Checking…
                   </div>
+                ) : usage?.features?.googleFeed === false ? (
+                  // Say the plan up front, rather than offering a button that fails.
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="max-w-md text-[12.5px] leading-relaxed text-ink-500">
+                      The Google Shopping review feed comes with the Growth plan ($12/month).
+                      Upgrade under Plan, then create the URL here.
+                    </p>
+                    <Pill tone="cream">Growth plan</Pill>
+                  </div>
                 ) : (
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="max-w-md text-[12.5px] leading-relaxed text-ink-500">
@@ -1140,7 +1281,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
 
             {/*
               The other two places reviews leave this app. Neither is configured here, so
-              these are signposts rather than controls — but "what is ReviewMaster
+              these are signposts rather than controls — but "what is Marka Reviews
               connected to" is a question a merchant asks in Settings, and answering it
               with silence sends them hunting through every screen.
             */}
@@ -1430,7 +1571,7 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
               </Panel>
             )}
 
-            <div className="grid grid-cols-1 gap-4 pt-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 pt-3 md:grid-cols-2 xl:grid-cols-3">
               {plans.map(plan => (
                 <Panel
                   key={plan.id}

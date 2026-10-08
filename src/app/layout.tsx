@@ -1,36 +1,18 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "next-themes";
 import { shopifyClientId } from "@/lib/client-id";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 /**
- * A display serif, used on exactly three surfaces: the setup guide headline, the welcome
- * screen hero, and empty-state titles.
+ * No web fonts are loaded for the app itself.
  *
- * Every Shopify review app is set in a geometric sans, so a sans headline reads as
- * "another app in the category" no matter how well it is spaced. One well-chosen serif at
- * large sizes is the cheapest possible signal that someone made deliberate choices here —
- * and confining it to headlines keeps the data-dense screens legible, which is where a
- * serif would actually hurt.
+ * The brand guidelines put Shopify's own font first inside the embedded admin, so the app
+ * is set in the system stack Shopify uses (see --font-sans in globals.css). Archivo, the
+ * Marka voice, is self-hosted from public/fonts and only downloads where a page uses it:
+ * the name lockup, the operator portal and the legal pages. This replaced Geist and a
+ * display serif, both fetched from Google Fonts at build time.
  */
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-display",
-  weight: "400",
-  style: ["normal", "italic"],
-  subsets: ["latin"],
-});
 
 /**
  * Render every page at request time, not at build time.
@@ -76,7 +58,7 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    title: "ReviewMaster — The Ultimate Shopify Review App",
+    title: "Marka Reviews — The Ultimate Shopify Review App",
     description:
       "The most powerful and customizable review app for Shopify stores. Import reviews, showcase them beautifully, and build trust with your customers.",
     icons: {
@@ -84,7 +66,11 @@ export async function generateMetadata(): Promise<Metadata> {
       // in the <head> of every page, on every load. A reviewer opening devtools sees a
       // request to a domain that has nothing to do with this app, and it is a live
       // dependency on someone else's uptime for the app's own icon.
-      icon: "/icon.svg",
+      icon: [
+        { url: "/brand/marka-reviews-icon-32.png", sizes: "32x32", type: "image/png" },
+        { url: "/brand/marka-reviews-icon-96.png", sizes: "96x96", type: "image/png" },
+      ],
+      apple: { url: "/brand/marka-reviews-icon-192.png", sizes: "192x192", type: "image/png" },
     },
   };
 }
@@ -125,7 +111,7 @@ export default function RootLayout({
         <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased bg-background text-foreground`}
+        className="antialiased bg-background text-foreground"
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           {children}

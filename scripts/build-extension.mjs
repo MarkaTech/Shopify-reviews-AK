@@ -212,7 +212,7 @@ const min = await tryMinify(built);
 built = min.code;
 
 const banner =
-  '/* ReviewMaster storefront widget. Generated from extension-src/reviewmaster.js\n' +
+  '/* Marka Reviews storefront widget. Generated from extension-src/reviewmaster.js\n' +
   '   by scripts/build-extension.mjs — edit the source, not this file. */\n';
 
 mkdirSync(dirname(OUT), { recursive: true });

@@ -1,12 +1,17 @@
-/* ReviewMaster storefront styles.
+/* Marka Reviews storefront styles.
    Scoped under .rm-* so nothing leaks into the merchant's theme, and every colour comes
    from a CSS custom property set by the Liquid block, so merchants restyle from the theme
-   editor without touching CSS. Budget: Shopify allows 100KB; this is a fraction of it. */
+   editor without touching CSS. Budget: Shopify allows 100KB; this is a fraction of it.
+
+   The storefront belongs to the merchant (Marka brand guidelines v1.0): the widget takes
+   the theme's font, its card colours default to the theme's, and every colour below is
+   only a fallback for a value the merchant has not set. The fallbacks are Marka presets:
+   Navy for actions, Marka Orange for stars, a navy "Verified Purchase" badge. */
 
 .rm-stars__icons { display: inline-flex; gap: 1px; line-height: 1; }
-.rm-star { color: #d4d4d8; font-size: 1em; }
-.rm-star--full { color: var(--rm-star-color, #F5A623); }
-.rm-star--half { background: linear-gradient(90deg, var(--rm-star-color, #F5A623) 50%, #d4d4d8 50%);
+.rm-star { color: #D9D3C7; font-size: 1em; }
+.rm-star--full { color: var(--rm-star-color, #E8871E); }
+.rm-star--half { background: linear-gradient(90deg, var(--rm-star-color, #E8871E) 50%, #D9D3C7 50%);
   -webkit-background-clip: text; background-clip: text; color: transparent; }
 .rm-stars { display: inline-flex; align-items: center; gap: .4em; }
 .rm-stars--small { font-size: .85rem; }
@@ -27,24 +32,26 @@
 
 .rm-btn { border: 1px solid transparent; border-radius: var(--rm-radius, 8px);
   padding: .55rem 1rem; font: inherit; font-size: .9rem; cursor: pointer; }
-.rm-btn--primary { background: var(--rm-accent, #059669); color: #fff; }
+.rm-btn--primary { background: var(--rm-accent, #1B3358); color: #fff; }
 .rm-btn--primary:hover { filter: brightness(.94); }
-.rm-btn--ghost { background: transparent; border-color: #d4d4d8; }
+.rm-btn--ghost { background: transparent; border-color: #7B8794; }
 
 .rm-histogram { display: grid; gap: .25rem; margin: 1rem 0; max-width: 320px; }
+/* color: inherit, because a <button> takes the browser's black otherwise: on a dark theme the
+   labels and counts disappeared. */
 .rm-hist__row { display: flex; align-items: center; gap: .5rem; background: none;
-  border: 0; padding: .15rem 0; cursor: pointer; font: inherit; text-align: left; }
+  border: 0; padding: .15rem 0; cursor: pointer; font: inherit; color: inherit; text-align: left; }
 .rm-hist__row:hover .rm-hist__fill { filter: brightness(.9); }
 .rm-hist__label { width: 2.2em; font-size: .8rem; opacity: .8; }
-.rm-hist__track { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
-.rm-hist__fill { display: block; height: 100%; background: var(--rm-star-color, #F5A623); }
+.rm-hist__track { flex: 1; height: 8px; background: rgba(128, 128, 128, .18); border-radius: 4px; overflow: hidden; }
+.rm-hist__fill { display: block; height: 100%; background: var(--rm-star-color, #E8871E); }
 .rm-hist__n { width: 2em; font-size: .8rem; opacity: .7; text-align: right; }
 
 .rm-filters { display: flex; gap: .5rem; margin: 1rem 0; flex-wrap: wrap; }
-.rm-filters__sort, .rm-filters__media { border: 1px solid #d4d4d8;
+.rm-filters__sort, .rm-filters__media { border: 1px solid #7B8794;
   border-radius: var(--rm-radius, 8px); padding: .4rem .7rem; font: inherit;
   font-size: .85rem; background: #fff; cursor: pointer; }
-.rm-filters__media.is-active { background: var(--rm-accent, #059669); color: #fff;
+.rm-filters__media.is-active { background: var(--rm-accent, #1B3358); color: #fff;
   border-color: transparent; }
 
 .rm-list { display: grid; gap: 1.25rem; }
@@ -59,23 +66,21 @@
 .rm-review__media { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; }
 .rm-review__media img { width: 96px; height: 96px; object-fit: cover;
   border-radius: var(--rm-radius, 8px); }
-.rm-review__reply { margin-top: .75rem; padding: .75rem; background: #f8fafc;
-  border-left: 3px solid var(--rm-accent, #059669); border-radius: 0 var(--rm-radius,8px) var(--rm-radius,8px) 0; }
+/* A translucent tint rather than a fixed light grey, so the reply reads on a dark theme too. */
+.rm-review__reply { margin-top: .75rem; padding: .75rem; background: rgba(128, 128, 128, .08);
+  border-left: 3px solid var(--rm-accent, #1B3358); border-radius: 0 var(--rm-radius,8px) var(--rm-radius,8px) 0; }
 .rm-review__reply p { margin: .25rem 0 0; }
 
 .rm-badge { font-size: .7rem; padding: .15rem .45rem; border-radius: 999px;
   white-space: nowrap; }
-.rm-badge--verified { background: #ecfdf5; color: #047857; }
+.rm-badge--verified { background: #1B3358; color: #FDF1DE; }
 /* Incentivised disclosure is a legal requirement (FTC 16 CFR 465.4), so it is styled to
    be noticed rather than tucked away. */
-.rm-badge--incentive { background: #fef3c7; color: #92400e; }
+.rm-badge--incentive { background: #FDF1DE; color: #8A5000; }
 
 .rm-skeleton { display: grid; gap: 1.25rem; }
 .rm-skeleton__row { height: 72px; border-radius: var(--rm-radius, 8px);
-  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
-  background-size: 400% 100%; animation: rm-shimmer 1.4s ease infinite; }
-@keyframes rm-shimmer { 0% { background-position: 100% 50% } 100% { background-position: 0 50% } }
-@media (prefers-reduced-motion: reduce) { .rm-skeleton__row { animation: none; } }
+  background: rgba(128, 128, 128, .12); }
 
 .rm-empty { opacity: .7; padding: 1rem 0; }
 .rm-pagination { display: flex; flex-direction: column; align-items: center; gap: .6rem;
@@ -83,15 +88,15 @@
 .rm-pagination__info { font-size: .8rem; opacity: .65; }
 .rm-pagination__nav { display: flex; align-items: center; gap: .25rem; flex-wrap: wrap;
   justify-content: center; }
-.rm-page { min-width: 2.1rem; height: 2.1rem; border: 1px solid #e5e7eb; background: #fff;
-  border-radius: var(--rm-radius, 8px); padding: 0 .5rem; cursor: pointer; font: inherit;
+.rm-page { min-width: 2.1rem; height: 2.1rem; border: 1px solid rgba(128, 128, 128, .45); background: transparent;
+  color: inherit; border-radius: var(--rm-radius, 8px); padding: 0 .5rem; cursor: pointer; font: inherit;
   font-size: .85rem; display: inline-flex; align-items: center; justify-content: center; }
-.rm-page:hover:not([disabled]):not(.is-current) { border-color: var(--rm-accent, #059669); }
-.rm-page.is-current { background: var(--rm-accent, #059669); color: #fff;
+.rm-page:hover:not([disabled]):not(.is-current) { border-color: var(--rm-accent, #1B3358); }
+.rm-page.is-current { background: var(--rm-accent, #1B3358); color: #fff;
   border-color: transparent; font-weight: 600; cursor: default; }
 .rm-page[disabled] { opacity: .35; cursor: default; }
 .rm-page--arrow { font-size: 1.1rem; line-height: 1; }
-.rm-page:focus-visible { outline: 2px solid var(--rm-accent, #059669); outline-offset: 2px; }
+.rm-page:focus-visible { outline: 2px solid var(--rm-accent, #1B3358); outline-offset: 2px; }
 .rm-page__gap { padding: 0 .2rem; opacity: .5; font-size: .85rem; }
 
 .rm-form-wrap { margin-top: 1.5rem; padding: 1.25rem; border: 1px solid #e5e7eb;
@@ -101,15 +106,15 @@
 .rm-form__field > span, .rm-form__field > legend { display: block; margin-bottom: .3rem;
   font-size: .85rem; font-weight: 600; }
 .rm-form__field input[type=text], .rm-form__field input[type=email],
-.rm-form__field textarea { width: 100%; padding: .55rem .7rem; border: 1px solid #d4d4d8;
+.rm-form__field textarea { width: 100%; padding: .55rem .7rem; border: 1px solid #7B8794;
   border-radius: var(--rm-radius, 8px); font: inherit; }
 .rm-form__field small { display: block; margin-top: .25rem; font-size: .75rem; opacity: .6; }
 .rm-form__rating { border: 0; padding: 0; margin-bottom: .9rem; }
 .rm-rating-input { display: inline-flex; gap: .15rem; }
-.rm-rating-input__star { background: none; border: 0; font-size: 1.6rem; color: #d4d4d8;
+.rm-rating-input__star { background: none; border: 0; font-size: 1.6rem; color: #D9D3C7;
   cursor: pointer; padding: 0 .05em; line-height: 1; }
-.rm-rating-input__star.is-on { color: var(--rm-star-color, #F5A623); }
-.rm-rating-input__star:focus-visible { outline: 2px solid var(--rm-accent, #059669);
+.rm-rating-input__star.is-on { color: var(--rm-star-color, #E8871E); }
+.rm-rating-input__star:focus-visible { outline: 2px solid var(--rm-accent, #1B3358);
   outline-offset: 2px; }
 .rm-form__actions { display: flex; gap: .5rem; margin-top: 1rem; }
 .rm-form__status { margin: .75rem 0 0; font-size: .85rem; min-height: 1.2em; }
@@ -127,22 +132,23 @@
 .rm-file { display: inline-flex; align-items: center; gap: .6rem; cursor: pointer; }
 .rm-file__input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.rm-file__btn { display: inline-block; border: 1px solid #d4d4d8; background: #fff;
+.rm-file__btn { display: inline-block; border: 1px solid #7B8794; background: #fff;
   border-radius: var(--rm-radius, 8px); padding: .45rem .9rem; font-size: .85rem; }
-.rm-file:hover .rm-file__btn { border-color: var(--rm-accent, #059669); }
-.rm-file__input:focus-visible + .rm-file__btn { outline: 2px solid var(--rm-accent, #059669);
+.rm-file:hover .rm-file__btn { border-color: var(--rm-accent, #1B3358); }
+.rm-file__input:focus-visible + .rm-file__btn { outline: 2px solid var(--rm-accent, #1B3358);
   outline-offset: 2px; }
 .rm-file__name { font-size: .8rem; opacity: .6; }
 
 /* Post-submit confirmation. Sits outside the form so it survives the form closing. */
-.rm-notice { margin: 1rem 0; padding: .75rem 1rem; background: #ecfdf5; color: #065f46;
-  border-radius: var(--rm-radius, 8px); font-size: .9rem; }
+/* Success, in the guideline semantic green, with a rule so the state is not colour alone. */
+.rm-notice { margin: 1rem 0; padding: .75rem 1rem; background: #EDF7F1; color: #145C3C;
+  border-left: 3px solid #19734B; border-radius: var(--rm-radius, 8px); font-size: .9rem; }
 
 /* Media thumbnails and lightbox */
 .rm-thumb { padding: 0; border: 0; background: none; cursor: pointer; line-height: 0;
   border-radius: var(--rm-radius, 8px); overflow: hidden; position: relative; }
 .rm-thumb img { display: block; width: 96px; height: 96px; object-fit: cover; }
-.rm-thumb:focus-visible { outline: 2px solid var(--rm-accent, #059669); outline-offset: 2px; }
+.rm-thumb:focus-visible { outline: 2px solid var(--rm-accent, #1B3358); outline-offset: 2px; }
 .rm-thumb--video { width: 96px; height: 96px; background: #1f2937; display: grid;
   place-items: center; }
 /* The first frame of the video, painted as the thumbnail. Stacked under the play glyph
@@ -167,7 +173,7 @@
 
 /* Verified badge colours are merchant-configurable; the custom properties fall back to the
    original values so an unconfigured store looks identical to before. */
-.rm-badge--verified { background: var(--rm-verified-bg, #ecfdf5); color: var(--rm-verified-text, #047857); }
+.rm-badge--verified { background: var(--rm-verified-bg, #1B3358); color: var(--rm-verified-text, #FDF1DE); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Layouts
@@ -257,11 +263,11 @@
   position: fixed; z-index: 2147483000; display: inline-flex; align-items: center;
   gap: .4rem; border: 0; cursor: pointer; font: inherit; font-size: .9rem;
   padding: .7rem 1.1rem; border-radius: 999px; color: #fff;
-  background: var(--rm-accent, #059669); box-shadow: 0 4px 16px rgba(0,0,0,.18);
+  background: var(--rm-accent, #1B3358); box-shadow: 0 4px 16px rgba(0,0,0,.18);
   right: 1.25rem; bottom: 1.25rem;
 }
 .rm-trigger:hover { filter: brightness(.94); }
-.rm-trigger__star { color: var(--rm-star-color, #F5A623); }
+.rm-trigger__star { color: var(--rm-star-color, #E8871E); }
 .rm-widget--popup .rm-trigger { display: none; }
 
 .rm-panel {
@@ -301,9 +307,9 @@
   background: transparent; color: inherit; font: inherit; font-size: .78rem;
   padding: .25rem .7rem; cursor: pointer; opacity: .8;
 }
-.rm-helpful:hover:not(:disabled) { opacity: 1; border-color: var(--rm-accent, #059669); }
-.rm-helpful.is-voted { border-color: var(--rm-accent, #059669);
-  color: var(--rm-accent, #059669); cursor: default; opacity: 1; }
+.rm-helpful:hover:not(:disabled) { opacity: 1; border-color: var(--rm-accent, #1B3358); }
+.rm-helpful.is-voted { border-color: var(--rm-accent, #1B3358);
+  color: var(--rm-accent, #1B3358); cursor: default; opacity: 1; }
 .rm-helpful__n { font-size: .78rem; opacity: .6; }
 
 .rm-badge--source { background: #f1f5f9; color: #475569; text-transform: capitalize; }
@@ -322,7 +328,7 @@
 
 .rm-theme--minimal .rm-review { border: 0; background: transparent; padding-left: 0; padding-right: 0; }
 .rm-theme--minimal .rm-summary { border: 0; }
-.rm-theme--minimal .rm-btn--primary { background: transparent; color: var(--rm-accent, #059669);
+.rm-theme--minimal .rm-btn--primary { background: transparent; color: var(--rm-accent, #1B3358);
   border: 1px solid currentColor; }
 .rm-theme--minimal .rm-histogram { display: none; }
 
@@ -340,14 +346,12 @@
 }
 
 /* ── Attribution ──
-   "Reviews by ReviewMaster", rendered only for stores on the free plan (see
-   Widget.prototype.applyBranding). Paid plans have `whiteLabel` and never see it.
+   The free plan's mark (see Widget.prototype.applyBranding): the Marka Reviews icon at
+   20 px inside a 24 x 24 link, the most Shopify's App Store requirement 5.1 allows for
+   app branding in a theme extension. Paid plans have `whiteLabel` and never see it.
 
-   Styled to be quiet on purpose. It sits on a merchant's storefront, next to their own
-   design, and an attribution line that fights that design is one they will find a way to
-   remove — with custom CSS, or by leaving. So: small, muted, borrowing the merchant's own
-   border and text colours rather than introducing any of ours, and underlined only on
-   hover. Visible to anyone looking for it, invisible to anyone who is not. */
+   Quiet on purpose: small, muted until hovered, and under the reviews. A storefront
+   belongs to the merchant. */
 .rm-branding {
   margin-top: 1rem;
   padding-top: .75rem;
@@ -355,20 +359,28 @@
   text-align: center;
 }
 .rm-branding__link {
-  font-size: .6875rem;
-  line-height: 1;
-  letter-spacing: .01em;
-  /* Inherits the merchant's card text colour at low opacity, so it reads correctly on a
-     dark theme without needing a second colour setting. */
-  color: var(--rm-card-text, #1f2937);
-  opacity: .45;
-  text-decoration: none;
-  transition: opacity .15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  opacity: .7;
+  transition: opacity .12s ease;
 }
 .rm-branding__link:hover,
 .rm-branding__link:focus-visible {
-  opacity: .8;
-  text-decoration: underline;
+  opacity: 1;
+}
+.rm-branding__link:focus-visible {
+  outline: 2px solid var(--rm-accent, #1B3358);
+  outline-offset: 2px;
+}
+.rm-branding__icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
 }
 .rm-theme--minimal .rm-branding { border-top: 0; }
 
@@ -383,13 +395,11 @@
   border-radius: 4px;
   background: currentColor;
   opacity: .09;
-  animation: rm-skel-pulse 1.4s ease-in-out infinite;
 }
 .rm-skel--stars { width: 5.5rem; height: .8rem; margin-bottom: .7rem; }
 .rm-skel--line { height: .7rem; margin-bottom: .45rem; }
 .rm-skel--short { width: 55%; }
-@keyframes rm-skel-pulse { 0%, 100% { opacity: .09; } 50% { opacity: .05; } }
-@media (prefers-reduced-motion: reduce) { .rm-skel { animation: none; } }
+/* Static, as the guidelines ask of loading states. */
 
 /* `hidden` must win over any display: rule in this file.
    The UA stylesheet's [hidden] { display: none } is beaten by ANY author rule that sets
@@ -424,7 +434,7 @@
   border-radius: 999px;
   font-size: .75rem; font-weight: 700; line-height: 1;
 }
-.rm-q__marker { background: var(--rm-accent, #059669); color: #fff; }
+.rm-q__marker { background: var(--rm-accent, #1B3358); color: #fff; }
 .rm-a__marker { background: var(--rm-border, #e5e7eb); color: var(--rm-card-text, inherit); }
 
 .rm-q__body { margin: 0; font-weight: 600; line-height: 1.5; }
@@ -443,14 +453,75 @@
 }
 /* An answer from the shop reads differently from one by another shopper, so it is set
    apart rather than left to the badge alone. */
-.rm-a--merchant .rm-a__marker { background: var(--rm-accent, #059669); color: #fff; }
+.rm-a--merchant .rm-a__marker { background: var(--rm-accent, #1B3358); color: #fff; }
 
 @media (max-width: 480px) {
   .rm-q__meta, .rm-a__meta, .rm-a { margin-left: 0; }
 }
 
 /* ── Incentive offer ── shown beside the write button; the disclosure is part of the offer. */
-.rm-offer { margin: .75rem 0 1rem; padding: .75rem 1rem; border: 1px dashed var(--rm-accent, #059669);
+.rm-offer { margin: .75rem 0 1rem; padding: .75rem 1rem; border: 1px dashed var(--rm-accent, #1B3358);
   border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, transparent); color: var(--rm-card-text, inherit); }
 .rm-offer__text { margin: 0; font-weight: 600; }
 .rm-offer__disclosure { margin: .35rem 0 0; font-size: .8125rem; opacity: .72; }
+
+/* ── Marka star marks ──
+   Every rating is drawn with the Marka star rating icon by default: a bold star with a tick
+   cut out of it. A merchant who prefers the classic star picks it in Settings -> Display
+   (the widget script puts data-rm-stars="classic" on the page), and a star block can pick
+   its own in the theme editor; the nearest choice wins, because it travels as an inherited
+   custom property. What marks a review as tied to a real order is the "Verified Purchase"
+   badge, in words; its tick-star icon can be switched off (data-rm-badge-icon="none").
+   Everything is drawn by masking, in the merchant's star colour. The star glyph stays in
+   the markup as the fallback for a browser without masks. Stars never animate. */
+@supports ((-webkit-mask-image: none) or (mask-image: none)) {
+  :root {
+    --rm-mask-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M11.28 1.31C10.73 1.59 10.64 1.77 9.56 4.39C7.83 8.56 8.2 8.2 4.67 8.38C1.13 8.47 .95 8.56 .59 9.37C.32 10.37 .41 10.46 2.94 12.72C6.48 15.71 6.3 14.99 4.67 20.06C4.12 21.6 4.21 22.23 4.94 22.69C5.66 23.14 5.84 23.05 8.74 21.42C12.27 19.33 11.73 19.33 15.26 21.42C18.16 23.05 18.34 23.14 19.06 22.69C19.88 22.14 19.88 21.78 18.97 18.7C17.8 15.17 17.7 15.53 20.87 12.81C23.41 10.64 23.5 10.64 23.5 9.92C23.5 8.83 22.96 8.56 21.06 8.47L19.88 8.38L20.15 8.65C20.42 9.01 20.51 9.19 20.42 9.46C20.42 9.74 15.08 14.81 12 17.61C11.19 18.34 11.19 18.34 8.56 15.89C6.39 13.81 6.3 13.72 7.29 12.91C8.11 12.18 8.2 12.27 9.92 13.81C11.28 15.08 11.28 15.08 11.82 14.72C12.36 14.26 15.26 11.55 16.98 9.92L18.61 8.38L17.8 8.29C16.07 8.2 15.98 8.11 14.54 4.67C13.9 3.22 13.36 1.86 13.27 1.77C12.81 1.13 11.91 .95 11.28 1.31Z'/%3E%3C/svg%3E");
+    --rm-mask-classic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M11.51 1.22C10.71 1.49 10.52 1.69 9.73 3.4C7.82 7.42 7.82 7.49 7.49 7.62C7.35 7.62 6.04 7.88 4.59 8.08C1.22 8.61 1.03 8.61 .63 9.4C.24 10.32 .5 10.91 1.69 11.97C2.15 12.36 2.94 13.02 3.47 13.48C5.51 15.26 5.38 15.13 5.31 15.59C4.92 17.24 4.19 20.93 4.19 21.26C4.19 22.25 4.92 22.91 5.97 22.84C6.43 22.78 6.5 22.78 8.41 21.72C11.04 20.2 11.24 20.14 11.57 19.94L11.9 19.81L12.23 19.94C12.43 20.07 13.29 20.47 14.08 20.93C17.37 22.78 17.44 22.78 17.9 22.84C18.82 22.91 19.61 22.25 19.74 21.33C19.74 21.06 19.61 20.34 19.15 18.1C18.82 16.51 18.56 15.2 18.62 15.13C18.62 15 19.41 14.34 21.92 12.03C23.3 10.78 23.43 10.58 23.43 9.79C23.43 9.4 23.37 9.07 23.04 8.74C22.58 8.21 22.64 8.21 18.69 7.75C17.44 7.62 16.38 7.49 16.32 7.42C16.18 7.42 15.99 7.02 15.66 6.37C14.08 3.07 13.55 1.95 13.35 1.75C12.89 1.29 12.1 1.09 11.51 1.22Z'/%3E%3C/svg%3E");
+  }
+  [data-rm-stars="tick"] { --rm-star-mask: var(--rm-mask-tick); }
+  [data-rm-stars="classic"] { --rm-star-mask: var(--rm-mask-classic); }
+  [data-rm-badge-icon="none"] { --rm-badge-icon: none; }
+  [data-rm-badge-icon="tick"] { --rm-badge-icon: block; }
+
+  .rm-stars__icons { gap: .1em; }
+  .rm-star, .rm-trigger__star, .rm-rating-input__star {
+    position: relative; display: inline-block; width: 1em; height: 1em;
+    color: transparent; overflow: hidden; vertical-align: -.125em;
+  }
+  .rm-star::before, .rm-trigger__star::before, .rm-rating-input__star::before,
+  .rm-hist__label::after {
+    content: ''; background: #D9D3C7;
+    -webkit-mask: var(--rm-star-mask, var(--rm-mask-tick)) center / contain no-repeat;
+    mask: var(--rm-star-mask, var(--rm-mask-tick)) center / contain no-repeat;
+  }
+  .rm-star::before, .rm-trigger__star::before, .rm-rating-input__star::before {
+    position: absolute; inset: 0;
+  }
+  .rm-star--full::before, .rm-trigger__star::before, .rm-rating-input__star.is-on::before {
+    background: var(--rm-star-color, #E8871E);
+  }
+  .rm-star--half { background: none; -webkit-background-clip: border-box; background-clip: border-box; }
+  .rm-star--half::before {
+    background: linear-gradient(90deg, var(--rm-star-color, #E8871E) 50%, #D9D3C7 50%);
+  }
+
+  /* The tick-star before "Verified Purchase" on a review. Scoped to review cards: the Q&A
+     "Store" label reuses the badge colours but is not a verified purchase. */
+  .rm-review .rm-badge--verified { display: inline-flex; align-items: center; gap: .3em; }
+  .rm-review .rm-badge--verified::before {
+    content: ''; flex: none; width: 1.15em; height: 1.15em; display: var(--rm-badge-icon, block);
+    background: var(--rm-star-color, #E8871E);
+    -webkit-mask: var(--rm-mask-tick) center / contain no-repeat;
+    mask: var(--rm-mask-tick) center / contain no-repeat;
+  }
+
+  /* The histogram label's star. */
+  .rm-hist__label { display: inline-flex; align-items: center; gap: .2em; }
+  .rm-hist__label::after { width: .9em; height: .9em; flex: none; background: var(--rm-star-color, #E8871E); }
+  .rm-hist__label .rm-hist__glyph { display: none; }
+}
+
+/* The theme's own font unless the merchant named one in Settings -> Display (a font the
+   theme already loads; naming it here does not load it). */
+.rm-widget, .rm-stars, .rm-trigger, .rm-panel { font-family: var(--rm-font, inherit); }

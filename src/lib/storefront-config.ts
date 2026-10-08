@@ -40,6 +40,7 @@
  * response rather than costing a second request on the product page.
  */
 
+import { BRAND, contrastRatio, FONT_FAMILY_PATTERN } from './brand';
 import { db } from './db';
 import { sanitiseCss } from './css-sanitiser';
 import { getStorePlan, PLANS } from './plans';
@@ -61,6 +62,22 @@ export type LayoutType = (typeof LAYOUTS)[number];
 
 /** Visual presets. Each maps to a class on the widget root; the CSS does the rest. */
 export const THEMES = ['modern', 'classic', 'minimal', 'bold'] as const;
+
+/** Star shapes for every rating: the Marka tick-star (default) or the classic star. */
+export const STAR_STYLES = ['tick', 'classic'] as const;
+
+/** The icon before "Verified Purchase": the Marka tick-star (default) or none. */
+export const BADGE_ICONS = ['tick', 'none'] as const;
+
+/**
+ * A font family the merchant's theme already loads, or empty for the theme's own font.
+ *
+ * Names, spaces, commas and hyphens only. The value becomes a CSS custom property on the
+ * storefront, so anything that could end a declaration or open a function (semicolon,
+ * brace, quote, parenthesis, backslash, angle bracket) is refused. Naming a font here does
+ * not load it; the guidelines' font policy is "use a font the store already provides".
+ */
+export const FONT_FAMILY = FONT_FAMILY_PATTERN;
 
 export interface StorefrontConfig {
   colors: {
@@ -100,6 +117,12 @@ export interface StorefrontConfig {
     maxReviews: number;
     /** Popup layout only — seconds before it opens. */
     popupDelay: number;
+    /** Every rating's star shape. See STAR_STYLES. */
+    starStyle: string;
+    /** The icon before "Verified Purchase". See BADGE_ICONS. */
+    badgeIcon: string;
+    /** Empty for the theme's font, or a family the theme loads. See FONT_FAMILY. */
+    fontFamily: string;
   };
   text: {
     heading: string;
@@ -166,7 +189,8 @@ export interface StorefrontConfig {
   };
   /** Merchant CSS, sanitised. Empty string means none. */
   /**
-   * Whether to show "Reviews by ReviewMaster" under the widget.
+   * Whether to show the Marka Reviews attribution under the widget: the app icon at 20 px,
+   * the standard attribution Shopify's requirement 5.1 allows in a theme extension.
    *
    * Not a merchant setting — derived from the plan, and deliberately not writable through
    * the `sf.*` settings path, so it cannot be switched off by anyone who has not paid to
@@ -192,12 +216,18 @@ export interface StorefrontConfig {
  */
 export const INHERITABLE_COLORS = new Set(['cardBg', 'cardText', 'border']);
 
+/**
+ * Colour defaults are Marka presets (brand guidelines v1.0): Navy for the main action with
+ * a white label, Marka Orange stars, and a navy "Verified Purchase" badge with a cream
+ * label, the badge's own colours. Card colours stay null, so a widget sits on the
+ * merchant's theme; and anything a merchant sets wins, as the guidelines require.
+ */
 export const DEFAULT_CONFIG: StorefrontConfig = {
   colors: {
-    accent: '#059669',
-    star: '#F5A623',
-    verifiedBg: '#ECFDF5',
-    verifiedText: '#047857',
+    accent: BRAND.navy,
+    star: BRAND.orange,
+    verifiedBg: BRAND.navy,
+    verifiedText: BRAND.cream,
     cardBg: null,
     cardText: null,
     border: null,
@@ -210,6 +240,10 @@ export const DEFAULT_CONFIG: StorefrontConfig = {
     theme: 'modern',
     maxReviews: 10,
     popupDelay: 5,
+    // The Marka look by default; every one of these is the merchant's to change.
+    starStyle: 'tick',
+    badgeIcon: 'tick',
+    fontFamily: '',
   },
   text: {
     heading: 'Customer reviews',
@@ -313,6 +347,42 @@ function flatten(config: StorefrontConfig): Record<string, string> {
   return out;
 }
 
+/**
+ * The colour defaults before the Marka rebrand (October 2026).
+ *
+ * A store whose saved value is still exactly one of these did not choose it: it is what the
+ * Settings and widget screens saved back untouched. So it moves to the new default with
+ * every other store. A colour a merchant actually picked is left alone.
+ */
+const LEGACY_DEFAULT_COLORS: Partial<Record<keyof StorefrontConfig['colors'], string>> = {
+  accent: '#059669',
+  star: '#F5A623',
+  verifiedBg: '#ECFDF5',
+  verifiedText: '#047857',
+};
+
+function rebrandLegacyDefaults(colors: StorefrontConfig['colors']): void {
+  const same = (x: string | null | undefined, y: string) => typeof x === 'string' && x.trim().toLowerCase() === y.toLowerCase();
+  // Whether the badge text was ever a merchant's choice, decided before anything is remapped.
+  const textWasDefault = same(colors.verifiedText, DEFAULT_CONFIG.colors.verifiedText) || same(colors.verifiedText, LEGACY_DEFAULT_COLORS.verifiedText!);
+
+  for (const [field, legacy] of Object.entries(LEGACY_DEFAULT_COLORS) as Array<[keyof StorefrontConfig['colors'], string]>) {
+    if (same(colors[field], legacy)) {
+      (colors as Record<string, string | null>)[field] = DEFAULT_CONFIG.colors[field];
+    }
+  }
+
+  // The badge text colour is not editable in Settings; only the badge background is. A
+  // merchant who chose their own background never chose the text, so it follows the
+  // background: navy or cream, whichever reads better on it. Without this, the new cream
+  // default would sit unreadably on a light background a merchant picked last year.
+  if (textWasDefault && !same(colors.verifiedBg, DEFAULT_CONFIG.colors.verifiedBg)) {
+    const onNavy = contrastRatio(BRAND.navy, colors.verifiedBg) ?? 0;
+    const onCream = contrastRatio(BRAND.cream, colors.verifiedBg) ?? 0;
+    colors.verifiedText = onNavy >= onCream ? BRAND.navy : BRAND.cream;
+  }
+}
+
 /** The full set of valid keys, so an unknown key from a request can be rejected. */
 export const VALID_KEYS = new Set([...Object.keys(flatten(DEFAULT_CONFIG)), CSS_KEY]);
 
@@ -335,6 +405,17 @@ function applyValue(
   } else {
     target[field] = raw;
   }
+}
+
+/**
+ * The layout fields that become class names, attributes or a CSS custom property on the
+ * storefront, checked on the way in and again on the way out. Other fields pass.
+ */
+function validLayoutValue(field: string, value: string): boolean {
+  if (field === 'starStyle') return (STAR_STYLES as readonly string[]).includes(value);
+  if (field === 'badgeIcon') return (BADGE_ICONS as readonly string[]).includes(value);
+  if (field === 'fontFamily') return value === '' || FONT_FAMILY.test(value);
+  return true;
 }
 
 function emptyConfig(): StorefrontConfig {
@@ -394,6 +475,7 @@ export async function getStorefrontConfig(
       }
     } else if (group === 'layout' && field in config.layout) {
       if (field === 'type' && !LAYOUTS.includes(row.value as LayoutType)) continue;
+      if (!validLayoutValue(field, row.value)) continue;
       applyValue(config.layout as unknown as Record<string, unknown>, group, field, row.value);
     } else if (group === 'text' && field in config.text) {
       (config.text as Record<string, string>)[field] = row.value;
@@ -405,6 +487,8 @@ export async function getStorefrontConfig(
   if (placement !== undefined) {
     await applyActiveWidget(storeId, placement, config);
   }
+
+  rebrandLegacyDefaults(config.colors);
 
   // Resolved from the plan rather than from a setting, and last, so nothing above can
   // overwrite it. The attribution is what the Free tier trades for being free — and what
@@ -494,13 +578,20 @@ async function applyActiveWidget(
     if (v !== null) (config.behaviour as Record<string, unknown>)[to] = v;
   }
 
-  if (typeof raw.starColor === 'string' && HEX.test(raw.starColor)) {
+  // The widget designer used to save its own defaults whether or not the merchant touched
+  // them (#F5A623 stars, #FFFFFF cards, #1F2937 text), and these silently overrode
+  // Settings → Display and the theme: a dark theme got white cards. A widget still holding
+  // exactly those never chose them, so they are skipped and the account colours apply.
+  // The designer now saves an empty value for "not set".
+  const picked = (v: unknown, designerDefault: string): v is string =>
+    typeof v === 'string' && HEX.test(v) && v.toLowerCase() !== designerDefault;
+  if (picked(raw.starColor, '#f5a623')) {
     config.colors.star = raw.starColor;
   }
-  if (typeof raw.backgroundColor === 'string' && HEX.test(raw.backgroundColor)) {
+  if (picked(raw.backgroundColor, '#ffffff')) {
     config.colors.cardBg = raw.backgroundColor;
   }
-  if (typeof raw.textColor === 'string' && HEX.test(raw.textColor)) {
+  if (picked(raw.textColor, '#1f2937')) {
     config.colors.cardText = raw.textColor;
   }
   if (typeof raw.sortBy === 'string') {
@@ -554,6 +645,13 @@ export async function saveStorefrontConfig(
       // Settings screen sent would be persisted and rendered — THEMES was exported and
       // then never used to check anything.
       if (!THEMES.includes(value as (typeof THEMES)[number])) {
+        rejected.push(key);
+        continue;
+      }
+    } else if (key.startsWith(`${PREFIX}layout.`)) {
+      const field = key.slice(`${PREFIX}layout.`.length);
+      if (field === 'fontFamily') value = value.trim().replace(/\s+/g, ' ');
+      if (!validLayoutValue(field, value)) {
         rejected.push(key);
         continue;
       }
@@ -636,6 +734,26 @@ export async function getSubmissionRules(storeId: string): Promise<{
     if (!PLANS[plan].videoReviews) out.allowVideo = false;
   }
 
+  return out;
+}
+
+/**
+ * The star shape and colour a store chose, for pages the app serves itself (the review page
+ * a customer opens from their order email), so they match the store's widget.
+ */
+export async function getRatingLook(storeId: string): Promise<{ starStyle: string; starColor: string }> {
+  const rows = await db.storeSetting.findMany({
+    where: { storeId, key: { in: [`${PREFIX}layout.starStyle`, `${PREFIX}color.star`] } },
+    select: { key: true, value: true },
+  });
+  const out = { starStyle: DEFAULT_CONFIG.layout.starStyle, starColor: DEFAULT_CONFIG.colors.star };
+  for (const row of rows) {
+    if (row.key.endsWith('.starStyle') && validLayoutValue('starStyle', row.value)) out.starStyle = row.value;
+    if (row.key.endsWith('.star') && HEX.test(row.value)) out.starColor = row.value;
+  }
+  const colors = { ...DEFAULT_CONFIG.colors, star: out.starColor };
+  rebrandLegacyDefaults(colors);
+  out.starColor = colors.star;
   return out;
 }
 

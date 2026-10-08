@@ -41,7 +41,7 @@ const SentimentChart = dynamic(
 import RequestPerformance from './RequestPerformance';
 import {
   Panel, PanelHeader, StatCard, StatSkeletonRow, Skeleton, Stars, Pill,
-  Meter, EmptyState, ActionButton, SectionTitle, Tile, CountUp,
+  Meter, EmptyState, ActionButton, SectionTitle, Tile, CountUp, RatingStar, VerifiedMark,
 } from './ui-kit';
 
 interface Analytics {
@@ -61,6 +61,8 @@ interface Analytics {
     id: string; reviewerName: string; rating: number; title: string | null; body: string;
     product: { id: string; title: string; image: string | null } | null;
     createdAt: string; source: string; isFeatured: boolean; verifiedPurchase: boolean;
+    /** The authoritative status; only 'verified_buyer' may be labelled Verified. */
+    verificationStatus?: string;
   }>;
   verifiedPercentage: number;
   responseRate: number;
@@ -76,9 +78,10 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const SENTIMENT = [
-  { key: 'positive', name: 'Positive', color: 'var(--brand-500)' },
-  { key: 'neutral', name: 'Neutral', color: '#f59e0b' },
-  { key: 'negative', name: 'Negative', color: '#e11d48' },
+  // Semantic colours from the brand guidelines; each is labelled in the chart legend.
+  { key: 'positive', name: 'Positive', color: '#19734B' },
+  { key: 'neutral', name: 'Neutral', color: '#7B8794' },
+  { key: 'negative', name: 'Negative', color: '#B42318' },
 ] as const;
 
 export default function DashboardPage({
@@ -209,7 +212,7 @@ export default function DashboardPage({
           <EmptyState
             icon={Inbox}
             title="Your first reviews will land here"
-            description="Import reviews you already own from AliExpress, Etsy or a CSV — or let ReviewMaster ask your recent customers automatically after their orders are fulfilled."
+            description="Import reviews you already own from AliExpress, Etsy or a CSV — or let Marka Reviews ask your recent customers automatically after their orders are fulfilled."
             action={
               <>
                 <ActionButton icon={Sparkles} onClick={() => go('bulk-upload')}>
@@ -289,7 +292,7 @@ export default function DashboardPage({
                   <div key={r.stars} className="flex items-center gap-3">
                     <span className="flex w-8 items-center gap-0.5 text-[12px] font-semibold text-ink-600 dark:text-ink-300">
                       {r.stars}
-                      <Star className="size-3 text-amber-400" fill="currentColor" strokeWidth={0} />
+                      <RatingStar size={12} />
                     </span>
                     <Meter value={r.pct} tone="amber" height={7} className="flex-1" />
                     <span className="tnum w-14 text-right text-[12px] text-ink-500">
@@ -357,7 +360,7 @@ export default function DashboardPage({
                       <span className="font-medium text-ink-700 dark:text-ink-200">{s.name}</span>
                       <span className="tnum text-ink-500">{s.value}</span>
                     </div>
-                    <Meter value={(s.value / sourceMax) * 100} tone="indigo" height={6} />
+                    <Meter value={(s.value / sourceMax) * 100} tone="brand" height={6} />
                   </div>
                 ))}
               </div>
@@ -402,8 +405,13 @@ export default function DashboardPage({
                         {review.reviewerName}
                       </span>
                       <Stars rating={review.rating} size={12} />
-                      {review.verifiedPurchase && (
-                        <Pill tone="brand" icon={BadgeCheck}>Verified</Pill>
+                      {/* verificationStatus, not the legacy verifiedPurchase flag, which can be
+                          true with no matched order. Same badge as the storefront. */}
+                      {review.verificationStatus === 'verified_buyer' && (
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#1B3358] px-2 py-0.5 text-[11px] font-semibold text-[#FDF1DE]">
+                          <VerifiedMark size={11} color="#E8871E" />
+                          Verified
+                        </span>
                       )}
                       {review.isFeatured && <Pill tone="amber">Featured</Pill>}
                       <Pill tone="neutral">{SOURCE_LABELS[review.source] || review.source}</Pill>

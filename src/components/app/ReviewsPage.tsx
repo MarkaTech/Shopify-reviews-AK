@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Star, Filter, Search, Download, Trash2, Edit3, Eye, EyeOff,
   ThumbsUp, ThumbsDown, MessageSquare, Pin, Award, MoreHorizontal,
-  RefreshCw, X, Check, Clock, ShoppingBag, MapPin, Mail, BadgeCheck,
+  RefreshCw, X, Check, Clock, ShoppingBag, MapPin, Mail,
   Inbox, ChevronLeft, ChevronRight, Play, Gift,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,7 @@ import { useConfirm } from './confirm';
 import { toast } from 'sonner';
 import { apiFetch, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { Panel, Stars, Pill, EmptyState, ActionButton, Skeleton } from './ui-kit';
+import { Panel, Stars, Pill, EmptyState, ActionButton, Skeleton, VerifiedMark } from './ui-kit';
 
 interface Review {
   id: string;
@@ -601,7 +601,7 @@ export default function ReviewsPage() {
                 ? 'Every review has been moderated. New ones will appear here as they arrive.'
                 : search || activeFilterCount
                   ? 'Loosen a filter or clear your search to see more.'
-                  : 'Import reviews you already own, or let ReviewMaster collect them automatically after orders are fulfilled.'
+                  : 'Import reviews you already own, or let Marka Reviews collect them automatically after orders are fulfilled.'
             }
             action={
               (search || activeFilterCount) ? (
@@ -667,7 +667,13 @@ export default function ReviewsPage() {
                         {review.reviewerName}
                       </span>
                       <Stars rating={review.rating} size={13} />
-                      {verified && <Pill tone="brand" icon={BadgeCheck}>Verified buyer</Pill>}
+                      {verified && (
+                        // The storefront's verified badge, so the merchant sees what shoppers see.
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#1B3358] px-2 py-0.5 text-[11px] font-semibold text-[#FDF1DE]">
+                          <VerifiedMark size={11} color="#E8871E" />
+                          Verified buyer
+                        </span>
+                      )}
                       {review.isFeatured && <Pill tone="amber" icon={Award}>Featured</Pill>}
                       {review.isPinned && <Pill tone="amber" icon={Pin}>Pinned</Pill>}
                       {review.isIncentivized && <Pill tone="violet" icon={Gift}>Incentivised</Pill>}
@@ -756,7 +762,7 @@ export default function ReviewsPage() {
                           Your reply
                           {review.repliedAt && (
                             <span className="font-medium normal-case tracking-normal text-indigo-400">
-                              · {new Date(review.repliedAt).toLocaleDateString()}
+                              · {new Date(review.repliedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
                             </span>
                           )}
                         </p>

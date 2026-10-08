@@ -86,7 +86,7 @@ export default function RequestPerformance() {
           <EmptyState
             icon={Send}
             title="No invitations sent yet"
-            description="When an order is fulfilled, ReviewMaster schedules an email asking that customer for a review. Once they start going out, you'll see how many are opened and how many become reviews."
+            description="When an order is fulfilled, Marka Reviews schedules an email asking that customer for a review. Once they start going out, you'll see how many are opened and how many become reviews."
           />
         </div>
       </Panel>
@@ -183,8 +183,16 @@ export default function RequestPerformance() {
             </div>
             <Meter value={reminders.shareOfSubmissions} tone="brand" height={5} />
             <p className="mt-1.5 text-[11.5px] leading-snug text-ink-500">
-              {reminders.submittedAfterReminder.toLocaleString()} of {funnel.submitted.toLocaleString()} reviews
-              arrived only after a second email. Turning reminders off would have cost you those.
+              {/* Only claim what reminders did when they did something: on a plan without
+                  reminders, or before any were needed, the old line contradicted itself. */}
+              {reminders.submittedAfterReminder > 0 ? (
+                <>
+                  {reminders.submittedAfterReminder.toLocaleString()} of {funnel.submitted.toLocaleString()} reviews
+                  arrived only after a second email. Turning reminders off would have cost you those.
+                </>
+              ) : (
+                <>Every review so far came from the first email.</>
+              )}
             </p>
           </div>
         )}

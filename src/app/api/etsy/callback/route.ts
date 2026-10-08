@@ -17,7 +17,7 @@ function page(title: string, body: string): NextResponse {
     `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>
 <body style="font-family:-apple-system,sans-serif;padding:48px;text-align:center">
 <h1 style="font-size:20px">${title}</h1><p style="color:#555">${body}</p>
-<p><a href="${SHOPIFY_APP_URL}">Back to ReviewMaster</a></p></body></html>`,
+<p><a href="${SHOPIFY_APP_URL}">Back to Marka Reviews</a></p></body></html>`,
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );
 }
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
   try {
     await completeEtsyConnect(storeId, code, SHOPIFY_APP_URL);
-    return page('Etsy connected', 'You can close this tab. Back in ReviewMaster, use "Sync now" on the Import page to pull your reviews.');
+    return page('Etsy connected', 'You can close this tab. Back in Marka Reviews, use "Sync now" on the Import page to pull your reviews.');
   } catch (error) {
     const message = error instanceof EtsyError ? error.merchantMessage : 'Something went wrong finishing the connection.';
     console.error('[etsy/callback]', error);

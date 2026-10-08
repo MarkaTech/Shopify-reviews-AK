@@ -23,7 +23,9 @@ import WelcomeScreen from '@/components/app/WelcomeScreen';
  */
 function PageSkeleton() {
   return (
-    <div className="animate-pulse space-y-4" aria-busy="true" aria-label="Loading">
+    // Static, as the guidelines ask of loading states; the status line says what is happening.
+    <div className="space-y-4" role="status" aria-busy="true">
+      <span className="sr-only">Loading…</span>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="surface h-28 rounded-2xl" />
@@ -43,7 +45,9 @@ const ProductsPage = dynamic(() => import('@/components/app/ProductsPage'), { ss
 const QuestionsPage = dynamic(() => import('@/components/app/QuestionsPage'), { ssr: false, loading });
 const IncentivesPage = dynamic(() => import('@/components/app/IncentivesPage'), { ssr: false, loading });
 import { Toaster } from 'sonner';
-import { Star, ExternalLink, ChevronRight } from 'lucide-react';
+import { ExternalLink, ChevronRight } from 'lucide-react';
+import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
+import { MarkaLockup } from '@/components/app/ui-kit';
 import { apiFetch } from '@/lib/api-client';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
@@ -181,7 +185,7 @@ export default function Home() {
     } finally {
       // Must run on EVERY path. This previously sat after the try/catch, so the
       // successful branch above returned early and never cleared it — leaving the app
-      // stuck on "Loading ReviewMaster..." forever, but only once auth actually worked.
+      // stuck on the loading screen forever, but only once auth actually worked.
       setIsLoading(false);
     }
   }, []);
@@ -265,14 +269,12 @@ export default function Home() {
     return (
       <div className="aurora flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-5">
-          <div className="relative">
-            <div className="absolute inset-0 rounded-2xl bg-brand-500/30 blur-xl" />
-            <span className="tile tile-brand pulse-ring relative size-14">
-              <Star className="size-7" fill="currentColor" strokeWidth={0} />
-            </span>
-          </div>
-          <div className="text-center">
-            <p className="text-[14px] font-semibold text-ink-800 dark:text-white">ReviewMaster</p>
+          <img src={BRAND_ASSETS.icon96} alt="" width={56} height={56} className="size-14 rounded-2xl" />
+          {/* A static indicator with a status line, as the guidelines ask of loading states. */}
+          <div className="text-center" role="status">
+            <p className="text-[14px]" aria-label={APP_NAME}>
+              <MarkaLockup size={16} />
+            </p>
             <p className="mt-0.5 text-[12.5px] text-ink-400">Connecting to your store…</p>
           </div>
         </div>
@@ -298,9 +300,7 @@ export default function Home() {
       return (
         <div className="flex min-h-screen items-center justify-center bg-background p-6">
           <div className="surface w-full max-w-md rounded-2xl p-8 text-center">
-            <span className="tile tile-brand mx-auto mb-4 flex size-12 items-center justify-center">
-              <Star className="size-6" fill="currentColor" strokeWidth={0} />
-            </span>
+            <img src={BRAND_ASSETS.icon96} alt="" width={48} height={48} className="mx-auto mb-4 size-12 rounded-xl" />
             <h1 className="text-[16px] font-bold text-ink-900 dark:text-white">
               Could not reach your store
             </h1>
@@ -350,10 +350,8 @@ export default function Home() {
     return (
       <div className="aurora flex min-h-screen items-center justify-center bg-background p-6">
         <div className="surface w-full max-w-md rounded-2xl p-8 text-center">
-          <span className="tile tile-brand mx-auto mb-4 flex size-12 items-center justify-center">
-            <Star className="size-6" fill="currentColor" strokeWidth={0} />
-          </span>
-          <h1 className="text-[16px] font-bold text-ink-900 dark:text-white">ReviewMaster runs inside Shopify</h1>
+          <img src={BRAND_ASSETS.icon96} alt="" width={48} height={48} className="mx-auto mb-4 size-12 rounded-xl" />
+          <h1 className="text-[16px] font-bold text-ink-900 dark:text-white">{APP_NAME} runs inside Shopify</h1>
           <p className="mt-2 text-[13px] leading-relaxed text-ink-500">
             This page only works embedded in your Shopify admin, where it can talk to your
             store securely.
@@ -380,7 +378,7 @@ export default function Home() {
       Shopify's own navigation menu.
 
       A Built for Shopify criterion, and without it the app's screens exist only inside
-      its own frame: a merchant browsing the admin sees "ReviewMaster" as a single
+      its own frame: a merchant browsing the admin sees "Marka Reviews" as a single
       destination with nothing under it, while every other app they have lists its
       sections in the sidebar.
 

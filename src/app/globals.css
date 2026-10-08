@@ -3,9 +3,45 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Archivo, the Marka voice. Self-hosted (SIL Open Font License, public/fonts/Archivo-OFL.txt),
+   one variable file per script, so a page only downloads the subset it renders. */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/fonts/archivo-latin-ext-wght-normal.woff2") format("woff2-variations"),
+       url("/fonts/archivo-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/fonts/archivo-latin-wght-normal.woff2") format("woff2-variations"),
+       url("/fonts/archivo-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
-   ReviewMaster design system
+   Marka Reviews design system
    ───────────────────────────────────────────────────────────────────────────
+   Follows the Marka Universal Brand Guidelines v1.0 (1 Oct 2026): navy first, warm
+   accents with purpose, Marka neutrals, semantic state colours, radii of 10 px
+   (controls) / 16 px (cards) / 24 px (feature panels), a two-tone focus ring, and
+   quiet motion (120 ms colour changes; nothing moves a button, a price or a star).
+
+   Inside Shopify's admin, Shopify's own font and conventions take priority, so the
+   embedded app is set in the system stack. Archivo, the Marka voice, is used for the
+   app's name lockup and for Marka-owned pages: the operator portal and legal pages.
+
+   Tailwind's named palettes (emerald, amber, rose, red, indigo, violet, cyan, slate) are
+   remapped below to Marka values — success, warm/warning, error, information and the
+   neutrals — so a class written before the rebrand still lands on a brand colour.
+
+   The notes below predate the rebrand and still hold where they do not conflict:
+
    The app is judged in the first three seconds, next to Judge.me and Loox, by a
    merchant deciding whether this looks like software worth paying for. The visual
    language here is built to answer that:
@@ -34,9 +70,11 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-display);
+  /* Shopify's own stack: native fonts take priority in the embedded admin. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "San Francisco", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* The Marka voice. Self-hosted from public/fonts (OFL), so nothing loads from a third party. */
+  --font-archivo: "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -67,8 +105,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Brand ramp. Emerald with a touch more blue than Tailwind's, which keeps it
-     from reading "cheap SaaS green" next to Shopify's own greens. */
+  /* Brand ramp: Marka Navy at 600, the primary-action colour. */
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
   --color-brand-200: var(--brand-200);
@@ -81,8 +118,8 @@
   --color-brand-900: var(--brand-900);
   --color-brand-950: var(--brand-950);
 
-  /* Ink: the neutral ramp, cooled very slightly toward blue. Pure greys look
-     dead under a white gradient; a few degrees of hue makes them read as paper. */
+  /* Ink: the Marka neutrals. Warm at the light end (canvas, decorative border),
+     the guideline muted text in the middle, navy at the top for primary text. */
   --color-ink-50: var(--ink-50);
   --color-ink-100: var(--ink-100);
   --color-ink-200: var(--ink-200);
@@ -95,56 +132,145 @@
   --color-ink-900: var(--ink-900);
   --color-ink-950: var(--ink-950);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 10px);
-  --radius-3xl: calc(var(--radius) + 18px);
+  /* Marka radii. Buttons and inputs are written rounded-xl, cards rounded-2xl and hero
+     panels rounded-3xl throughout, so those three carry the guideline values. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 10px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+
+  /* Semantic state colours (always with text or an icon). */
+  --color-success: #19734B;
+  --color-error: #B42318;
+  --color-warning: #8A5000;
+  --color-info: #1B5E9B;
+
+  /* The Marka named colours, as utilities: bg-marka-navy, text-marka-orange... */
+  --color-marka-navy: #1B3358;
+  --color-marka-orange: #E8871E;
+  --color-marka-amber: #FFC24B;
+  --color-marka-cream: #FDF1DE;
+  --color-marka-canvas: #FAF6F0;
+  --color-marka-paper: #FFFDF9;
+
+  /* Tailwind's named palettes, remapped onto Marka values by meaning. */
+  /* emerald / green: success */
+  --color-emerald-50: #EDF7F1; --color-emerald-100: #D3EEDD; --color-emerald-200: #A8DCBD;
+  --color-emerald-300: #6FC195; --color-emerald-400: #3BA36F; --color-emerald-500: #22885A;
+  --color-emerald-600: #19734B; --color-emerald-700: #145C3C; --color-emerald-800: #104A31;
+  --color-emerald-900: #0C3825; --color-emerald-950: #07241A;
+  --color-green-50: #EDF7F1; --color-green-100: #D3EEDD; --color-green-200: #A8DCBD;
+  --color-green-300: #6FC195; --color-green-400: #3BA36F; --color-green-500: #22885A;
+  --color-green-600: #19734B; --color-green-700: #145C3C; --color-green-800: #104A31;
+  --color-green-900: #0C3825; --color-green-950: #07241A;
+  /* amber / yellow / orange: the warm family, deepening into the warning colour */
+  --color-amber-50: #FFF8EC; --color-amber-100: #FDF1DE; --color-amber-200: #FFE3A8;
+  --color-amber-300: #FFD27A; --color-amber-400: #FFC24B; --color-amber-500: #E8871E;
+  --color-amber-600: #B86A12; --color-amber-700: #8A5000; --color-amber-800: #6B3E00;
+  --color-amber-900: #4D2D00; --color-amber-950: #2E1B00;
+  --color-yellow-50: #FFF8EC; --color-yellow-100: #FDF1DE; --color-yellow-200: #FFE3A8;
+  --color-yellow-300: #FFD27A; --color-yellow-400: #FFC24B; --color-yellow-500: #E8871E;
+  --color-yellow-600: #B86A12; --color-yellow-700: #8A5000; --color-yellow-800: #6B3E00;
+  --color-yellow-900: #4D2D00; --color-yellow-950: #2E1B00;
+  --color-orange-50: #FFF8EC; --color-orange-100: #FDF1DE; --color-orange-200: #FFE3A8;
+  --color-orange-300: #FFD27A; --color-orange-400: #F2A341; --color-orange-500: #E8871E;
+  --color-orange-600: #B86A12; --color-orange-700: #8A5000; --color-orange-800: #6B3E00;
+  --color-orange-900: #4D2D00; --color-orange-950: #2E1B00;
+  /* rose / red: error */
+  --color-rose-50: #FEF3F2; --color-rose-100: #FEE4E2; --color-rose-200: #FECDCA;
+  --color-rose-300: #FDA29B; --color-rose-400: #F97066; --color-rose-500: #D92D20;
+  --color-rose-600: #B42318; --color-rose-700: #912018; --color-rose-800: #7A271A;
+  --color-rose-900: #55160C; --color-rose-950: #3A0F08;
+  --color-red-50: #FEF3F2; --color-red-100: #FEE4E2; --color-red-200: #FECDCA;
+  --color-red-300: #FDA29B; --color-red-400: #F97066; --color-red-500: #D92D20;
+  --color-red-600: #B42318; --color-red-700: #912018; --color-red-800: #7A271A;
+  --color-red-900: #55160C; --color-red-950: #3A0F08;
+  /* indigo / cyan / sky / blue: information */
+  --color-indigo-50: #EEF4FA; --color-indigo-100: #D9E7F4; --color-indigo-200: #B3CEE8;
+  --color-indigo-300: #7FAAD5; --color-indigo-400: #4A82BE; --color-indigo-500: #2A6AA9;
+  --color-indigo-600: #1B5E9B; --color-indigo-700: #164C7E; --color-indigo-800: #123D66;
+  --color-indigo-900: #0E2F4F; --color-indigo-950: #091E33;
+  --color-cyan-50: #EEF4FA; --color-cyan-100: #D9E7F4; --color-cyan-200: #B3CEE8;
+  --color-cyan-300: #7FAAD5; --color-cyan-400: #4A82BE; --color-cyan-500: #2A6AA9;
+  --color-cyan-600: #1B5E9B; --color-cyan-700: #164C7E; --color-cyan-800: #123D66;
+  --color-cyan-900: #0E2F4F; --color-cyan-950: #091E33;
+  --color-sky-50: #EEF4FA; --color-sky-100: #D9E7F4; --color-sky-200: #B3CEE8;
+  --color-sky-300: #7FAAD5; --color-sky-400: #4A82BE; --color-sky-500: #2A6AA9;
+  --color-sky-600: #1B5E9B; --color-sky-700: #164C7E; --color-sky-800: #123D66;
+  --color-sky-900: #0E2F4F; --color-sky-950: #091E33;
+  --color-blue-50: #EEF4FA; --color-blue-100: #D9E7F4; --color-blue-200: #B3CEE8;
+  --color-blue-300: #7FAAD5; --color-blue-400: #4A82BE; --color-blue-500: #2A6AA9;
+  --color-blue-600: #1B5E9B; --color-blue-700: #164C7E; --color-blue-800: #123D66;
+  --color-blue-900: #0E2F4F; --color-blue-950: #091E33;
+  /* violet / purple: the navy family */
+  --color-violet-50: #F1F4F9; --color-violet-100: #E2E8F1; --color-violet-200: #C5D0E1;
+  --color-violet-300: #9AABC6; --color-violet-400: #6680A6; --color-violet-500: #3A5784;
+  --color-violet-600: #1B3358; --color-violet-700: #152A4A; --color-violet-800: #10213B;
+  --color-violet-900: #0C192D; --color-violet-950: #07101E;
+  --color-purple-50: #F1F4F9; --color-purple-100: #E2E8F1; --color-purple-200: #C5D0E1;
+  --color-purple-300: #9AABC6; --color-purple-400: #6680A6; --color-purple-500: #3A5784;
+  --color-purple-600: #1B3358; --color-purple-700: #152A4A; --color-purple-800: #10213B;
+  --color-purple-900: #0C192D; --color-purple-950: #07101E;
+  /* slate / gray: the Marka neutrals (canvas, decorative border, muted text, navy text) */
+  --color-slate-50: #FAF6F0; --color-slate-100: #F3EEE6; --color-slate-200: #E4DED4;
+  --color-slate-300: #CBC4B8; --color-slate-400: #7B8794; --color-slate-500: #5A6675;
+  --color-slate-600: #4F5B6B; --color-slate-700: #3E4A5C; --color-slate-800: #2D3B52;
+  --color-slate-900: #1B3358; --color-slate-950: #111F36;
+  --color-gray-50: #FAF6F0; --color-gray-100: #F3EEE6; --color-gray-200: #E4DED4;
+  --color-gray-300: #CBC4B8; --color-gray-400: #7B8794; --color-gray-500: #5A6675;
+  --color-gray-600: #4F5B6B; --color-gray-700: #3E4A5C; --color-gray-800: #2D3B52;
+  --color-gray-900: #1B3358; --color-gray-950: #111F36;
 }
 
 :root {
-  --radius: 0.75rem;
+  --radius: 10px;
 
-  --brand-50: #ecfdf6;
-  --brand-100: #d1fae7;
-  --brand-200: #a7f3d4;
-  --brand-300: #6ee7bb;
-  --brand-400: #34d3a0;
-  --brand-500: #10b785;
-  --brand-600: #059468;
-  --brand-700: #047756;
-  --brand-800: #065f46;
-  --brand-900: #064e3b;
-  --brand-950: #022c22;
+  /* The Marka named colours. */
+  --marka-navy: #1B3358;
+  --marka-orange: #E8871E;
+  --marka-amber: #FFC24B;
+  --marka-cream: #FDF1DE;
+  --marka-canvas: #FAF6F0;
+  --marka-paper: #FFFDF9;
+  --marka-muted: #5A6675;
+  --marka-border: #E4DED4;
+  --marka-control-border: #7B8794;
 
-  --ink-50: #f8fafc;
-  --ink-100: #f1f5f9;
-  --ink-200: #e6ebf1;
-  --ink-300: #cfd8e3;
+  --brand-50: #F1F4F9;
+  --brand-100: #E2E8F1;
+  --brand-200: #C5D0E1;
+  --brand-300: #9AABC6;
+  --brand-400: #6680A6;
+  --brand-500: #3A5784;
+  --brand-600: #1B3358;
+  --brand-700: #152A4A;
+  --brand-800: #10213B;
+  --brand-900: #0C192D;
+  --brand-950: #07101E;
+
+  --ink-50: #FAF6F0;
+  --ink-100: #F3EEE6;
+  --ink-200: #E4DED4;
+  --ink-300: #CBC4B8;
   /**
-   * Darkened from #94a3b8 for contrast.
+   * `text-ink-400` is the app's secondary-text colour, on 12px hints, captions and
+   * empty-state copy across fifteen components: normal text under WCAG, so 4.5:1.
    *
-   * `text-ink-400` is the app's secondary-text colour and is used on 12px hints, captions and
-   * empty-state copy across fifteen components — all normal text under WCAG, which requires
-   * 4.5:1. #94a3b8 on the white surface measures 2.56:1, so the app's most common
-   * explanatory text failed AA everywhere it appeared, and worst where it mattered: the
-   * one-line hints under form controls.
-   *
-   * #7c8ba1 measures 3.46:1 — still short of 4.5:1 but a real improvement, and it keeps the
-   * visual step down from --ink-500 that the hierarchy depends on. Going all the way to a
-   * compliant value would collapse 400 and 500 into the same tone. The honest position: this
-   * is better, not compliant, and the scale needs a designer's pass to fix properly.
+   * It used to be #7c8ba1 (3.46:1), a known shortfall waiting on "a designer's pass". The
+   * brand guidelines are that pass: their muted text, #5A6675, measures 5.85:1 on white.
+   * 500 to 700 step down from it toward navy, the guideline colour for primary text.
    */
-  --ink-400: #7c8ba1;
-  --ink-500: #64748b;
-  --ink-600: #4a5568;
-  --ink-700: #364152;
-  --ink-800: #1f2937;
-  --ink-900: #131a26;
-  --ink-950: #0b1220;
+  --ink-400: #5A6675;
+  --ink-500: #4F5B6B;
+  --ink-600: #3E4A5C;
+  --ink-700: #2D3B52;
+  --ink-800: #22324D;
+  --ink-900: #1B3358;
+  --ink-950: #111F36;
 
-  --background: #f6f8fb;
+  --background: #FAF6F0;
   --foreground: var(--ink-900);
   --card: #ffffff;
   --card-foreground: var(--ink-900);
@@ -158,16 +284,17 @@
   --muted-foreground: var(--ink-500);
   --accent: var(--ink-100);
   --accent-foreground: var(--ink-800);
-  --destructive: #e11d48;
+  --destructive: #B42318;
   --border: var(--ink-200);
-  --input: var(--ink-200);
-  --ring: var(--brand-500);
+  /* Essential input outlines use the guideline control border (3:1 against white). */
+  --input: #7B8794;
+  --ring: var(--brand-600);
 
-  --chart-1: var(--brand-500);
-  --chart-2: #6366f1;
-  --chart-3: #f59e0b;
-  --chart-4: #06b6d4;
-  --chart-5: #a855f7;
+  --chart-1: #1B3358;
+  --chart-2: #E8871E;
+  --chart-3: #FFC24B;
+  --chart-4: #1B5E9B;
+  --chart-5: #5A6675;
 
   /* The nav rail is a light raised panel, not a dark slab — a near-black column inside
      Shopify's white admin read as a foreign object rather than part of the product. */
@@ -181,57 +308,58 @@
   --sidebar-ring: var(--brand-500);
 
   /* ── Elevation ──
-     Each level = ambient (wide, soft) + contact (tight, darker) + bevel (inner
-     top highlight). The bevel is what sells it; drop it and everything flattens. */
+     The guidelines ask for a 1 px highlight and a soft shadow, and no heavy halos: each
+     level is a navy-tinted ambient shadow plus a tight contact shadow, with the bevel
+     (inner top highlight) as the 1 px line. */
   --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   --elev-1:
-    0 1px 2px -1px rgba(11, 18, 32, 0.08),
-    0 2px 6px -2px rgba(11, 18, 32, 0.06);
+    0 1px 2px -1px rgba(27, 51, 88, 0.08),
+    0 2px 6px -2px rgba(27, 51, 88, 0.06);
   --elev-2:
-    0 1px 2px -1px rgba(11, 18, 32, 0.08),
-    0 4px 12px -3px rgba(11, 18, 32, 0.09),
-    0 12px 28px -12px rgba(11, 18, 32, 0.12);
+    0 1px 2px -1px rgba(27, 51, 88, 0.08),
+    0 4px 12px -3px rgba(27, 51, 88, 0.08);
   --elev-3:
-    0 2px 4px -2px rgba(11, 18, 32, 0.1),
-    0 8px 20px -6px rgba(11, 18, 32, 0.12),
-    0 24px 48px -20px rgba(11, 18, 32, 0.18);
+    0 2px 4px -2px rgba(27, 51, 88, 0.1),
+    0 8px 20px -6px rgba(27, 51, 88, 0.1);
   --elev-4:
-    0 4px 8px -4px rgba(11, 18, 32, 0.12),
-    0 16px 32px -10px rgba(11, 18, 32, 0.16),
-    0 40px 72px -28px rgba(11, 18, 32, 0.24);
+    0 4px 8px -4px rgba(27, 51, 88, 0.1),
+    0 16px 32px -12px rgba(27, 51, 88, 0.14);
 
-  /* Brand-tinted shadow, so brand controls look lit rather than pasted on. */
-  --glow-brand: 0 4px 14px -4px rgba(5, 148, 104, 0.45), 0 2px 4px -2px rgba(5, 148, 104, 0.3);
-  --glow-brand-lg: 0 10px 30px -8px rgba(5, 148, 104, 0.5), 0 4px 10px -4px rgba(5, 148, 104, 0.32);
+  /* Kept as names for the components that use them; now a soft shadow, not a glow. */
+  --glow-brand: 0 2px 6px -2px rgba(27, 51, 88, 0.3);
+  --glow-brand-lg: 0 4px 12px -4px rgba(27, 51, 88, 0.32);
 
-  --surface-gradient: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  /* White data surfaces, settling into the guideline "paper" at the bottom. */
+  --surface-gradient: linear-gradient(180deg, #FFFFFF 0%, #FFFDF9 100%);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+  /* No overshoot: quiet motion. The name stays for the classes that use it. */
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .dark {
-  --background: var(--ink-950);
-  --foreground: #e8edf4;
-  --card: #131b28;
-  --card-foreground: #e8edf4;
-  --popover: #131b28;
-  --popover-foreground: #e8edf4;
-  --primary: var(--brand-500);
-  --primary-foreground: #04150f;
-  --secondary: rgba(255, 255, 255, 0.06);
-  --secondary-foreground: #e8edf4;
-  --muted: rgba(255, 255, 255, 0.06);
-  --muted-foreground: #93a3b8;
-  --accent: rgba(255, 255, 255, 0.08);
-  --accent-foreground: #ffffff;
-  --destructive: #fb7185;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.14);
-  --ring: var(--brand-500);
-  --sidebar: #080d16;
+  /* The Marka dark material: navy surfaces, cream text, amber for the main action. */
+  --background: #0F223E;
+  --foreground: #FDF1DE;
+  --card: #1B3358;
+  --card-foreground: #FDF1DE;
+  --popover: #1B3358;
+  --popover-foreground: #FDF1DE;
+  --primary: #FFC24B;
+  --primary-foreground: #1B3358;
+  --secondary: rgba(253, 241, 222, 0.08);
+  --secondary-foreground: #FDF1DE;
+  --muted: rgba(253, 241, 222, 0.08);
+  --muted-foreground: rgba(253, 241, 222, 0.74);
+  --accent: rgba(253, 241, 222, 0.1);
+  --accent-foreground: #FDF1DE;
+  --destructive: #F97066;
+  --border: rgba(253, 241, 222, 0.14);
+  --input: rgba(253, 241, 222, 0.4);
+  --ring: #FFC24B;
+  --sidebar: #0F223E;
 
-  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --surface-gradient: linear-gradient(180deg, #16202e 0%, #121a26 100%);
+  --bevel: inset 0 1px 0 rgba(253, 241, 222, 0.08);
+  --surface-gradient: linear-gradient(180deg, #1F3961 0%, #1B3358 100%);
   --elev-1: 0 1px 2px -1px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
   --elev-2: 0 2px 6px -2px rgba(0, 0, 0, 0.55), 0 12px 28px -12px rgba(0, 0, 0, 0.6);
   --elev-3: 0 4px 12px -4px rgba(0, 0, 0, 0.6), 0 24px 48px -20px rgba(0, 0, 0, 0.7);
@@ -254,6 +382,14 @@
      loose and amateur; -0.03em is what makes large type look typeset. */
   h1, h2, h3, h4 {
     letter-spacing: -0.021em;
+  }
+
+  /* Keyboard focus that no utility styles gets the Marka two-tone ring. In the base
+     layer, so a component's own focus utilities still win. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--marka-navy);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--marka-amber);
   }
 
   /* Numbers in stats must not jitter as they animate or refresh. */
@@ -349,26 +485,39 @@
     outline: 1px solid color-mix(in srgb, var(--brand-500) 35%, transparent);
     outline-offset: -1px;
   }
+
+  /* The Marka star marks, drawn by masking: the element's background is the mark's colour,
+     clipped to its shape. One copy of each shape serves every star on the page, where an
+     inline SVG would repeat the path in each one. The paths live in src/lib/brand.ts and in
+     the storefront widget's stylesheet.
+       .mr-star          the Marka star rating icon: a bold star with a tick cut out. The
+                         default for every rating, and the mark before "Verified Purchase".
+       .mr-star-classic  the classic star, for a merchant who picks it in Settings -> Display.
+       .mr-verified      the tick-star again, for the verified mark's own call sites. */
+  .mr-star, .mr-verified {
+    display: block;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M11.28 1.31C10.73 1.59 10.64 1.77 9.56 4.39C7.83 8.56 8.2 8.2 4.67 8.38C1.13 8.47 .95 8.56 .59 9.37C.32 10.37 .41 10.46 2.94 12.72C6.48 15.71 6.3 14.99 4.67 20.06C4.12 21.6 4.21 22.23 4.94 22.69C5.66 23.14 5.84 23.05 8.74 21.42C12.27 19.33 11.73 19.33 15.26 21.42C18.16 23.05 18.34 23.14 19.06 22.69C19.88 22.14 19.88 21.78 18.97 18.7C17.8 15.17 17.7 15.53 20.87 12.81C23.41 10.64 23.5 10.64 23.5 9.92C23.5 8.83 22.96 8.56 21.06 8.47L19.88 8.38L20.15 8.65C20.42 9.01 20.51 9.19 20.42 9.46C20.42 9.74 15.08 14.81 12 17.61C11.19 18.34 11.19 18.34 8.56 15.89C6.39 13.81 6.3 13.72 7.29 12.91C8.11 12.18 8.2 12.27 9.92 13.81C11.28 15.08 11.28 15.08 11.82 14.72C12.36 14.26 15.26 11.55 16.98 9.92L18.61 8.38L17.8 8.29C16.07 8.2 15.98 8.11 14.54 4.67C13.9 3.22 13.36 1.86 13.27 1.77C12.81 1.13 11.91 .95 11.28 1.31Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M11.28 1.31C10.73 1.59 10.64 1.77 9.56 4.39C7.83 8.56 8.2 8.2 4.67 8.38C1.13 8.47 .95 8.56 .59 9.37C.32 10.37 .41 10.46 2.94 12.72C6.48 15.71 6.3 14.99 4.67 20.06C4.12 21.6 4.21 22.23 4.94 22.69C5.66 23.14 5.84 23.05 8.74 21.42C12.27 19.33 11.73 19.33 15.26 21.42C18.16 23.05 18.34 23.14 19.06 22.69C19.88 22.14 19.88 21.78 18.97 18.7C17.8 15.17 17.7 15.53 20.87 12.81C23.41 10.64 23.5 10.64 23.5 9.92C23.5 8.83 22.96 8.56 21.06 8.47L19.88 8.38L20.15 8.65C20.42 9.01 20.51 9.19 20.42 9.46C20.42 9.74 15.08 14.81 12 17.61C11.19 18.34 11.19 18.34 8.56 15.89C6.39 13.81 6.3 13.72 7.29 12.91C8.11 12.18 8.2 12.27 9.92 13.81C11.28 15.08 11.28 15.08 11.82 14.72C12.36 14.26 15.26 11.55 16.98 9.92L18.61 8.38L17.8 8.29C16.07 8.2 15.98 8.11 14.54 4.67C13.9 3.22 13.36 1.86 13.27 1.77C12.81 1.13 11.91 .95 11.28 1.31Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  .mr-star-classic {
+    display: block;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M11.51 1.22C10.71 1.49 10.52 1.69 9.73 3.4C7.82 7.42 7.82 7.49 7.49 7.62C7.35 7.62 6.04 7.88 4.59 8.08C1.22 8.61 1.03 8.61 .63 9.4C.24 10.32 .5 10.91 1.69 11.97C2.15 12.36 2.94 13.02 3.47 13.48C5.51 15.26 5.38 15.13 5.31 15.59C4.92 17.24 4.19 20.93 4.19 21.26C4.19 22.25 4.92 22.91 5.97 22.84C6.43 22.78 6.5 22.78 8.41 21.72C11.04 20.2 11.24 20.14 11.57 19.94L11.9 19.81L12.23 19.94C12.43 20.07 13.29 20.47 14.08 20.93C17.37 22.78 17.44 22.78 17.9 22.84C18.82 22.91 19.61 22.25 19.74 21.33C19.74 21.06 19.61 20.34 19.15 18.1C18.82 16.51 18.56 15.2 18.62 15.13C18.62 15 19.41 14.34 21.92 12.03C23.3 10.78 23.43 10.58 23.43 9.79C23.43 9.4 23.37 9.07 23.04 8.74C22.58 8.21 22.64 8.21 18.69 7.75C17.44 7.62 16.38 7.49 16.32 7.42C16.18 7.42 15.99 7.02 15.66 6.37C14.08 3.07 13.55 1.95 13.35 1.75C12.89 1.29 12.1 1.09 11.51 1.22Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M11.51 1.22C10.71 1.49 10.52 1.69 9.73 3.4C7.82 7.42 7.82 7.49 7.49 7.62C7.35 7.62 6.04 7.88 4.59 8.08C1.22 8.61 1.03 8.61 .63 9.4C.24 10.32 .5 10.91 1.69 11.97C2.15 12.36 2.94 13.02 3.47 13.48C5.51 15.26 5.38 15.13 5.31 15.59C4.92 17.24 4.19 20.93 4.19 21.26C4.19 22.25 4.92 22.91 5.97 22.84C6.43 22.78 6.5 22.78 8.41 21.72C11.04 20.2 11.24 20.14 11.57 19.94L11.9 19.81L12.23 19.94C12.43 20.07 13.29 20.47 14.08 20.93C17.37 22.78 17.44 22.78 17.9 22.84C18.82 22.91 19.61 22.25 19.74 21.33C19.74 21.06 19.61 20.34 19.15 18.1C18.82 16.51 18.56 15.2 18.62 15.13C18.62 15 19.41 14.34 21.92 12.03C23.3 10.78 23.43 10.58 23.43 9.79C23.43 9.4 23.37 9.07 23.04 8.74C22.58 8.21 22.64 8.21 18.69 7.75C17.44 7.62 16.38 7.49 16.32 7.42C16.18 7.42 15.99 7.02 15.66 6.37C14.08 3.07 13.55 1.95 13.35 1.75C12.89 1.29 12.1 1.09 11.51 1.22Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
 }
 
 @layer utilities {
 
-  /* Lift on hover. Paired with .surface* on anything clickable. */
+  /* Hover on anything clickable: a 120 ms border and shadow change. It used to lift the
+     card 3 px; the guidelines rule out moving a control under the pointer. */
   .lift {
     transition:
-      transform 200ms var(--ease-out),
-      box-shadow 200ms var(--ease-out),
-      border-color 200ms var(--ease-out);
-    will-change: transform;
+      box-shadow 120ms var(--ease-out),
+      border-color 120ms var(--ease-out);
   }
   .lift:hover {
-    transform: translateY(-3px);
     box-shadow: var(--bevel), var(--elev-3);
     border-color: var(--ink-300);
-  }
-  .lift:active {
-    transform: translateY(-1px);
-    transition-duration: 80ms;
   }
 
   /* Frosted bar for sticky headers over scrolling content.
@@ -379,35 +528,59 @@
    * opaque enough to fully mask what passes under it, with the blur and saturation
    * kept so it still reads as a layer of glass rather than a flat bar.
    */
+  /* Liquid Screen, L1 soft glass: 92% white, 12 px blur, 120% saturation, over the calm
+     canvas only. Opaque first; the blur is added only where the browser supports it, and
+     dropped again for a system "reduce transparency" preference or the explicit Solid
+     mode ([data-material="solid"] on any ancestor). Text on it stays fully opaque. */
   .glass {
-    background: color-mix(in srgb, var(--card) 96%, transparent);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    background: var(--card);
+  }
+  @supports ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px))) {
+    .glass {
+      background: color-mix(in srgb, var(--card) 92%, transparent);
+      backdrop-filter: blur(12px) saturate(120%);
+      -webkit-backdrop-filter: blur(12px) saturate(120%);
+    }
+  }
+  [data-material="solid"] .glass {
+    background: var(--card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   /* ── Brand fills ────────────────────────────────────────────────────────── */
 
+  /* The primary action: solid navy, white label (12.6:1). One per region. */
   .brand-fill {
-    background-image: linear-gradient(180deg, var(--brand-500) 0%, var(--brand-600) 100%);
+    background-color: var(--brand-600);
     color: #fff;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
-      var(--glow-brand);
-    transition: box-shadow 200ms var(--ease-out), transform 200ms var(--ease-out), filter 200ms var(--ease-out);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(27, 51, 88, 0.2);
+    transition: background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
   }
-  .brand-fill:hover {
-    filter: saturate(1.08);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.32),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
-      var(--glow-brand-lg);
-    transform: translateY(-1px);
+  .brand-fill:hover { background-color: var(--brand-700); }
+  .brand-fill:active { background-color: var(--brand-800); }
+  .dark .brand-fill { background-color: var(--marka-amber); color: var(--marka-navy); }
+  .dark .brand-fill:hover { background-color: #F2B43C; }
+
+  /* The accent action: amber with a navy label (7.9:1). Never white on amber. */
+  .accent-fill {
+    background-color: var(--marka-amber);
+    color: var(--marka-navy);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 2px rgba(27, 51, 88, 0.14);
+    transition: background-color 120ms var(--ease-out);
   }
-  .brand-fill:active { transform: translateY(0); transition-duration: 80ms; }
+  .accent-fill:hover { background-color: #F2B43C; }
+
+  /* The secondary action: cream with a navy label. */
+  .cream-fill {
+    background-color: var(--marka-cream);
+    color: var(--marka-navy);
+    transition: background-color 120ms var(--ease-out);
+  }
+  .cream-fill:hover { background-color: #F8E6C8; }
 
   .ink-fill {
-    background-image: linear-gradient(180deg, var(--ink-800) 0%, var(--ink-900) 100%);
+    background-color: var(--ink-900);
     color: #fff;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.14),
@@ -415,26 +588,26 @@
   }
 
   /* ── Icon tiles ─────────────────────────────────────────────────────────── */
-  /* The small coloured square behind an icon. Gradient + bevel + tinted glow,
-     because a flat pastel square is the single most "template" element in SaaS. */
+  /* The small square behind an icon, in the Marka family only: navy and the three warm
+     colours, plus the semantic tints where a tile signals a state. Flat fills with the
+     1 px highlight; every icon/background pair is at least 4.5:1. */
 
   .tile {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border-radius: var(--radius);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 6px -2px rgba(11, 18, 32, 0.14);
-    transition: transform 200ms var(--ease-spring);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 2px rgba(27, 51, 88, 0.12);
   }
-  .tile-brand  { background-image: linear-gradient(160deg, var(--brand-400), var(--brand-600)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), var(--glow-brand); }
-  .tile-amber  { background-image: linear-gradient(160deg, #fbbf24, #d97706); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(217,119,6,.45); }
-  .tile-indigo { background-image: linear-gradient(160deg, #818cf8, #4f46e5); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(79,70,229,.45); }
-  .tile-cyan   { background-image: linear-gradient(160deg, #22d3ee, #0891b2); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(8,145,178,.45); }
-  .tile-rose   { background-image: linear-gradient(160deg, #fb7185, #e11d48); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(225,29,72,.45); }
-  .tile-violet { background-image: linear-gradient(160deg, #c084fc, #7c3aed); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px -4px rgba(124,58,237,.45); }
-  .tile-ink    { background-image: linear-gradient(160deg, var(--ink-600), var(--ink-800)); color: #fff; }
-
-  .group:hover .tile { transform: scale(1.06) rotate(-2deg); }
+  .tile-brand  { background-color: #1B3358; color: #FDF1DE; }   /* navy, cream icon */
+  .tile-amber  { background-color: #FFC24B; color: #1B3358; }   /* amber, navy icon */
+  .tile-orange { background-color: #E8871E; color: #1B3358; }   /* orange, navy icon */
+  .tile-cream  { background-color: #FDF1DE; color: #1B3358; }   /* cream, navy icon */
+  .tile-indigo { background-color: #FDF1DE; color: #1B3358; }   /* was indigo: cream */
+  .tile-violet { background-color: #E2E8F1; color: #1B3358; }   /* was violet: navy tint */
+  .tile-cyan   { background-color: #E8871E; color: #1B3358; }   /* was cyan: orange */
+  .tile-rose   { background-color: #FEE4E2; color: #B42318; }   /* error tint */
+  .tile-ink    { background-color: #22324D; color: #FDF1DE; }
 
   /* ── Ambient background ─────────────────────────────────────────────────── */
   /* Two enormous, very faint colour fields behind the app. Invisible as shapes;
@@ -444,6 +617,8 @@
     position: relative;
     isolation: isolate;
   }
+  /* A calm, controlled backdrop (the only kind text should sit on): the canvas, with one
+     faint warm field and one faint navy field. Fixed, and never animated. */
   .aurora::before {
     content: "";
     position: fixed;
@@ -451,21 +626,19 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(60rem 40rem at 12% -8%, rgba(16, 183, 133, 0.13), transparent 60%),
-      radial-gradient(52rem 38rem at 105% 8%, rgba(99, 102, 241, 0.11), transparent 60%),
-      radial-gradient(44rem 34rem at 60% 108%, rgba(6, 182, 212, 0.09), transparent 62%);
+      radial-gradient(60rem 40rem at 12% -8%, rgba(255, 194, 75, 0.12), transparent 60%),
+      radial-gradient(52rem 38rem at 105% 8%, rgba(27, 51, 88, 0.06), transparent 60%);
   }
   .dark .aurora::before {
     background:
-      radial-gradient(60rem 40rem at 12% -8%, rgba(16, 183, 133, 0.12), transparent 60%),
-      radial-gradient(52rem 38rem at 105% 8%, rgba(99, 102, 241, 0.1), transparent 60%);
+      radial-gradient(60rem 40rem at 12% -8%, rgba(255, 194, 75, 0.08), transparent 60%);
   }
 
   /* Fine grid, for hero panels that would otherwise be empty colour. */
   .grid-lines {
     background-image:
-      linear-gradient(to right, rgba(11, 18, 32, 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(11, 18, 32, 0.045) 1px, transparent 1px);
+      linear-gradient(to right, rgba(27, 51, 88, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(27, 51, 88, 0.045) 1px, transparent 1px);
     background-size: 44px 44px;
     mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
     -webkit-mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
@@ -473,14 +646,12 @@
 
   /* ── Text ───────────────────────────────────────────────────────────────── */
 
+  /* Was a gradient fill. Navy communicates: emphasis is weight and colour, not a sheen. */
   .text-gradient {
-    background-image: linear-gradient(135deg, var(--ink-900) 20%, var(--brand-700) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    color: var(--marka-navy);
   }
   .dark .text-gradient {
-    background-image: linear-gradient(135deg, #ffffff 20%, var(--brand-400) 100%);
+    color: var(--marka-amber);
   }
 
   .display {
@@ -488,12 +659,19 @@
     line-height: 1.04;
   }
 
-  /* The serif. Headlines only — never body, never anything with a number in it. */
+  /* Was a display serif, with italics. The guidelines: one family, no synthetic italics.
+     Headlines are the system stack at 700, tightly tracked. */
   .font-display {
-    font-family: var(--font-display), ui-serif, Georgia, serif;
-    font-weight: 400;
-    letter-spacing: -0.012em;
-    line-height: 1.06;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-style: normal;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
+  }
+
+  /* The Marka lockup and Marka-owned pages. */
+  .marka-type {
+    font-family: var(--font-archivo);
   }
 
   /* ── 3D ─────────────────────────────────────────────────────────────────── */
@@ -501,17 +679,17 @@
      real UI in perspective is what makes a product shot look like a product. */
 
   .scene { perspective: 1600px; perspective-origin: 50% 40%; }
+  /* Static. It used to re-angle on hover, which is motion for its own sake. */
   .tilt {
     transform: rotateX(9deg) rotateY(-13deg) rotateZ(1.5deg);
     transform-style: preserve-3d;
-    transition: transform 700ms var(--ease-out);
   }
-  .scene:hover .tilt { transform: rotateX(4deg) rotateY(-6deg) rotateZ(0.5deg); }
 
   /* ── Motion ─────────────────────────────────────────────────────────────── */
 
+  /* Panels arrive in 200 ms, with at most 8 px of movement. */
   @keyframes rm-rise {
-    from { opacity: 0; transform: translateY(12px); }
+    from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: none; }
   }
   @keyframes rm-fade {
@@ -525,57 +703,40 @@
   @keyframes rm-shimmer {
     100% { transform: translateX(100%); }
   }
-  @keyframes rm-pulse-ring {
-    0%   { box-shadow: 0 0 0 0 rgba(16, 183, 133, 0.4); }
-    70%  { box-shadow: 0 0 0 10px rgba(16, 183, 133, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(16, 183, 133, 0); }
-  }
-  @keyframes rm-float {
-    0%, 100% { transform: translateY(0); }
-    50%      { transform: translateY(-8px); }
-  }
+  .animate-rise { animation: rm-rise 200ms var(--ease-out) both; }
+  .animate-fade { animation: rm-fade 200ms var(--ease-out) both; }
+  .animate-pop  { animation: rm-pop 200ms var(--ease-out) both; }
+  /* Both used to loop forever (a floating card, a pulsing ring). Kept as names, now still:
+     loading is a static indicator with a status line, per the guidelines. */
+  .animate-float { animation: none; }
+  .pulse-ring { animation: none; }
 
-  .animate-rise { animation: rm-rise 480ms var(--ease-out) both; }
-  .animate-fade { animation: rm-fade 380ms var(--ease-out) both; }
-  .animate-pop  { animation: rm-pop 320ms var(--ease-spring) both; }
-  .animate-float { animation: rm-float 6s ease-in-out infinite; }
-  .pulse-ring { animation: rm-pulse-ring 2.4s var(--ease-out) infinite; }
-
-  /* Stagger children without writing a delay for each one. */
-  .stagger > * { animation: rm-rise 480ms var(--ease-out) both; }
+  /* Stagger children without writing a delay for each one. Short: the whole set is in
+     place within about a third of a second. */
+  .stagger > * { animation: rm-rise 200ms var(--ease-out) both; }
   .stagger > *:nth-child(1) { animation-delay: 0ms; }
-  .stagger > *:nth-child(2) { animation-delay: 55ms; }
-  .stagger > *:nth-child(3) { animation-delay: 110ms; }
-  .stagger > *:nth-child(4) { animation-delay: 165ms; }
-  .stagger > *:nth-child(5) { animation-delay: 220ms; }
-  .stagger > *:nth-child(6) { animation-delay: 275ms; }
-  .stagger > *:nth-child(7) { animation-delay: 330ms; }
-  .stagger > *:nth-child(8) { animation-delay: 385ms; }
+  .stagger > *:nth-child(2) { animation-delay: 25ms; }
+  .stagger > *:nth-child(3) { animation-delay: 50ms; }
+  .stagger > *:nth-child(4) { animation-delay: 75ms; }
+  .stagger > *:nth-child(5) { animation-delay: 100ms; }
+  .stagger > *:nth-child(6) { animation-delay: 125ms; }
+  .stagger > *:nth-child(7) { animation-delay: 150ms; }
+  .stagger > *:nth-child(8) { animation-delay: 175ms; }
 
-  /* Loading placeholder with a travelling sheen — reads as "working", where a
-     static grey block reads as "broken". */
+  /* Loading placeholder: a static skeleton, as the guidelines ask. It used to carry a
+     travelling sheen; the status text beside it says "loading" without the motion. */
   .shimmer {
     position: relative;
     overflow: hidden;
     background: var(--ink-100);
   }
-  .shimmer::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
-    animation: rm-shimmer 1.6s infinite;
-  }
-  .dark .shimmer { background: rgba(255, 255, 255, 0.06); }
-  .dark .shimmer::after {
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
-  }
+  .dark .shimmer { background: rgba(253, 241, 222, 0.08); }
 
-  /* Focus ring used on every interactive element. One ring, everywhere. */
+  /* The focus ring on every interactive element: two-tone (amber inside, navy outside),
+     so it reads on white, cream, amber and navy alike. */
   .ring-focus:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--brand-500);
+    box-shadow: 0 0 0 2px var(--marka-amber), 0 0 0 4px var(--marka-navy);
   }
 
   .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -593,7 +754,16 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  .lift:hover { transform: none; }
   .tilt { transform: none; }
-  .shimmer::after { display: none; }
 }
+
+/* A system "reduce transparency" preference gets solid surfaces everywhere. Supported in
+   few browsers, which is why the explicit Solid mode exists as well. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--card) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+

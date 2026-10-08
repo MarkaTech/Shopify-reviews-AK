@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import { cn } from '@/lib/utils';
-import { Star, ArrowUpRight, type LucideIcon } from 'lucide-react';
+import { ArrowUpRight, type LucideIcon } from 'lucide-react';
+import { BRAND, brandStarColor, type StarStyle } from '@/lib/brand';
 
 /**
  * The shared visual vocabulary for every screen in the app.
@@ -88,11 +89,13 @@ export function PanelHeader({
    Icon tiles
    ──────────────────────────────────────────────────────────────────────────── */
 
-export type TileTone = 'brand' | 'amber' | 'indigo' | 'cyan' | 'rose' | 'violet' | 'ink';
+export type TileTone = 'brand' | 'amber' | 'orange' | 'cream' | 'indigo' | 'cyan' | 'rose' | 'violet' | 'ink';
 
 export const TILE_TONE: Record<TileTone, string> = {
   brand: 'tile-brand',
   amber: 'tile-amber',
+  orange: 'tile-orange',
+  cream: 'tile-cream',
   indigo: 'tile-indigo',
   cyan: 'tile-cyan',
   rose: 'tile-rose',
@@ -125,59 +128,29 @@ export function Tile({
    ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * A number that counts up to its value on first paint.
+ * A figure, formatted. It used to count up from zero over 900 ms on first paint.
  *
- * Worth the code: a dashboard that animates its figures feels like it computed
- * them, and a static one feels like it printed them. Bailing out for
- * reduced-motion and for non-finite values keeps it honest.
+ * The brand guidelines rule out animating figures and star ratings, and a counting number
+ * spends most of a second showing values that are not the real one (a 4.2 rating passes
+ * through 0, 1, 2...). So the real value is shown at once. The name and props stay, so
+ * callers did not change; `duration` is accepted and ignored.
  */
 export function CountUp({
   value,
-  duration = 900,
   decimals = 0,
   suffix = '',
   prefix = '',
   className,
 }: {
   value: number;
+  /** Ignored: figures are not animated. */
   duration?: number;
   decimals?: number;
   suffix?: string;
   prefix?: string;
   className?: string;
 }) {
-  const [shown, setShown] = useState(0);
-  const frame = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    const target = Number.isFinite(value) ? value : 0;
-    const reduce =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
-    // Every state update goes through requestAnimationFrame, including the instant
-    // ones. Setting state synchronously in an effect body triggers a cascading
-    // render — React's own lint rule flags it — and deferring by a frame costs
-    // nothing perceptible while keeping all three paths on one code shape.
-    if (reduce || duration <= 0) {
-      frame.current = requestAnimationFrame(() => setShown(target));
-    } else {
-      const start = performance.now();
-      const tick = (now: number) => {
-        const t = Math.min(1, (now - start) / duration);
-        // Same decelerating curve as the CSS easing, so motion feels unified.
-        const eased = 1 - Math.pow(1 - t, 3);
-        setShown(target * eased);
-        if (t < 1) frame.current = requestAnimationFrame(tick);
-      };
-      frame.current = requestAnimationFrame(tick);
-    }
-
-    return () => {
-      if (frame.current) cancelAnimationFrame(frame.current);
-    };
-  }, [value, duration]);
-
+  const shown = Number.isFinite(value) ? value : 0;
   return (
     <span className={cn('tnum', className)}>
       {prefix}
@@ -236,8 +209,10 @@ export function StatCard({
         <Tile icon={icon} tone={tone} size="lg" />
       </div>
 
+      {/* In the flow under the figures rather than absolutely behind them, where it ran
+          into the hint text. */}
       {spark && spark.length > 1 && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 opacity-70">
+        <div className="pointer-events-none -mx-5 -mb-5 mt-3 h-10 opacity-70">
           <Sparkline values={spark} />
         </div>
       )}
@@ -303,50 +278,110 @@ export function Sparkline({
    Stars
    ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * The Marka Reviews text lockup: "Marka" in Archivo 700, with the product name secondary
+ * to the master brand, as the guidelines' naming rules ask. It still reads "Marka Reviews".
+ */
+export function MarkaLockup({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <span className={cn('marka-type leading-tight tracking-[-0.02em]', className)} style={{ fontSize: size }}>
+      <span className="font-bold text-[#1B3358] dark:text-[#FDF1DE]">Marka</span>{' '}
+      <span className="font-medium text-ink-500 dark:text-ink-300">Reviews</span>
+    </span>
+  );
+}
+
+/**
+ * One Marka rating star (src/lib/brand.ts): the bold star from the app icon. `fill`
+ * colours that fraction of it from the left, so 4.3 stars can show 4.3; the rest stays the
+ * empty tone. The shape is a CSS mask defined once in globals.css, so a list of fifty
+ * reviews does not carry fifty copies of the path.
+ */
+export function RatingStar({
+  size = 14,
+  fill = 1,
+  color,
+  variant = 'tick',
+  className,
+}: {
+  size?: number;
+  fill?: number;
+  /** Star colour. Defaults to Marka Orange. */
+  color?: string;
+  /** The Marka tick-star (default) or the classic star a merchant can choose. */
+  variant?: StarStyle;
+  className?: string;
+}) {
+  const f = Math.max(0, Math.min(1, fill));
+  const shape = variant === 'classic' ? 'mr-star-classic' : 'mr-star';
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('relative inline-block shrink-0', className)}
+      style={{ width: size, height: size }}
+    >
+      {f < 1 && <span className={cn(shape, 'absolute inset-0 bg-[#D9D3C7] dark:bg-white/20')} />}
+      {f > 0 && (
+        <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${f * 100}%` }}>
+          <span
+            className={cn(shape, 'absolute left-0 top-0')}
+            style={{ width: size, height: size, background: brandStarColor(color) }}
+          />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The verified mark: the Marka tick-star, before "Verified Purchase" (or "Verified buyer")
+ * on a review tied to a real order. The words carry the meaning; the mark is brand.
+ */
+export function VerifiedMark({
+  size = 14,
+  color = BRAND.amber,
+  className,
+}: {
+  size?: number;
+  color?: string;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('mr-verified inline-block shrink-0', className)}
+      style={{ width: size, height: size, background: color }}
+    />
+  );
+}
+
 export function Stars({
   rating,
   size = 14,
   className,
   showValue,
+  color,
+  variant,
 }: {
   rating: number;
   size?: number;
   className?: string;
   showValue?: boolean;
+  /** A merchant's star colour, for previews. Defaults to Marka Orange. */
+  color?: string;
+  /** A merchant's star style, for previews. Defaults to the Marka tick-star. */
+  variant?: StarStyle;
 }) {
   const full = Math.floor(rating);
   const frac = rating - full;
 
   return (
     <span className={cn('inline-flex items-center gap-1', className)}>
-      <span className="inline-flex items-center gap-[1px]">
-        {[0, 1, 2, 3, 4].map((i) => {
+      <span className="inline-flex items-center" style={{ gap: Math.max(1, Math.round(size / 10)) }}>
+        {[0, 1, 2, 3, 4].map((i) => (
           // Partial fill via a clipped overlay, so 4.3 stars actually shows 4.3.
-          const fill = i < full ? 1 : i === full ? frac : 0;
-          return (
-            <span key={i} className="relative inline-block" style={{ width: size, height: size }}>
-              <Star
-                className="absolute inset-0 text-ink-200 dark:text-white/15"
-                style={{ width: size, height: size }}
-                fill="currentColor"
-                strokeWidth={0}
-              />
-              {fill > 0 && (
-                <span
-                  className="absolute inset-0 overflow-hidden"
-                  style={{ width: `${fill * 100}%` }}
-                >
-                  <Star
-                    className="text-amber-400"
-                    style={{ width: size, height: size }}
-                    fill="currentColor"
-                    strokeWidth={0}
-                  />
-                </span>
-              )}
-            </span>
-          );
-        })}
+          <RatingStar key={i} size={size} color={color} variant={variant} fill={i < full ? 1 : i === full ? frac : 0} />
+        ))}
       </span>
       {showValue && (
         <span className="tnum text-[12px] font-semibold text-ink-700 dark:text-ink-200">
@@ -363,6 +398,13 @@ export function Stars({
 
 const PILL_TONE = {
   brand: 'bg-brand-50 text-brand-700 ring-brand-600/15 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20',
+  /* Semantic states (always with words): success, warning, error, information. */
+  success: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20',
+  warning: 'bg-amber-50 text-amber-700 ring-amber-700/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20',
+  error: 'bg-rose-50 text-rose-700 ring-rose-600/15 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/20',
+  info: 'bg-indigo-50 text-indigo-700 ring-indigo-600/15 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-400/20',
+  /* Warm emphasis: cream with a navy label. */
+  cream: 'bg-[#FDF1DE] text-[#1B3358] ring-[#E8871E]/25 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-400/20',
   amber: 'bg-amber-50 text-amber-700 ring-amber-600/15 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20',
   rose: 'bg-rose-50 text-rose-700 ring-rose-600/15 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/20',
   indigo: 'bg-indigo-50 text-indigo-700 ring-indigo-600/15 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-400/20',
@@ -411,23 +453,23 @@ export function Meter({
   height?: number;
 }) {
   const fill = {
-    brand: 'linear-gradient(90deg, var(--brand-400), var(--brand-600))',
-    amber: 'linear-gradient(90deg, #fbbf24, #d97706)',
-    rose: 'linear-gradient(90deg, #fb7185, #e11d48)',
-    indigo: 'linear-gradient(90deg, #818cf8, #4f46e5)',
+    brand: 'linear-gradient(#1B3358, #1B3358)',
+    amber: 'linear-gradient(#E8871E, #E8871E)',
+    rose: 'linear-gradient(#B42318, #B42318)',
+    indigo: 'linear-gradient(#1B5E9B, #1B5E9B)',
   }[tone];
 
   return (
     <div
       className={cn('w-full overflow-hidden rounded-full bg-ink-100 dark:bg-white/8', className)}
-      style={{ height, boxShadow: 'inset 0 1px 2px rgba(11,18,32,.09)' }}
+      style={{ height, boxShadow: 'inset 0 1px 2px rgba(27,51,88,.08)' }}
     >
       <div
-        className="h-full rounded-full transition-[width] duration-700 ease-out"
+        className="h-full rounded-full transition-[width] duration-200 ease-out"
         style={{
           width: `${Math.max(0, Math.min(100, value))}%`,
           backgroundImage: fill,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,.2)',
         }}
       />
     </div>
@@ -463,14 +505,10 @@ export function EmptyState({
   return (
     <div className={cn('flex flex-col items-center justify-center px-6 py-14 text-center', className)}>
       <div className="relative mb-5">
-        {/* Halo + two ghost tiles behind the real one: depth from nothing. */}
-        <div
-          className="absolute inset-0 -z-10 blur-2xl opacity-50"
-          style={{ background: 'radial-gradient(circle, var(--brand-300), transparent 70%)' }}
-        />
+        {/* Two ghost tiles behind the real one: a little depth, no halo. */}
         <div className="absolute left-1/2 top-1 -z-10 size-14 -translate-x-1/2 rotate-12 rounded-2xl bg-ink-100 dark:bg-white/5" />
         <div className="absolute left-1/2 top-0.5 -z-10 size-14 -translate-x-1/2 -rotate-6 rounded-2xl bg-ink-50 dark:bg-white/[0.03]" />
-        <Tile icon={Icon} tone={tone} size="xl" className="animate-float" />
+        <Tile icon={Icon} tone={tone} size="xl" />
       </div>
       <h3 className="text-[17px] font-semibold text-ink-900 dark:text-white">{title}</h3>
       {description && (
@@ -541,7 +579,7 @@ export function ActionButton({
   const variants = {
     primary: 'brand-fill',
     dark: 'ink-fill hover:brightness-110',
-    soft: 'bg-brand-50 text-brand-700 hover:bg-brand-100 dark:bg-brand-500/12 dark:text-brand-300 dark:hover:bg-brand-500/20',
+    soft: 'cream-fill dark:bg-white/10 dark:text-[#FDF1DE] dark:hover:bg-white/15',
     // `bg-none` before the hover colour is load-bearing: `.surface` paints a gradient via
     // background-image, which sits on top of background-color — so `hover:bg-ink-50`
     // alone changed a colour nobody could see. Clearing the image lets it through.

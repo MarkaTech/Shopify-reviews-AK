@@ -4,7 +4,7 @@ import { resolveToken } from '@/lib/review-requests';
 import { assertReviewCapacity, planLimitResponse } from '@/lib/plans';
 import { validateFiles, uploadToShopify, MediaError, type ValidatedFile } from '@/lib/media';
 import { getFreshAccessToken, tokenRefresherFor, TOKEN_SELECT } from '@/lib/shopify-token';
-import { getSubmissionRules } from '@/lib/storefront-config';
+import { getSubmissionRules, getRatingLook } from '@/lib/storefront-config';
 
 /**
  * Public endpoints — the buyer is a customer of the merchant, not a logged-in user of
@@ -42,6 +42,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     // this flow produces the reviews most worth having media on (verified buyers), but the
     // merchant's "no videos" choice is still theirs.
     const rules = await getSubmissionRules(state.request.storeId);
+    // The store's star shape and colour, so this page matches the widget on its storefront.
+    const look = await getRatingLook(state.request.storeId);
 
     // Record that the customer opened the link, for the merchant's request analytics.
     if (!state.request.openedAt) {
@@ -58,6 +60,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       items: state.lineItems,
       allowPhotos: rules.allowPhotos,
       allowVideo: rules.allowVideo,
+      starStyle: look.starStyle,
+      starColor: look.starColor,
     });
   } catch (error) {
     console.error('[review-request GET]', error);

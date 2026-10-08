@@ -2,11 +2,12 @@
 
 import React, { useMemo } from 'react';
 import {
-  LayoutDashboard, Star, FileSpreadsheet, Settings, ShoppingBag, Palette,
+  LayoutDashboard, FileSpreadsheet, Settings, ShoppingBag, Palette,
   MessageSquare, HelpCircle, Gift, Sparkles, Zap, ArrowUpRight, type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Meter, ActionButton } from './ui-kit';
+import { Meter, ActionButton, MarkaLockup } from './ui-kit';
+import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
 
 /**
  * Top navigation.
@@ -53,10 +54,12 @@ interface TopNavProps {
   pendingCount?: number;
 }
 
-const PLAN_META: Record<string, { label: string; short: string; chip: string }> = {
-  free:   { label: 'Free',   short: 'FREE',  chip: 'bg-ink-100 text-ink-600 ring-ink-900/8' },
-  growth: { label: 'Growth', short: 'GROW',  chip: 'bg-brand-50 text-brand-700 ring-brand-600/15' },
-  scale:  { label: 'Scale',  short: 'SCALE', chip: 'bg-violet-50 text-violet-700 ring-violet-600/15' },
+/* The plan's own name, in sentence case: "GROW" read as a typo, and the guidelines keep
+   uppercase for short overlines. */
+const PLAN_META: Record<string, { label: string; chip: string }> = {
+  free:   { label: 'Free',   chip: 'bg-ink-100 text-ink-600 ring-ink-900/8' },
+  growth: { label: 'Growth', chip: 'bg-brand-50 text-brand-700 ring-brand-600/15' },
+  scale:  { label: 'Scale',  chip: 'bg-violet-50 text-violet-700 ring-violet-600/15' },
 };
 
 interface NavItem { id: PageId; label: string; short: string; icon: LucideIcon; badge?: number }
@@ -102,21 +105,13 @@ export default function TopNav({
 
   return (
     <header className="glass sticky top-0 z-40 border-b border-border">
-      {/* A whisper of brand along the top edge, carried over from the rail so the chrome
-          is not a plain white band. */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-full"
-        style={{ background: 'radial-gradient(36rem 6rem at 0% 0%, rgba(16,183,133,0.07), transparent 70%)' }}
-      />
 
       {/* ── Identity, plan, storefront ── */}
       <div className="relative mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-2.5 sm:px-6 lg:px-8">
-        <span className="tile tile-brand size-8 shrink-0">
-          <Star className="size-4" fill="currentColor" strokeWidth={0} />
-        </span>
+        <img src={BRAND_ASSETS.icon} alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg" />
         <div className="min-w-0">
-          <h1 className="truncate text-[14px] font-bold leading-tight tracking-[-0.015em] text-ink-900 dark:text-white">
-            ReviewMaster
+          <h1 className="truncate" aria-label={APP_NAME}>
+            <MarkaLockup size={15} />
           </h1>
           <p className="hidden text-[10.5px] font-medium text-ink-400 sm:block">Reviews that sell</p>
         </div>
@@ -132,18 +127,18 @@ export default function TopNav({
           >
             <span
               className={cn(
-                'inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[9.5px] font-black tracking-wider ring-1 ring-inset',
+                'inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold ring-1 ring-inset',
                 planMeta.chip
               )}
             >
-              {planMeta.short}
+              {planMeta.label}
             </span>
             {requestsCap === undefined ? (
-              /* Usage not fetched yet. A shimmer, never "Unlimited" - that is a plan
-                 entitlement the Free plan does not have, and it was on screen for the
+              /* Usage not fetched yet. A static placeholder, never "Unlimited" - that is a
+                 plan entitlement the Free plan does not have, and it was on screen for the
                  first seconds of every load. */
               <span className="hidden w-24 lg:block" aria-hidden="true">
-                <span className="block h-2 w-16 animate-pulse rounded bg-ink-200/70 dark:bg-ink-700/60" />
+                <span className="block h-2 w-16 rounded bg-ink-200/70 dark:bg-ink-700/60" />
               </span>
             ) : requestsCap ? (
               <span className="hidden lg:block">
@@ -165,8 +160,8 @@ export default function TopNav({
 
           {planKey === 'free' && (
             <ActionButton variant="primary" size="sm" icon={Zap} onClick={() => onPageChange('settings')}>
-              <span className="hidden sm:inline">Upgrade</span>
-              <span className="sm:hidden">Pro</span>
+              {/* There is no "Pro" plan; the button says what it does at every width. */}
+              Upgrade
             </ActionButton>
           )}
 

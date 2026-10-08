@@ -37,15 +37,22 @@
     change it here too — otherwise the block starts emitting an override the merchant
     never asked for, and Settings -> Display goes dead again.
   endcomment
-  assign default_accent = '#059669'
-  assign default_star = '#f5a623'
+  assign default_accent = '#1b3358'
+  assign default_star = '#e8871e'
   assign default_radius = 8
 
+  comment
+    The defaults before the Marka rebrand. A block still holding one of these was never
+    changed by the merchant, so it is treated as untouched too and the app's colour applies.
+  endcomment
+  assign legacy_accent = '#059669'
+  assign legacy_star = '#f5a623'
+
   assign style = ''
-  if block.settings.accent_color != blank and block.settings.accent_color != default_accent
+  if block.settings.accent_color != blank and block.settings.accent_color != default_accent and block.settings.accent_color != legacy_accent
     assign style = style | append: '--rm-accent:' | append: block.settings.accent_color | append: ';'
   endif
-  if block.settings.star_color != blank and block.settings.star_color != default_star
+  if block.settings.star_color != blank and block.settings.star_color != default_star and block.settings.star_color != legacy_star
     assign style = style | append: '--rm-star-color:' | append: block.settings.star_color | append: ';'
   endif
   if block.settings.corner_radius != default_radius
@@ -264,7 +271,7 @@
       "id": "placement",
       "label": "This block is on",
       "default": "product_page",
-      "info": "Tells ReviewMaster which of your saved widgets to use here. Design widgets in the app under Widgets.",
+      "info": "Tells Marka Reviews which of your saved widgets to use here. Design widgets in the app under Widgets.",
       "options": [
         { "value": "product_page", "label": "Product page" },
         { "value": "collection_page", "label": "Collection page" },
@@ -278,8 +285,8 @@
       "content": "Appearance",
       "info": "Overrides the colours set in the app, for this placement only. Leave at the defaults to use your app-wide settings."
     },
-    { "type": "color", "id": "accent_color", "label": "Accent colour", "default": "#059669" },
-    { "type": "color", "id": "star_color", "label": "Star colour", "default": "#F5A623" },
+    { "type": "color", "id": "accent_color", "label": "Accent colour", "default": "#1B3358" },
+    { "type": "color", "id": "star_color", "label": "Star colour", "default": "#E8871E" },
     {
       "type": "range",
       "id": "corner_radius",
@@ -302,11 +309,11 @@
       "id": "app_url",
       "label": "App URL",
       "default": "https://reviewmaster-app.azurewebsites.net",
-      "info": "Leave as-is unless you run ReviewMaster on a custom domain."
+      "info": "Leave as-is unless you run Marka Reviews on a custom domain."
     },
     {
       "type": "paragraph",
-      "content": "Reviews per page, sort order, heading text and what each review shows are set in the ReviewMaster app under Settings and Widgets, so they stay consistent across every placement."
+      "content": "Reviews per page, sort order, heading text and what each review shows are set in the Marka Reviews app under Settings and Widgets, so they stay consistent across every placement."
     }
   ]
 }

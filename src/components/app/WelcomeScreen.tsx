@@ -2,15 +2,16 @@
 
 import React from 'react';
 import {
-  Star, Store, ShieldCheck, Camera, Mail, Gift,
+  Store, ShieldCheck, Camera, Mail, Gift,
   BadgeCheck, Zap, TrendingUp, Quote, ArrowRight, Clock, ChevronDown,
 } from 'lucide-react';
-import { Stars, Pill } from './ui-kit';
+import { Stars, RatingStar, VerifiedMark, MarkaLockup } from './ui-kit';
+import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
 
 /**
  * The install screen.
  *
- * This is a sales page, not a form. A merchant reaching it has ReviewMaster open
+ * This is a sales page, not a form. A merchant reaching it has Marka Reviews open
  * in one tab and Judge.me in another, and the decision between them is made on
  * this screen in a few seconds — before a single feature has been used. The old
  * version was a centred input box with four grey feature rows, which reads as a
@@ -31,13 +32,13 @@ const FEATURES = [
   },
   {
     icon: Camera,
-    tone: 'tile-indigo',
+    tone: 'tile-cream',
     title: 'Photo & video reviews',
     body: 'Shoppers attach media straight from the email. Stored in your own Shopify Files, not ours.',
   },
   {
     icon: BadgeCheck,
-    tone: 'tile-cyan',
+    tone: 'tile-orange',
     title: 'Verified buyer badges',
     body: 'Reviews tied to a real paid order carry a badge that is actually earned — never applied by default.',
   },
@@ -49,13 +50,13 @@ const FEATURES = [
   },
   {
     icon: Zap,
-    tone: 'tile-violet',
+    tone: 'tile-cream',
     title: 'Import from anywhere',
     body: 'AliExpress listings, Etsy shops and CSV files, mapped to your products and deduplicated.',
   },
   {
     icon: TrendingUp,
-    tone: 'tile-rose',
+    tone: 'tile-amber',
     title: 'Rich snippets & Shop sync',
     body: 'Star ratings in Google results and in the Shop app, kept in step with what you publish.',
   },
@@ -95,11 +96,9 @@ export default function WelcomeScreen({ error }: { error?: string }) {
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
           <div className="animate-rise">
             <div className="mb-6 flex items-center gap-2.5">
-              <span className="tile tile-brand size-10">
-                <Star className="size-5" fill="currentColor" strokeWidth={0} />
-              </span>
-              <span className="text-[17px] font-bold tracking-tight text-ink-900 dark:text-white">
-                ReviewMaster
+              <img src={BRAND_ASSETS.icon96} alt="" width={40} height={40} className="size-10 rounded-[10px]" />
+              <span aria-label={APP_NAME}>
+                <MarkaLockup size={19} />
               </span>
             </div>
 
@@ -108,10 +107,8 @@ export default function WelcomeScreen({ error }: { error?: string }) {
                 its own UI is claiming a status it has not been given, which reviewers
                 treat as a branding violation. */}
 
-            <h1 className="display text-[44px] font-bold text-ink-900 dark:text-white sm:text-[52px]">
-              Turn happy customers
-              <br />
-              into <span className="text-gradient">your best sales team.</span>
+            <h1 className="display max-w-[15ch] text-[40px] font-bold text-ink-900 dark:text-white sm:text-[48px]">
+              Turn happy customers into <span className="text-gradient">your best sales team.</span>
             </h1>
 
             <p className="mt-5 max-w-lg text-[15.5px] leading-relaxed text-ink-500">
@@ -162,6 +159,21 @@ export default function WelcomeScreen({ error }: { error?: string }) {
                   <BadgeCheck className="size-3.5 text-brand-600" />
                   GDPR &amp; CCPA ready
                 </span>
+              </div>
+
+              {/* The brand badge, with what it stands for on a storefront: the "Verified
+                  Purchase" badge that reviews from a real order carry. Nothing more is claimed. */}
+              <div className="mt-7 flex items-center gap-3.5">
+                <img
+                  src={BRAND_ASSETS.badge}
+                  alt="Verified by Marka"
+                  width={132}
+                  height={44}
+                  className="h-11 w-auto rounded-lg shadow-sm"
+                />
+                <p className="max-w-[16rem] text-[12px] leading-snug text-ink-500">
+                  Reviews tied to a real order show a Verified Purchase badge on your storefront.
+                </p>
               </div>
             </div>
           </div>
@@ -222,12 +234,12 @@ export default function WelcomeScreen({ error }: { error?: string }) {
               {
                 stat: 'Every review',
                 label: 'Ratings are never filtered by score. Hiding low ratings breaks Google\u2019s policy and the FTC rule, so the app cannot do it.',
-                tone: 'text-indigo-600',
+                tone: 'text-brand-600',
               },
               {
                 stat: 'No card',
                 label: 'The free plan covers 100 review request emails a month and unlimited reviews. Upgrade only when you outgrow it.',
-                tone: 'text-amber-600',
+                tone: 'text-brand-600',
               },
             ].map((s, i) => (
               <div
@@ -283,7 +295,13 @@ function HeroMock() {
         <div className="relative border-b border-border px-6 py-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[12px] font-medium text-ink-500">Customer reviews</p>
+              <p className="flex items-center gap-2 text-[12px] font-medium text-ink-500">
+                Customer reviews
+                {/* Illustrative figures, labelled as such. */}
+                <span className="rounded-md border border-border px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+                  Example
+                </span>
+              </p>
               <div className="mt-1.5 flex items-center gap-2.5">
                 <span className="display text-[34px] font-bold text-ink-900 dark:text-white">4.8</span>
                 <div>
@@ -293,7 +311,7 @@ function HeroMock() {
               </div>
             </div>
             <span className="tile tile-brand size-11">
-              <Star className="size-5" fill="currentColor" strokeWidth={0} />
+              <RatingStar size={22} color="#FFC24B" />
             </span>
           </div>
 
@@ -305,13 +323,13 @@ function HeroMock() {
             ].map((r) => (
               <div key={r.s} className="flex items-center gap-2.5">
                 <span className="tnum w-3 text-[11px] font-medium text-ink-500">{r.s}</span>
-                <Star className="size-3 text-amber-400" fill="currentColor" strokeWidth={0} />
+                <RatingStar size={12} />
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-100 dark:bg-white/10">
                   <div
                     className="h-full rounded-full"
                     style={{
                       width: `${r.pct}%`,
-                      backgroundImage: 'linear-gradient(90deg, #fbbf24, #f59e0b)',
+                      background: '#E8871E',
                     }}
                   />
                 </div>
@@ -330,7 +348,11 @@ function HeroMock() {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[13px] font-semibold text-ink-900 dark:text-white">Maya R.</span>
-                <Pill tone="brand" icon={BadgeCheck}>Verified buyer</Pill>
+                {/* The storefront's default verified badge. */}
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#1B3358] px-2 py-0.5 text-[11px] font-semibold text-[#FDF1DE]">
+                  <VerifiedMark size={12} color="#E8871E" />
+                  Verified buyer
+                </span>
               </div>
               <div className="mt-1">
                 <Stars rating={5} size={13} />
@@ -342,9 +364,9 @@ function HeroMock() {
 
               <div className="mt-3 flex gap-2">
                 {[
-                  'linear-gradient(140deg,#a7f3d4,#059468)',
-                  'linear-gradient(140deg,#bfdbfe,#4f46e5)',
-                  'linear-gradient(140deg,#fde68a,#d97706)',
+                  'linear-gradient(140deg,#FFE3A8,#E8871E)',
+                  'linear-gradient(140deg,#C5D0E1,#1B3358)',
+                  'linear-gradient(140deg,#FDF1DE,#FFC24B)',
                 ].map((bg, i) => (
                   <div
                     key={i}
@@ -362,7 +384,8 @@ function HeroMock() {
 
         {/* Footer bar */}
         <div className="relative flex items-center justify-between border-t border-border bg-ink-50/60 px-6 py-3 dark:bg-white/[0.02]">
-          <span className="text-[11.5px] font-medium text-ink-500">Powered by ReviewMaster</span>
+          {/* The storefront's free-plan attribution: the app icon, 20 px. */}
+          <img src={BRAND_ASSETS.icon} alt={`Powered by ${APP_NAME}`} title={`Powered by ${APP_NAME}`} width={20} height={20} className="size-5 rounded-[5px] opacity-80" />
           <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-brand-700 dark:text-brand-400">
             Write a review
             <ArrowRight className="size-3" />

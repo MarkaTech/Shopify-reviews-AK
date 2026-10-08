@@ -171,6 +171,8 @@ export default function IncentivesPage() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ ...BLANK_FORM });
+  /** Whether the plan includes incentives. Unknown (null) behaves as allowed: the server decides. */
+  const [eligible, setEligible] = useState<boolean | null>(null);
 
   // Promise chain rather than async/await: every setState lands in a callback, so nothing
   // runs synchronously when this is called from an effect. Returns the promise so the
@@ -189,6 +191,10 @@ export default function IncentivesPage() {
 
   useEffect(() => {
     load();
+    // Eligibility is shown before the form, not discovered on save.
+    apiFetch<{ features?: Record<string, boolean> }>('/api/usage')
+      .then(u => setEligible(u.features?.incentives ?? null))
+      .catch(() => setEligible(null));
   }, [load]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm(f => ({ ...f, [k]: v }));
@@ -310,6 +316,16 @@ export default function IncentivesPage() {
 
   return (
     <div className="space-y-6">
+      {eligible === false && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-700/25 bg-amber-50 px-5 py-4">
+          <p id="incentives-plan-note" className="max-w-2xl text-[13px] leading-relaxed text-amber-800">
+            <strong className="font-semibold">Review incentives come with the Growth plan ($12/month).</strong>{' '}
+            Upgrade under Settings → Plan to create one.
+          </p>
+          <Pill tone="cream">Growth plan</Pill>
+        </div>
+      )}
+
       {/* ── Codes issued, across every incentive ever run ────────────────────────── */}
       <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
@@ -350,6 +366,14 @@ export default function IncentivesPage() {
             action={editingId ? <Pill tone="amber">Editing</Pill> : undefined}
           />
 
+          {/* On a plan without incentives the whole form is disabled, visibly and
+              functionally, with the reason above it (Built for Shopify 4.3.7): a gated
+              feature must not look usable and only fail on save. */}
+          <fieldset
+            disabled={eligible === false}
+            aria-describedby={eligible === false ? 'incentives-plan-note' : undefined}
+            className={`m-0 min-w-0 border-0 p-0 ${eligible === false ? 'opacity-55' : ''}`}
+          >
           <div className="space-y-5 px-5 pb-5">
             {/*
               Placed above the fields, not below them: a merchant looking for a
@@ -570,17 +594,17 @@ export default function IncentivesPage() {
                   ? `Add a photo or video with your review and get ${previewReward} on your next order.`
                   : `Leave a review and get ${previewReward} on your next order.`}
               </p>
-              <p className="mt-1.5 text-[12px] italic leading-relaxed text-ink-500">
+              <p className="mt-1.5 text-[12px] leading-relaxed text-ink-500">
                 {form.disclosureText.trim() || DEFAULT_DISCLOSURE}
               </p>
             </div>
 
             <div className="flex gap-2">
-              <ActionButton onClick={save} disabled={saving} className="flex-1">
+              <ActionButton onClick={save} disabled={saving || eligible === false} className="flex-1">
                 {saving
                   ? <Loader2 className="size-4 animate-spin" />
                   : <Save className="size-4" strokeWidth={2.4} />}
-                {editingId ? 'Update incentive' : 'Save incentive'}
+                {eligible === false ? 'Saving needs the Growth plan' : editingId ? 'Update incentive' : 'Save incentive'}
               </ActionButton>
               {editingId && (
                 <ActionButton variant="outline" onClick={resetForm}>
@@ -589,6 +613,7 @@ export default function IncentivesPage() {
               )}
             </div>
           </div>
+          </fieldset>
         </Panel>
 
         {/* ── Right: performance and the saved list ────────────────────────────────── */}
