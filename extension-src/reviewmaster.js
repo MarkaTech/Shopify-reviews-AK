@@ -421,7 +421,13 @@
     icon.decoding = 'async';
     link.appendChild(icon);
     wrap.appendChild(link);
-    this.root.appendChild(wrap);
+    // Inside the panel for the overlay layouts. buildOverlay lifts every child of the block
+    // into the fixed .rm-panel, so appending to the root here left the icon in the page
+    // flow where the block was placed: a lone rule and a 24 px mark in the middle of the
+    // product page with no reviews around it. applyLayout runs before this, so when there
+    // is a panel it already exists.
+    var host = this.root.querySelector('.rm-panel') || this.root;
+    host.appendChild(wrap);
   };
 
   /**
@@ -1104,6 +1110,41 @@
     }
   };
 
+  /**
+   * The upload caps from src/lib/media.ts, in its order and its words.
+   *
+   * The server is the rule and checks again regardless — but it can only check once the
+   * body has arrived, so without this a shopper who attached a 60 MB video uploaded all of
+   * it and then read that the limit is 50. Returns the message to show, or null when the
+   * selection is fine. Same wording as the server so the two never disagree, and the type
+   * list is the server's rather than the picker's `image/*,video/*`, so a HEIC photo from a
+   * phone is turned away here rather than after the upload.
+   */
+  var MEDIA_IMAGE_TYPES = { 'image/jpeg': 1, 'image/png': 1, 'image/gif': 1, 'image/webp': 1 };
+  var MEDIA_VIDEO_TYPES = { 'video/mp4': 1, 'video/quicktime': 1, 'video/webm': 1 };
+  var MB = 1024 * 1024;
+  function checkFiles(files) {
+    if (!files) return null;
+    var images = 0, videos = 0, total = 0;
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      var mime = (f.type || '').toLowerCase();
+      var isImage = !!MEDIA_IMAGE_TYPES[mime];
+      var isVideo = !!MEDIA_VIDEO_TYPES[mime];
+      if (!isImage && !isVideo) {
+        return '"' + f.name + '" is not a supported file type. Please upload a JPG, PNG, GIF, WebP, MP4, MOV or WebM.';
+      }
+      var limit = isImage ? 10 : 50;
+      if (f.size > limit * MB) return '"' + f.name + '" is too large. The limit is ' + limit + 'MB.';
+      if (f.size === 0) return '"' + f.name + '" appears to be empty.';
+      if (isImage && ++images > 5) return 'Please upload at most 5 photos.';
+      if (isVideo && ++videos > 1) return 'Please upload at most 1 video.';
+      total += f.size;
+      if (total > 80 * MB) return 'Those files are too large in total. Please upload fewer or smaller files.';
+    }
+    return null;
+  }
+
   Widget.prototype.bindForm = function () {
     var self = this;
     var wrap = this.root.querySelector('[data-rm-form-wrap]');
@@ -1126,6 +1167,18 @@
     var fileName = form.querySelector('[data-rm-file-name]');
     if (fileInput && fileName) {
       fileInput.addEventListener('change', function () {
+        var status = form.querySelector('[data-rm-form-status]');
+        // Checked the moment they are picked (see checkFiles). The picker is cleared on a
+        // problem so the rejected files cannot be sent, and the message sits where the
+        // submit errors do.
+        var problem = checkFiles(fileInput.files);
+        if (problem) {
+          fileInput.value = '';
+          fileName.textContent = t('noFilesSelected');
+          if (status) status.textContent = problem;
+          return;
+        }
+        if (status) status.textContent = '';
         var n = fileInput.files ? fileInput.files.length : 0;
         fileName.textContent = n === 0
           ? t('noFilesSelected')
@@ -1236,6 +1289,10 @@
     this.shop = root.dataset.rmShop;
     this.productId = root.dataset.rmProduct;
     this.appUrl = (root.dataset.rmAppUrl || '').replace(/\/$/, '');
+    // Sent when the block carries one, as the review widget sends its own, so the widget
+    // the merchant designed for this placement reaches Q&A too. The block has no placement
+    // setting today; without one the server resolves the store's active widget.
+    this.placement = root.dataset.rmPlacement || '';
     this.listEl = root.querySelector('[data-rm-q-list]');
     this.bindForm();
   }
@@ -1243,6 +1300,7 @@
   QuestionsWidget.prototype.url = function () {
     var parts = ['shop=' + encodeURIComponent(this.shop)];
     if (this.productId) parts.push('product_id=' + encodeURIComponent(this.productId));
+    if (this.placement) parts.push('placement=' + encodeURIComponent(this.placement));
     return this.appUrl + '/api/storefront/questions?' + parts.join('&');
   };
 
@@ -1308,6 +1366,13 @@
     // up Settings -> Display. applyColors only fills in properties the theme block did not
     // already set inline, so a per-placement override in the block still wins.
     applyColors(this.root, data && data.colors);
+    // And the rest of their look — star shape, badge icon, font, custom CSS — which only the
+    // review widget used to publish. A Q&A block on a FAQ page or a collection, with no
+    // review list beside it, rendered in the theme font with none of the merchant's CSS.
+    // Both are idempotent, so a page that also carries the review widget applies them once.
+    // An older server sends neither key, and nothing happens then.
+    if (data && data.layout) applyMarks(data.layout);
+    applyCustomCss(data && data.customCss);
 
     // Entitlement first, so nothing rendered below can invite what the server refuses.
     var canAsk = !!(data && data.canAsk === true);
@@ -1472,6 +1537,42 @@
     note.textContent = message;
   };
 
+  /**
+   * The merchant's marks, applied before the review list is fetched.
+   *
+   * The list is deferred until the block nears the viewport, which is right for the list
+   * and wrong for what its payload publishes on the page: the star shape, the badge icon,
+   * the font and the colours all travel in it, and the Liquid-only star block under the
+   * product title takes them by inheritance from the document root. So on a store that
+   * chose the classic star, the stars under the title rendered as tick-stars at load and
+   * changed shape only when the shopper scrolled down to the reviews; the font arrived the
+   * same way.
+   *
+   * One small request per page, from the first review widget, against a cached endpoint
+   * that returns only those values. Everything applied here is idempotent and the review
+   * payload applies the same values again when it arrives, so a failure costs nothing but
+   * the early paint: the catch is deliberately empty.
+   */
+  var lookRequested = false;
+  function fetchLook(w) {
+    if (lookRequested || !w.appUrl || !w.shop) return;
+    lookRequested = true;
+    var p = ['shop=' + encodeURIComponent(w.shop)];
+    if (w.placement) p.push('placement=' + encodeURIComponent(w.placement));
+    fetch(w.appUrl + '/api/storefront/look?' + p.join('&'), { credentials: 'omit' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (look) {
+        if (!look) return;
+        if (look.layout) applyMarks(look.layout);
+        applyColors(w.root, look.colors);
+        applyCustomCss(look.customCss);
+      })
+      .catch(function () {});
+  }
+
   function init() {
     var nodes = document.querySelectorAll('[data-rm-widget]');
     if (!nodes.length) return;
@@ -1480,6 +1581,9 @@
       if (node.dataset.rmInit) return;
       node.dataset.rmInit = '1';
       var w = new Widget(node);
+
+      // The marks first, ahead of the observer gate below. See fetchLook.
+      fetchLook(w);
 
       // Defer the fetch until the widget approaches the viewport. On a product page the
       // review list is nearly always below the fold, so loading it during initial page
