@@ -78,6 +78,51 @@
     return fallback;
   }
 
+  function isHex(v) {
+    return typeof v === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(v);
+  }
+
+  /** WCAG relative luminance of a #rgb, #rgba, #rrggbb or #rrggbbaa colour; null otherwise. */
+  function luminance(hex) {
+    var h = hex.slice(1);
+    if (h.length === 3 || h.length === 4) {
+      h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2);
+    } else if (h.length === 8) {
+      h = h.slice(0, 6);
+    }
+    if (h.length !== 6) return null;
+    var w = [0.2126, 0.7152, 0.0722];
+    var sum = 0;
+    for (var i = 0; i < 3; i++) {
+      var c = parseInt(h.substr(i * 2, 2), 16) / 255;
+      sum += w[i] * (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    }
+    return sum;
+  }
+
+  /**
+   * The text colour for a card background with card text left to follow the theme:
+   * near-black or white, whichever contrasts more. pairCardText in
+   * src/lib/storefront-config.ts makes the same choice, and a server that has it already
+   * sends the pair; this copy is for a server that does not.
+   *
+   * The stylesheet gives the card layouts and the overlay panel a white fallback surface
+   * with #1f2937 fallback text. That pairing is only right while no background is
+   * published: a merchant's dark card with its text left unset met the dark fallback text
+   * and the review could not be read. That is what this widget would show if it shipped
+   * ahead of the server. Publishing the two together, on the widget root and on the
+   * document root alike, means the fallback text only ever meets the fallback surface,
+   * whatever the deploy order and whichever element a block inherits them from.
+   */
+  function pairedText(bg) {
+    var l = luminance(bg);
+    if (l === null) return null;
+    var dark = luminance('#1f2937');
+    var onDark = (Math.max(l, dark) + 0.05) / (Math.min(l, dark) + 0.05);
+    var onLight = 1.05 / (l + 0.05);
+    return onDark >= onLight ? '#1f2937' : '#ffffff';
+  }
+
   /**
    * Apply merchant colours as CSS custom properties on the widget root.
    *
@@ -93,9 +138,12 @@
       verifiedBg: '--rm-verified-bg', verifiedText: '--rm-verified-text',
       cardBg: '--rm-card-bg', cardText: '--rm-card-text', border: '--rm-border'
     };
+    // A card background never goes out without a text colour to match (see pairedText).
+    var cardText = isHex(colors.cardText) ? colors.cardText
+      : isHex(colors.cardBg) ? pairedText(colors.cardBg) : null;
     Object.keys(map).forEach(function (k) {
-      var v = colors[k];
-      if (typeof v !== 'string' || !/^#[0-9a-fA-F]{3,8}$/.test(v)) return;
+      var v = k === 'cardText' ? cardText : colors[k];
+      if (!isHex(v)) return;
 
       if (!root.style.getPropertyValue(map[k])) root.style.setProperty(map[k], v);
 

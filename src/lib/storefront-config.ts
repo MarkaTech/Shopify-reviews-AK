@@ -393,13 +393,47 @@ export type ColorSavedAt = Partial<Record<keyof StorefrontConfig['colors'], Date
  * never meant for: a dark card on a dark theme got #1f2937 text, unreadable. Publishing a
  * text colour whenever a background is published means the CSS fallback text only ever
  * meets the CSS fallback background.
+ *
+ * The widget makes the same choice itself (pairedText in extension-src/reviewmaster.js), so
+ * a widget deployed ahead of this server is safe too. This copy is for the widget already
+ * live, which publishes only what it is sent.
  */
 export function pairCardText(colors: StorefrontConfig['colors']): void {
   const bg = colors.cardBg;
   if (typeof bg !== 'string' || !HEX.test(bg) || colors.cardText) return;
+  colors.cardText = pairedCardText(bg);
+}
+
+/**
+ * The text colour pairCardText gives a card background: near-black or white, whichever has
+ * the higher WCAG contrast on it. The admin reads colours unpaired (getStorefrontConfig's
+ * pairText), so its preview has to make this same choice to show what the storefront will
+ * use. A client component cannot import this module, which reaches the database, so the
+ * preview repeats these three lines with contrastRatio from brand.ts.
+ */
+export function pairedCardText(bg: string): string {
   const onDark = contrastRatio('#1f2937', bg) ?? 0;
   const onLight = contrastRatio('#ffffff', bg) ?? 0;
-  colors.cardText = onDark >= onLight ? '#1f2937' : '#ffffff';
+  return onDark >= onLight ? '#1f2937' : '#ffffff';
+}
+
+/** The layouts whose reviews open in a panel, which paints the card background whatever the theme. */
+const PANEL_LAYOUTS: ReadonlySet<string> = new Set<LayoutType>(['floating', 'popup', 'sidebar']);
+
+/**
+ * pairCardText, unless the theme never paints the card the text would be paired with.
+ *
+ * Minimal draws no card behind a review on the page, only inside an overlay's panel. The
+ * stylesheet already live colours a review with `var(--rm-card-text, inherit)` under every
+ * theme, so a paired text there was a colour chosen for a background nobody sees: a light
+ * card colour on a dark theme put #1f2937 text straight onto the dark page. Leaving it
+ * unset lets that rule fall back to the theme's own text, as it did before pairing existed.
+ * The current stylesheet makes Minimal inherit regardless, so this matters for the widget
+ * already live, and for the window between this server deploying and the extension.
+ */
+export function pairCardTextForLayout(config: Pick<StorefrontConfig, 'colors' | 'layout'>): void {
+  if (config.layout.theme === 'minimal' && !PANEL_LAYOUTS.has(config.layout.type)) return;
+  pairCardText(config.colors);
 }
 
 /**
@@ -494,10 +528,18 @@ function emptyConfig(): StorefrontConfig {
  * @param placement When given, the active widget for that placement (falling back to the
  *   store's product_page widget, then any all_pages widget) layers its own layout and
  *   display choices on top. This is what makes the Widgets page do something.
+ * @param options.pairText Default true: a card background with card text left to follow
+ *   the theme gets a readable text colour (pairCardTextForLayout), which is what the
+ *   storefront needs. The admin's Settings read and save pass false. There a derived
+ *   colour shows up as the merchant's own choice: the Card text field filled in with a
+ *   "Use theme colour" link that seemed to do nothing, because the next read paired it
+ *   again. Then a stale pair against a newly picked background made the contrast check
+ *   offer a fix that wiped the background they had just chosen.
  */
 export async function getStorefrontConfig(
   storeId: string,
-  placement?: string | null
+  placement?: string | null,
+  { pairText = true }: { pairText?: boolean } = {}
 ): Promise<StorefrontConfig> {
   const rows = await db.storeSetting.findMany({
     where: { storeId, key: { startsWith: PREFIX } },
@@ -547,7 +589,8 @@ export async function getStorefrontConfig(
   }
 
   rebrandLegacyDefaults(config.colors, colorSavedAt);
-  pairCardText(config.colors);
+  // After applyActiveWidget, so the pairing sees the layout this placement really renders.
+  if (pairText) pairCardTextForLayout(config);
 
   // Resolved from the plan rather than from a setting, and last, so nothing above can
   // overwrite it. The attribution is what the Free tier trades for being free — and what

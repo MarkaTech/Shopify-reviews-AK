@@ -210,7 +210,9 @@
 .rm-review { background: var(--rm-card-bg, transparent); color: var(--rm-card-text, inherit); }
 /* These layouts fall back to a white card, so their text fallback has to be dark to match:
    with `inherit` here a dark theme's near-white text landed on the white card and the review
-   was unreadable. A merchant's own card colours still win through the custom properties. */
+   was unreadable. A merchant's own card colours still win through the custom properties, and
+   the widget never publishes a background without a text colour for it (pairedText), so this
+   dark fallback only ever meets the white one. */
 .rm-widget--grid .rm-review,
 .rm-widget--masonry .rm-widget .rm-review,
 .rm-widget--masonry .rm-review,
@@ -297,7 +299,7 @@
 .rm-widget--popup .rm-trigger { display: none; }
 
 /* The panel falls back to white, so its text falls back to dark — the same pairing as the
-   grid cards, for the same reason. */
+   grid cards, for the same reason, and safe for the same reason. */
 .rm-panel {
   position: fixed; z-index: 2147483001; background: var(--rm-card-bg, #fff);
   color: var(--rm-card-text, #1f2937); box-shadow: 0 10px 40px rgba(0,0,0,.22);
@@ -354,14 +356,25 @@
 .rm-theme--classic .rm-review__title { font-family: Georgia, 'Times New Roman', serif; }
 .rm-theme--classic .rm-btn { border-radius: 2px; }
 
-.rm-theme--minimal .rm-review { border: 0; background: transparent; padding-left: 0; padding-right: 0; }
+/* No card, so no card colour: the review takes the text of whatever it sits on, the theme's
+   own on the page or the panel's inside an overlay. The card layouts above pair their white
+   fallback card with dark fallback text. This rule has their specificity and comes later, so
+   it already beat their background; without a colour of its own it kept their #1f2937, and
+   Minimal on a dark theme put dark text straight onto the dark page. `inherit` rather than
+   var(--rm-card-text, inherit), because a card text is published to match a card background
+   (see pairedText in the widget) and Minimal never paints that background. */
+.rm-theme--minimal .rm-review { border: 0; background: transparent; color: inherit;
+  padding-left: 0; padding-right: 0; }
 .rm-theme--minimal .rm-summary { border: 0; }
 .rm-theme--minimal .rm-btn--primary { background: transparent; color: var(--rm-accent, #1B3358);
   border: 1px solid currentColor; }
 .rm-theme--minimal .rm-histogram { display: none; }
 
 .rm-theme--bold .rm-widget__heading { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
-.rm-theme--bold .rm-review { border: 2px solid var(--rm-card-text, #1f2937);
+/* The border is the card's own text colour, so it shows wherever the text does. It was
+   var(--rm-card-text, #1f2937): with no card colours, a list on a dark theme took the
+   theme's light text and a near-black border that vanished into the page. */
+.rm-theme--bold .rm-review { border: 2px solid currentColor;
   border-radius: var(--rm-radius, 8px); padding: 1.1rem; }
 .rm-theme--bold .rm-summary__number { font-size: 2.5rem; }
 .rm-theme--bold .rm-btn--primary { font-weight: 700; }

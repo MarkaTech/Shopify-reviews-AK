@@ -12,7 +12,9 @@ import { resetNotificationSettings } from '@/lib/notifications';
 export async function GET(request: NextRequest) {
   try {
     const { storeId } = await withAuth(request);
-    const config = await getStorefrontConfig(storeId);
+    // Unpaired: the merchant's own choices, so a card text left to follow the theme reads
+    // back as that and not as the colour the storefront derives for it. See pairText.
+    const config = await getStorefrontConfig(storeId, undefined, { pairText: false });
     // Defaults ship alongside so the UI can show a "reset to default" affordance per field
     // without hardcoding the same strings in the client.
     return NextResponse.json({ config, defaults: DEFAULT_CONFIG });
@@ -32,7 +34,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const result = await saveStorefrontConfig(storeId, body.updates);
-    const config = await getStorefrontConfig(storeId);
+    // Unpaired, like the read above: the Settings screen replaces its state with this.
+    const config = await getStorefrontConfig(storeId, undefined, { pairText: false });
 
     // Rejected keys are reported rather than silently dropped — a merchant who typed an
     // invalid colour deserves to know the save did not fully apply.

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useRef } from 'react';
 import { RatingStar } from '@/components/app/ui-kit';
-import { BRAND_ASSETS, type StarStyle } from '@/lib/brand';
+import { BRAND, BRAND_ASSETS, brandStarColor, contrastRatio, type StarStyle } from '@/lib/brand';
 
 /**
  * Public review submission page.
@@ -40,7 +40,10 @@ interface RequestData {
    * unannounced. Older responses have no such key; nothing is shown then.
    */
   offer?: { offer: string; disclosure: string; requiresMedia: boolean } | null;
-  /** False on a white-label plan, where the same badge is left out of the email too. */
+  /**
+   * True when the plan carries our branding; false on a white-label plan, where the same
+   * badge is left out of the email too. Only the successful read sends it.
+   */
   showBadge?: boolean;
 }
 
@@ -129,7 +132,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
 
   if (loading) {
     return (
-      <Shell showBadge={false}>
+      <Shell>
         {/* A static skeleton with a status line (Marka guidelines: no looping motion). */}
         <div className="space-y-4" role="status" aria-busy="true">
           <span className="sr-only">Loading your order…</span>
@@ -143,7 +146,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
 
   if (done) {
     return (
-      <Shell showBadge={data?.showBadge !== false}>
+      <Shell showBadge={data?.showBadge === true}>
         <div className="py-8 text-center">
           <div className="mx-auto mb-5 w-fit">
             {/* Success: the guideline green, with the tick and the heading below saying it too. */}
@@ -184,14 +187,25 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
   const allowMedia = allowPhotos || allowVideo;
   const ready = Object.values(forms).some(f => f.body.trim());
   const starVariant: StarStyle = data.starStyle === 'classic' ? 'classic' : 'tick';
+  // The tile behind the header star: navy or cream, whichever the store's star reads on.
+  // It was always navy, and a store with navy, black or charcoal stars (common on a
+  // minimalist theme) got an empty navy square here, at 1.0 to 1.7:1. Whatever the star,
+  // the better of the two is at least 3.3:1, over the 3:1 WCAG asks of a graphic (tested in
+  // tests/storefront-config.test.ts). The default orange keeps the navy tile.
+  const star = brandStarColor(data.starColor);
+  const tileBg =
+    (contrastRatio(star, BRAND.navy) ?? 0) >= (contrastRatio(star, BRAND.cream) ?? 0) ? BRAND.navy : BRAND.cream;
 
   return (
-    <Shell showBadge={data.showBadge !== false}>
+    <Shell showBadge={data.showBadge === true}>
       <div className="text-center">
         {/* The store's star, as on its storefront: its shape AND its colour. The rating
             buttons below already used both; this mark was a fixed amber classic star or the
             raw tick-star PNG, so a store with red stars saw an amber one at the top. */}
-        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-[#1B3358]">
+        <div
+          className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl"
+          style={{ background: tileBg }}
+        >
           <RatingStar size={26} color={data.starColor} variant={starVariant} />
         </div>
         <h1 className="text-[24px] font-bold leading-tight tracking-tight text-slate-900">
@@ -463,10 +477,13 @@ function MediaPicker({
 /**
  * `showBadge` is false on a white-label plan. The email that brought the buyer here leaves
  * the badge out for those plans, and a Marka-branded page right after a branding-free email
- * is what white label is paid to avoid. On by default, for the loading and error states,
- * where the plan is not known yet.
+ * is what white label is paid to avoid. Off unless the caller passes the plan's own answer:
+ * the loading state does not know the plan yet, and the error state never will, since a
+ * used, expired or unknown link gets an error body with no showBadge in it. It used to
+ * default to on, so a white-label store's buyer who reopened the link after submitting saw
+ * "This link is not available" over our badge.
  */
-function Shell({ children, showBadge = true }: { children: React.ReactNode; showBadge?: boolean }) {
+function Shell({ children, showBadge = false }: { children: React.ReactNode; showBadge?: boolean }) {
   return (
     <main className="relative min-h-screen bg-slate-50 px-4 py-10 sm:py-14">
       {/* The same ambient wash as the admin, so a merchant who sees both recognises them
