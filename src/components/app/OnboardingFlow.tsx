@@ -84,7 +84,7 @@ const STEPS: StepMeta[] = [
     // settings have loaded: requests are already running, and the step must say so.
     id: 'requests',
     title: 'Choose when to ask',
-    body: 'You set how long after fulfilment the email goes out — same day, two weeks, two months — plus how many reminders follow. They stop the moment someone reviews.',
+    body: 'You set how long after fulfilment the email goes out — same day, two weeks, two months. Requests stop the moment someone reviews.',
     cta: 'Set timing',
     icon: Mail,
     tone: 'amber',

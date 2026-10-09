@@ -397,7 +397,7 @@ function fakeStyle() {
   };
 }
 
-const COLOUR_FNS = ['isHex', 'luminance', 'pairedText', 'applyColors'];
+const COLOUR_FNS = ['isHex', 'luminance', 'pairedText', 'pairedBackground', 'applyColors'];
 
 test('the widget picks the same text as the server for every background', () => {
   const { pairedText } = widgetFunctions(COLOUR_FNS, {});
@@ -419,9 +419,24 @@ test('a background from a server that does not pair still goes out with readable
   const root = { style: fakeStyle() };
   applyColors(root, { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: null });
   assert.strictEqual(root.style.props['--rm-card-bg'], '#111827');
-  assert.strictEqual(root.style.props['--rm-card-text'], '#ffffff');
+  // Derived, so on the -auto variable: the cards read it, Minimal (which draws no card)
+  // does not. The plain variable is reserved for what the merchant chose.
+  assert.strictEqual(root.style.props['--rm-card-text-auto'], '#ffffff');
+  assert.strictEqual(root.style.props['--rm-card-text'], undefined);
   // On the document root as well, where the Liquid-only blocks inherit from.
-  assert.strictEqual(documentElement.style.props['--rm-card-text'], '#ffffff');
+  assert.strictEqual(documentElement.style.props['--rm-card-text-auto'], '#ffffff');
+});
+
+test('a text colour chosen on its own gets a surface it can be read on', () => {
+  const documentElement = { style: fakeStyle() };
+  const { applyColors } = widgetFunctions(COLOUR_FNS, { documentElement });
+  const light = { style: fakeStyle() };
+  applyColors(light, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: '#ffffff' });
+  assert.strictEqual(light.style.props['--rm-card-text'], '#ffffff');
+  assert.strictEqual(light.style.props['--rm-card-bg-auto'], '#111827');
+  const dark = { style: fakeStyle() };
+  applyColors(dark, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: '#1f2937' });
+  assert.strictEqual(dark.style.props['--rm-card-bg-auto'], '#ffffff');
 });
 
 test('the widget keeps a chosen card text, and publishes none without a background', () => {
@@ -430,11 +445,15 @@ test('the widget keeps a chosen card text, and publishes none without a backgrou
   const chosen = { style: fakeStyle() };
   applyColors(chosen, { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: '#ff0000' });
   assert.strictEqual(chosen.style.props['--rm-card-text'], '#ff0000');
+  assert.strictEqual(chosen.style.props['--rm-card-text-auto'], undefined);
+  assert.strictEqual(chosen.style.props['--rm-card-bg-auto'], undefined);
 
   const bare = { style: fakeStyle() };
   applyColors(bare, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: null });
   assert.strictEqual(bare.style.props['--rm-card-bg'], undefined);
   assert.strictEqual(bare.style.props['--rm-card-text'], undefined);
+  assert.strictEqual(bare.style.props['--rm-card-text-auto'], undefined);
+  assert.strictEqual(bare.style.props['--rm-card-bg-auto'], undefined);
 });
 
 console.log('\nThe stylesheet pairs its own fallbacks');
@@ -448,10 +467,13 @@ const rules = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
 }));
 
 test('dark fallback text only ever sits on a light fallback surface', () => {
-  const dark = rules.filter((r) => /(^|;|\s)color:\s*var\(--rm-card-text,\s*#1f2937\)/.test(r.body));
+  // Chosen, then derived, then the fallback: var(--rm-card-text, var(--rm-card-text-auto, X)).
+  const dark = rules.filter((r) =>
+    /(^|;|\s)color:\s*var\(--rm-card-text,\s*var\(--rm-card-text-auto,\s*#1f2937\)\)/.test(r.body)
+  );
   assert.ok(dark.length > 0, 'found no rule with the dark text fallback');
   for (const r of dark) {
-    const bg = /background:\s*var\(--rm-card-bg,\s*(#[0-9a-fA-F]{3,8})\)/.exec(r.body);
+    const bg = /background:\s*var\(--rm-card-bg,\s*var\(--rm-card-bg-auto,\s*(#[0-9a-fA-F]{3,8})\)\)/.exec(r.body);
     assert.ok(bg, `${r.selectors.join(', ')} has dark fallback text and no card background fallback`);
     assert.ok((contrastRatio('#1f2937', bg[1]) ?? 0) >= 4.5, `${r.selectors.join(', ')} pairs #1f2937 with ${bg[1]}`);
   }
@@ -464,7 +486,10 @@ test('Minimal takes the colour of what it sits on, and wins over the card layout
   const minimal = rules.find((r) => r.selectors.includes('.rm-theme--minimal .rm-review'));
   assert.ok(minimal, 'no Minimal review rule');
   assert.match(minimal.body, /background:\s*transparent/);
-  assert.match(minimal.body, /(^|;|\s)color:\s*inherit\s*(;|$)/);
+  // A CHOSEN text colour is honoured; the derived one (--rm-card-text-auto) is not, since
+  // it was derived for a card background Minimal never paints.
+  assert.match(minimal.body, /(^|;|\s)color:\s*var\(--rm-card-text,\s*inherit\)\s*(;|$)/);
+  assert.doesNotMatch(minimal.body, /--rm-card-text-auto/);
   const cards = rules.filter((r) =>
     r.selectors.some((x) => /^\.rm-widget--[a-z]+ \.rm-review$/.test(x)) && /(^|;|\s)color:/.test(r.body)
   );

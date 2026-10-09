@@ -4,6 +4,7 @@ import {
   createRecurringCharge,
   cancelActiveSubscriptions,
   describeSubscriptionFailure,
+  genericSubscriptionFailure,
   SHOPIFY_APP_URL,
 } from '@/lib/shopify';
 import { adminUrl } from '@/lib/admin-links';
@@ -85,6 +86,9 @@ export async function POST(request: NextRequest) {
   // generic sentence on its own was not, which is how "merchants cannot pay" arrived with
   // no way to tell which merchant hit which cause.
   const ref = Date.now().toString(36);
+  // Which Shopify call was in flight when something threw: the downgrade and gift paths
+  // CANCEL, only the upgrade path CREATES. See the managed-pricing branch in the catch.
+  let stage: 'cancel' | 'create' = 'cancel';
 
   try {
     const auth = await withAuth(request);
@@ -164,6 +168,7 @@ export async function POST(request: NextRequest) {
     const { trialDaysFor } = await import('@/lib/trial');
     const trialDays = await trialDaysFor(storeId);
 
+    stage = 'create';
     const confirmationUrl = await createRecurringCharge(
       shop,
       accessToken,
@@ -188,7 +193,9 @@ export async function POST(request: NextRequest) {
     // never Shopify's own.
     const failure = describeSubscriptionFailure(error);
 
-    if (failure.kind === 'managed-pricing') {
+    // Only a CREATE refusal is the App Pricing wall. A cancel that fails — a merchant asking
+    // to STOP paying — must never be told "paid plans cannot be started right now".
+    if (failure.kind === 'managed-pricing' && stage === 'create') {
       // Not one merchant's problem: every paid plan fails this way until the app is taken
       // off Shopify App Pricing or can read its subscriptions (see the note above POST).
       // Its own marker so the operator can find it, and alert on it, without reading every
@@ -202,6 +209,7 @@ export async function POST(request: NextRequest) {
       console.error(`[billing] charge/cancel failed for ${shop || 'unknown shop'} (plan '${plan}', ref ${ref}):`, error);
     }
 
-    return NextResponse.json({ error: `${failure.message} (ref ${ref})` }, { status: failure.status });
+    const shown = failure.kind === 'managed-pricing' && stage !== 'create' ? genericSubscriptionFailure() : failure;
+    return NextResponse.json({ error: `${shown.message} (ref ${ref})` }, { status: failure.status });
   }
 }

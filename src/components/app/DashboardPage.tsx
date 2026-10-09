@@ -107,15 +107,18 @@ export default function DashboardPage({
       .finally(() => setLoading(false));
   }, []);
 
-  // Alongside the analytics rather than after them, so the sentence does not land a beat
-  // after the panel it sits in. Best effort, like the request panel's own read.
+  // Only the no-reviews empty state uses this. A store with reviews renders the request
+  // panel, which reads the same settings itself, so fetching here too was a duplicate GET
+  // (two database reads) on every dashboard visit. Best effort, like the panel's own read.
+  const needsReqSettings = data !== null && data.totalReviews === 0;
   useEffect(() => {
+    if (!needsReqSettings) return;
     let cancelled = false;
     apiFetch<RequestSettingsResponse>('/api/request-settings')
       .then((r) => { if (!cancelled) setReqSettings(requestSummaryFrom(r)); })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, []);
+  }, [needsReqSettings]);
 
   if (loading) return <DashboardSkeleton />;
 

@@ -18,6 +18,8 @@
 export interface PendingPlanChange {
   from?: string;
   to?: string;
+  /** Set by the shell, never stored: the return looked like a decline but may not be one. */
+  unsure?: boolean;
 }
 
 /** Plan order. Mirrors PLAN_ORDER in src/lib/plans.ts. */
@@ -83,6 +85,19 @@ export function classifyPlanReturn(
  * Growth buying Scale would otherwise stop at once on its old Growth, announce an upgrade
  * it had not got yet, and never see Scale arrive.
  */
+/**
+ * Back on the plan they left, having gone to buy a HIGHER one: a decline, or an approval
+ * Shopify has not finished swapping in yet. One read cannot tell them apart, so the shell
+ * keeps asking for a little while before it says "no change was made" — telling someone
+ * who has just paid for Scale that they are still on Growth is the worse mistake.
+ */
+export function upgradeMayStillLand(confirmedPlan: string | undefined, expected: PendingPlanChange | null): boolean {
+  if (!confirmedPlan || !expected?.from || !expected.to || confirmedPlan !== expected.from) return false;
+  const from = PLAN_RANK[expected.from];
+  const to = PLAN_RANK[expected.to];
+  return from !== undefined && to !== undefined && to > from;
+}
+
 export function planArrived(plan: string | undefined, expected: PendingPlanChange | null): boolean {
   if (!plan) return false;
   if (expected?.to) return plan === expected.to;

@@ -49,7 +49,7 @@ import { ExternalLink, ChevronRight } from 'lucide-react';
 import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
 import { MarkaLockup } from '@/components/app/ui-kit';
 import { PENDING_PLAN_KEY } from '@/lib/admin-links';
-import { parsePendingPlan, classifyPlanReturn, planArrived, planName, type PendingPlanChange } from '@/lib/plan-return';
+import { parsePendingPlan, classifyPlanReturn, planArrived, planName, upgradeMayStillLand, type PendingPlanChange } from '@/lib/plan-return';
 import { apiFetch, ApiError } from '@/lib/api-client';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
@@ -229,6 +229,11 @@ export default function Home() {
             const outcome = classifyPlanReturn(confirmed.plan, expected);
             if (outcome === 'upgraded') {
               params.set('upgraded', '1');
+            } else if (upgradeMayStillLand(confirmed.plan, expected)) {
+              // Still on the old plan after going to buy a higher one. Keep asking before
+              // saying anything: the poll announces the upgrade if it lands, and "no
+              // change was made" only once it has waited and nothing came.
+              setPlanPending({ ...expected!, unsure: true });
             } else if (confirmed.plan) {
               const name = planName(confirmed.plan);
               setPlanNotice(
@@ -332,7 +337,10 @@ export default function Home() {
   // so its own "Current plan" header catches up at the same moment as the chip.
   useEffect(() => {
     if (!planPending || !isAuthenticated) return;
-    toast.info('Payment received — your plan will update within a minute.', { duration: 10000 });
+    // `unsure`: the merchant came back on their old plan, which is what a decline looks
+    // like too, so nothing is claimed about a payment until Shopify says so.
+    if (planPending.unsure) toast.info('Checking your plan with Shopify…', { duration: 6000 });
+    else toast.info('Payment received — your plan will update within a minute.', { duration: 10000 });
     let cancelled = false;
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -355,8 +363,14 @@ export default function Home() {
         // A failed poll is not news; the next one may succeed.
       }
       if (cancelled) return;
-      if (attempts < PLAN_POLL_ATTEMPTS) timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
-      else setPlanPending(null);
+      if (attempts < PLAN_POLL_ATTEMPTS) {
+        timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
+      } else {
+        setPlanPending(null);
+        if (expected.unsure && expected.from) {
+          setPlanNotice({ text: `No change was made — you're still on ${planName(expected.from)}.`, tone: 'neutral' });
+        }
+      }
     };
     timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
     return () => {

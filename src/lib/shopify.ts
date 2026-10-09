@@ -1039,6 +1039,11 @@ function classifySubscriptionFailure(status: number, text: string): Subscription
  * nothing to go on either. This keeps the full error for the log (the caller logs it) and
  * returns what the merchant can act on. Pure, so the mapping is testable without Shopify.
  */
+/** The plain "Shopify refused this" message, for when the specific cause would mislead. */
+export function genericSubscriptionFailure(): SubscriptionFailure {
+  return { kind: 'shopify', message: FAILURE_MESSAGES.shopify, status: 502 };
+}
+
 export function describeSubscriptionFailure(error: unknown): SubscriptionFailure {
   if (!(error instanceof ShopifyGraphQLError)) {
     return { kind: 'unknown', message: FAILURE_MESSAGES.unknown, status: 500 };

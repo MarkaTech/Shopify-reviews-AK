@@ -486,4 +486,59 @@ test('a token opens its own store for five minutes and nothing else', () => {
   assert.strictEqual(verifyDownloadToken(t, 'import-template', 1_000_000), null, 'other key');
 });
 
+
+console.log('xlsx reader — review follow-ups');
+
+test('entries whose data overlap are refused, even with distinct local headers', () => {
+  // Two central-directory entries, each with its own local header, whose extra fields point
+  // both data ranges at the same deflate stream. Built by hand: the packer never does this.
+  const data = zlib.deflateRawSync(Buffer.from('<x/>'));
+  const local = (name: string, extra: number) => {
+    const n = Buffer.from(name);
+    const h = Buffer.alloc(30);
+    h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(8, 8);
+    h.writeUInt32LE(data.length, 18); h.writeUInt32LE(4, 22);
+    h.writeUInt16LE(n.length, 26); h.writeUInt16LE(extra, 28);
+    return Buffer.concat([h, n]);
+  };
+  // Layout: [hdrA 'a'] [hdrB 'b' + extra=0] [data]. A's extra skips over hdrB onto the same data.
+  const hdrB = local('b', 0);
+  const hdrA = local('a', hdrB.length);
+  const body = Buffer.concat([hdrA, hdrB, data]);
+  const offA = 0, offB = hdrA.length;
+  const cd = (name: string, off: number) => {
+    const n = Buffer.from(name);
+    const h = Buffer.alloc(46);
+    h.writeUInt32LE(0x02014b50, 0); h.writeUInt16LE(8, 10);
+    h.writeUInt32LE(data.length, 20); h.writeUInt32LE(4, 24);
+    h.writeUInt16LE(n.length, 28); h.writeUInt32LE(off, 42);
+    return Buffer.concat([h, n]);
+  };
+  const dir = Buffer.concat([cd('a', offA), cd('b', offB)]);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(2, 8); eocd.writeUInt16LE(2, 10);
+  eocd.writeUInt32LE(dir.length, 12); eocd.writeUInt32LE(body.length, 16);
+  assert.throws(() => parseXlsx(Buffer.concat([body, dir, eocd])), XlsxError);
+});
+
+test('a cell of millions of entities decodes to at most 32,767 characters, quickly', () => {
+  const huge = '&amp;'.repeat(2_000_000); // 10 MB of entities in one cell
+  const buf = buildZip([
+    { name: 'xl/workbook.xml', data: Buffer.from('<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>') },
+    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>${huge}</t></is></c></row></sheetData></worksheet>`) },
+  ]);
+  const t0 = Date.now();
+  const rows = parseXlsx(buf)[0].rows;
+  assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+  assert.strictEqual(rows[0][0].length, 32_767);
+  assert.ok(/^&+$/.test(rows[0][0]));
+});
+
+test('unknown or malformed entities are kept as written', () => {
+  const buf = buildXlsx([{ name: 'S', rows: [['a & b', 'x &bogus; y', '&#99999999;']] }]);
+  // The writer escapes '&' itself; read back what Excel would show.
+  assert.deepStrictEqual(parseXlsx(buf)[0].rows[0], ['a & b', 'x &bogus; y', '&#99999999;']);
+});
+
 console.log(`\n${passed} passed`);

@@ -133,6 +133,8 @@ function openZip(buf: Buffer): ZipReader {
 
   const entries = new Map<string, ZipEntry>();
   const localOffsets = new Set<number>();
+  /** [local header, end of compressed data) per entry, checked for overlap below. */
+  const ranges: Array<[number, number]> = [];
   let p = cdOffset;
   for (let i = 0; i < count; i++) {
     if (p + 46 > buf.length || buf.readUInt32LE(p) !== SIG_CENTRAL) throw new XlsxError(DAMAGED);
@@ -163,6 +165,17 @@ function openZip(buf: Buffer): ZipReader {
     const start = localOffset + 30 + localNameLen + localExtraLen;
     if (start + csize > buf.length) throw new XlsxError(DAMAGED);
     entries.set(name.replace(/^\/+/, ''), { method, start, size: csize });
+    ranges.push([localOffset, start + csize]);
+  }
+
+  // No two entries may share bytes. Distinct local headers are not enough: each header can
+  // carry an extra field sized to land every entry's data on ONE deflate stream — say
+  // 9 MB of empty blocks that inflate to nothing, so the byte budget never moves while the
+  // same 9 MB is inflated a thousand times. Real zips lay entries end to end; with no
+  // overlap, everything inflated together is bounded by the size of the upload itself.
+  ranges.sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < ranges.length; i++) {
+    if (ranges[i][0] < ranges[i - 1][1]) throw new XlsxError(DAMAGED);
   }
 
   let budget = MAX_TOTAL_BYTES;
@@ -275,19 +288,67 @@ function firstInner(xml: string, tag: string): string {
   return end < 0 ? '' : xml.slice(start, end);
 }
 
-function decodeXml(s: string): string {
-  if (s.indexOf('&') < 0) return s;
-  return s.replace(/&(#x[0-9a-fA-F]+|#\d+|amp|lt|gt|quot|apos);/g, (_, e: string) => {
-    if (e === 'amp') return '&';
-    if (e === 'lt') return '<';
-    if (e === 'gt') return '>';
-    if (e === 'quot') return '"';
-    if (e === 'apos') return "'";
-    const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-    // fromCodePoint throws past U+10FFFF, and "&#99999999;" is one keystroke away.
-    return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : '';
-  });
+/**
+ * Excel's own ceiling on one cell's text. Nothing longer can have come from a spreadsheet,
+ * and the importer keeps at most 5,000 characters of a review anyway.
+ */
+const MAX_CELL_CHARS = 32_767;
+
+/**
+ * Decode XML entities, stopping once `max` characters have been produced.
+ *
+ * A forward scan that appends slices. `String.replace` with a callback was linear in time
+ * but not in memory — V8 collects every match before replacing — and a cell's text can be
+ * a whole 64 MB part of `&amp;`. The cap means a hostile cell costs at most `max` output
+ * characters however large it is.
+ */
+function decodeXml(s: string, max = MAX_CELL_CHARS): string {
+  if (s.indexOf('&') < 0) return s.length > max ? s.slice(0, max) : s;
+  let out = '';
+  let pos = 0;
+  while (pos < s.length && out.length < max) {
+    const amp = s.indexOf('&', pos);
+    if (amp < 0) {
+      out += s.slice(pos);
+      break;
+    }
+    out += s.slice(pos, amp);
+    const semi = s.indexOf(';', amp);
+    // Entities are short; a ';' further than 12 characters away is not ending this one.
+    if (semi < 0 || semi - amp > 12) {
+      out += '&';
+      pos = amp + 1;
+      continue;
+    }
+    const e = s.slice(amp + 1, semi);
+    let ch: string | null = null;
+    if (e === 'amp') ch = '&';
+    else if (e === 'lt') ch = '<';
+    else if (e === 'gt') ch = '>';
+    else if (e === 'quot') ch = '"';
+    else if (e === 'apos') ch = "'";
+    else if (e[0] === '#') {
+      const hex = e[1] === 'x' || e[1] === 'X';
+      const digits = hex ? e.slice(2) : e.slice(1);
+      if (digits && (hex ? /^[0-9a-fA-F]+$/ : /^\d+$/).test(digits)) {
+        const code = parseInt(digits, hex ? 16 : 10);
+        // fromCodePoint throws past U+10FFFF, and "&#99999999;" is one keystroke away.
+        ch = code <= 0x10ffff ? String.fromCodePoint(code) : '';
+      }
+    }
+    if (ch === null) {
+      out += '&'; // not an entity we know: keep the text as written
+      pos = amp + 1;
+    } else {
+      out += ch;
+      pos = semi + 1;
+    }
+  }
+  return out.length > max ? out.slice(0, max) : out;
 }
+
+/** Attribute values are short in every real part — formatCode, the longest, is 255. */
+const MAX_ATTR_CHARS = 4096;
 
 /**
  * One attribute's value from a tag's attribute text. indexOf, not a regex built per call:
@@ -302,7 +363,8 @@ function attr(attrs: string, name: string): string | undefined {
     if (before === 32 || before === 9 || before === 10 || before === 13) {
       const start = i + needle.length;
       const end = attrs.indexOf('"', start);
-      return end < 0 ? undefined : decodeXml(attrs.slice(start, end));
+      if (end < 0) return undefined;
+      return decodeXml(attrs.slice(start, Math.min(end, start + MAX_ATTR_CHARS * 8)), MAX_ATTR_CHARS);
     }
     i = attrs.indexOf(needle, i + needle.length);
   }
@@ -334,11 +396,13 @@ function textOf(inner: string): string {
     }
     text = kept + inner.slice(pos);
   }
-  const parts: string[] = [];
+  // Rich text is many runs; the cell's total is what Excel caps, so the budget is shared.
+  let out = '';
   eachElement(text, 't', (_, t) => {
-    parts.push(decodeXml(t));
+    out += decodeXml(t, MAX_CELL_CHARS - out.length);
+    return out.length < MAX_CELL_CHARS; // full: stop walking the runs
   });
-  return parts.join('');
+  return out;
 }
 
 function parseSharedStrings(xml: string | undefined): string[] {

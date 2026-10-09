@@ -124,6 +124,14 @@
   }
 
   /**
+   * The mirror of pairedText: a card surface for a text colour chosen on its own. A text
+   * that pairedText would put dark text on is itself light, so it wants the dark surface.
+   */
+  function pairedBackground(text) {
+    return pairedText(text) === '#1f2937' ? '#111827' : '#ffffff';
+  }
+
+  /**
    * Apply merchant colours as CSS custom properties on the widget root.
    *
    * Only ever hex, validated server-side before it is stored — this value lands in a style
@@ -138,22 +146,28 @@
       verifiedBg: '--rm-verified-bg', verifiedText: '--rm-verified-text',
       cardBg: '--rm-card-bg', cardText: '--rm-card-text', border: '--rm-border'
     };
-    // A card background never goes out without a text colour to match (see pairedText).
-    var cardText = isHex(colors.cardText) ? colors.cardText
-      : isHex(colors.cardBg) ? pairedText(colors.cardBg) : null;
-    Object.keys(map).forEach(function (k) {
-      var v = k === 'cardText' ? cardText : colors[k];
+    // What the merchant chose goes on the plain variables; what is DERIVED to match goes on
+    // the -auto ones. The stylesheet needs to tell them apart: Minimal paints no card, so it
+    // honours a chosen text colour but must ignore one derived for a background it never
+    // draws. And a text colour chosen on its own gets a surface it can be read on, rather
+    // than white text on the white fallback card.
+    var vars = {};
+    Object.keys(map).forEach(function (k) { vars[map[k]] = colors[k]; });
+    if (isHex(colors.cardBg) && !isHex(colors.cardText)) vars['--rm-card-text-auto'] = pairedText(colors.cardBg);
+    if (isHex(colors.cardText) && !isHex(colors.cardBg)) vars['--rm-card-bg-auto'] = pairedBackground(colors.cardText);
+    Object.keys(vars).forEach(function (name) {
+      var v = vars[name];
       if (!isHex(v)) return;
 
-      if (!root.style.getPropertyValue(map[k])) root.style.setProperty(map[k], v);
+      if (!root.style.getPropertyValue(name)) root.style.setProperty(name, v);
 
       // Also publish to the document root, so blocks that never fetch anything pick these
       // up by inheritance. The standalone star-rating block is pure Liquid with no network
       // call — deliberately, it is a few hundred bytes on a collection page — so without
       // this it could never honour a colour set in the app. An inline value on that block
       // still wins locally, which is what a merchant who set it there expects.
-      if (!document.documentElement.style.getPropertyValue(map[k])) {
-        document.documentElement.style.setProperty(map[k], v);
+      if (!document.documentElement.style.getPropertyValue(name)) {
+        document.documentElement.style.setProperty(name, v);
       }
     });
   }

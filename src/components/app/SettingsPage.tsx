@@ -408,7 +408,12 @@ interface RequestSettingsBody {
   remindersAllowed?: boolean;
 }
 
-const withPlan = (r: RequestSettingsBody): RequestSettingsState => ({ ...r.settings, remindersAllowed: r.remindersAllowed });
+const withPlan = (r: RequestSettingsBody): RequestSettingsState => {
+  // A 200 without settings is not settings. Spreading it anyway produced a truthy state of
+  // undefineds, which skipped the load-failure fallback and rendered controls with no values.
+  if (typeof r?.settings?.delayDays !== 'number') throw new Error('Could not load your review request settings.');
+  return { ...r.settings, remindersAllowed: r.remindersAllowed };
+};
 
 export default function SettingsPage({
   onNavigate,
@@ -577,6 +582,16 @@ export default function SettingsPage({
   // Only a change while this page is open counts. The shell keeps usageVersion for the
   // whole session and this page mounts afresh on every visit, so reacting to the value it
   // mounted with announced "You just unlocked these" on every visit after the first.
+  // Whether reminders are allowed is a plan fact, read with the request settings. When the
+  // plan changes under a mounted page — an upgrade that settles, a switch from this page —
+  // fold the new answer in, or the reminder controls stay locked after paying for them.
+  const applyPlanToRequests = useCallback((u: Usage) => {
+    const allowed = u.features?.reminderEmails;
+    if (typeof allowed !== 'boolean') return;
+    setReqSettings(s => (s ? { ...s, remindersAllowed: allowed } : s));
+    if (savedReq.current) savedReq.current = { ...savedReq.current, remindersAllowed: allowed };
+  }, []);
+
   const seenUsageVersion = useRef(usageVersion);
   useEffect(() => {
     if (usageVersion === seenUsageVersion.current) return;
@@ -585,10 +600,11 @@ export default function SettingsPage({
       .then(u => {
         setUsage(u);
         setUsageError(null);
+        applyPlanToRequests(u);
         if (u.plan !== 'free') setJustUpgraded(true);
       })
       .catch(() => undefined);
-  }, [usageVersion]);
+  }, [usageVersion, applyPlanToRequests]);
 
   const currentPlan = usage?.plan ?? 'free';
   const complimentary = usage?.complimentary === true;
@@ -910,19 +926,18 @@ export default function SettingsPage({
 
     setUpgrading(planId);
     try {
-      const data = await apiFetch<{ confirmationUrl?: string; pricingPageUrl?: string; activated?: boolean; plan?: string }>('/api/billing', {
+      const data = await apiFetch<{ confirmationUrl?: string; activated?: boolean; plan?: string }>('/api/billing', {
         method: 'POST',
         body: JSON.stringify({ plan: planId }),
       });
-      // Shopify hosts the approval screen (or, with Shopify App Pricing, its own plan
-      // page) and refuses to be framed, so the admin as a whole has to go there. That
-      // hand-off is App Bridge's job — see navigateTop for why assigning
+      // Shopify hosts the approval screen and refuses to be framed, so the admin as a
+      // whole has to go there. That hand-off is App Bridge's job — see navigateTop for why assigning
       // window.top.location after an await was the reason merchants "could not pay".
       //
       // `upgrading` is deliberately left set: the page is leaving. Clearing it in a
       // finally block put the button back to "Upgrade" while the navigation was still in
       // flight, and a second click created a second pending subscription at Shopify.
-      const approvalUrl = data.confirmationUrl || data.pricingPageUrl;
+      const approvalUrl = data.confirmationUrl;
       if (approvalUrl) {
         // What the merchant is buying, read back by the shell if Shopify's answer is slow
         // to arrive, so it waits for THIS plan rather than for any paid one. Best effort:
@@ -939,7 +954,9 @@ export default function SettingsPage({
         // The plan the server settled on: choosing Free on top of a complimentary plan
         // lands on the complimentary plan, not on Free.
         toast.success(`Switched to the ${planLabel(data.plan ?? planId)} plan.`);
-        setUsage(await apiFetch<Usage>('/api/usage'));
+        const u = await apiFetch<Usage>('/api/usage');
+        setUsage(u);
+        applyPlanToRequests(u);
       }
       setUpgrading(null);
     } catch (err) {

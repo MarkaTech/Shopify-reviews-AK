@@ -207,7 +207,7 @@
    Carousel adds scroll snapping. Badge, floating, popup and sidebar restructure. */
 
 /* Card surface colours, so a merchant on a dark theme is not stuck with white cards. */
-.rm-review { background: var(--rm-card-bg, transparent); color: var(--rm-card-text, inherit); }
+.rm-review { background: var(--rm-card-bg, var(--rm-card-bg-auto, transparent)); color: var(--rm-card-text, var(--rm-card-text-auto, inherit)); }
 /* These layouts fall back to a white card, so their text fallback has to be dark to match:
    with `inherit` here a dark theme's near-white text landed on the white card and the review
    was unreadable. A merchant's own card colours still win through the custom properties, and
@@ -218,8 +218,8 @@
 .rm-widget--masonry .rm-review,
 .rm-widget--carousel .rm-review {
   padding: 1rem; border: 1px solid var(--rm-border, #e5e7eb);
-  border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, #fff);
-  color: var(--rm-card-text, #1f2937);
+  border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, var(--rm-card-bg-auto, #fff));
+  color: var(--rm-card-text, var(--rm-card-text-auto, #1f2937));
 }
 
 /* ── Grid ── */
@@ -262,8 +262,8 @@
 /* Same pairing as the cards above: a light fallback surface takes a dark text fallback. */
 .rm-widget--testimonial .rm-review {
   border: 0; text-align: center; padding: 2rem 1.5rem;
-  background: var(--rm-card-bg, #f8fafc); border-radius: var(--rm-radius, 8px);
-  color: var(--rm-card-text, #1f2937);
+  background: var(--rm-card-bg, var(--rm-card-bg-auto, #f8fafc)); border-radius: var(--rm-radius, 8px);
+  color: var(--rm-card-text, var(--rm-card-text-auto, #1f2937));
 }
 .rm-widget--testimonial .rm-review__head { justify-content: center; }
 .rm-widget--testimonial .rm-review__date { margin-left: 0; }
@@ -301,8 +301,8 @@
 /* The panel falls back to white, so its text falls back to dark — the same pairing as the
    grid cards, for the same reason, and safe for the same reason. */
 .rm-panel {
-  position: fixed; z-index: 2147483001; background: var(--rm-card-bg, #fff);
-  color: var(--rm-card-text, #1f2937); box-shadow: 0 10px 40px rgba(0,0,0,.22);
+  position: fixed; z-index: 2147483001; background: var(--rm-card-bg, var(--rm-card-bg-auto, #fff));
+  color: var(--rm-card-text, var(--rm-card-text-auto, #1f2937)); box-shadow: 0 10px 40px rgba(0,0,0,.22);
   overflow-y: auto; padding: 1.5rem; display: none;
 }
 .rm-widget.is-open .rm-panel { display: block; }
@@ -360,10 +360,10 @@
    own on the page or the panel's inside an overlay. The card layouts above pair their white
    fallback card with dark fallback text. This rule has their specificity and comes later, so
    it already beat their background; without a colour of its own it kept their #1f2937, and
-   Minimal on a dark theme put dark text straight onto the dark page. `inherit` rather than
-   var(--rm-card-text, inherit), because a card text is published to match a card background
-   (see pairedText in the widget) and Minimal never paints that background. */
-.rm-theme--minimal .rm-review { border: 0; background: transparent; color: inherit;
+   Minimal on a dark theme put dark text straight onto the dark page. A text colour the
+   merchant CHOSE is honoured (--rm-card-text); one the widget DERIVED to match a card
+   background (--rm-card-text-auto) is not, because Minimal never paints that background. */
+.rm-theme--minimal .rm-review { border: 0; background: transparent; color: var(--rm-card-text, inherit);
   padding-left: 0; padding-right: 0; }
 .rm-theme--minimal .rm-summary { border: 0; }
 .rm-theme--minimal .rm-btn--primary { background: transparent; color: var(--rm-accent, #1B3358);
@@ -476,7 +476,10 @@
   font-size: .75rem; font-weight: 700; line-height: 1;
 }
 .rm-q__marker { background: var(--rm-accent, #1B3358); color: #fff; }
-.rm-a__marker { background: var(--rm-border, #e5e7eb); color: var(--rm-card-text, inherit); }
+/* Drawn on the card surface, with the card's text — chosen or derived — so the pair always
+   matches. It used the border colour for its fill and the card text for its letter, which
+   put white on light grey whenever a dark card background was set. */
+.rm-a__marker { background: var(--rm-card-bg, var(--rm-card-bg-auto, #e5e7eb)); color: var(--rm-card-text, var(--rm-card-text-auto, #1f2937)); }
 
 .rm-q__body { margin: 0; font-weight: 600; line-height: 1.5; }
 .rm-a__body { margin: 0; line-height: 1.6; }
@@ -502,7 +505,7 @@
 
 /* ── Incentive offer ── shown beside the write button; the disclosure is part of the offer. */
 .rm-offer { margin: .75rem 0 1rem; padding: .75rem 1rem; border: 1px dashed var(--rm-accent, #1B3358);
-  border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, transparent); color: var(--rm-card-text, inherit); }
+  border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, var(--rm-card-bg-auto, transparent)); color: var(--rm-card-text, var(--rm-card-text-auto, inherit)); }
 .rm-offer__text { margin: 0; font-weight: 600; }
 .rm-offer__disclosure { margin: .35rem 0 0; font-size: .8125rem; opacity: .72; }
 

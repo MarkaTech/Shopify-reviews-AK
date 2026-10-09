@@ -9,6 +9,7 @@ import { checkSubmitRateLimit, checkSubmitFloodLimit } from '@/lib/rate-limit';
 import { notifyNewReview } from '@/lib/notifications';
 import { updateProductRating } from '@/lib/ratings';
 import { syncReviewToShop, isSyndicationEnabled } from '@/lib/syndication';
+import { getOfferedIncentive, disclosureForOffer } from '@/lib/incentives';
 
 /**
  * Public review submission, from the storefront widget.
@@ -279,6 +280,13 @@ export async function POST(request: NextRequest) {
     // claiming otherwise is exactly the misrepresentation FTC 16 CFR 465 targets.
     const publishNow = rules.autoPublish;
 
+    // The widget shows the store's active offer above the form ("leave a review, get 10%
+    // off"), so a review written there was written under it — disclosed from the moment it
+    // exists, whether or not this particular review is the one that gets paid. Marking only
+    // on payout left a shopper's second review inside the reward window unmarked on the
+    // widget, in the Google feed and, without the flag, eligible for Shop syndication.
+    const disclosure = disclosureForOffer(await getOfferedIncentive(store.id), validated.length > 0);
+
     const created = await db.review.create({
       data: {
         storeId: store.id,
@@ -294,6 +302,7 @@ export async function POST(request: NextRequest) {
         sentiment: rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral',
         isPublished: publishNow,
         reviewDate: new Date(),
+        ...disclosure,
       },
     });
 

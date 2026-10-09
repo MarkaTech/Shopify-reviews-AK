@@ -18,7 +18,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { ShopifyGraphQLError, describeSubscriptionFailure } from '../src/lib/shopify';
 import { shopifyAppHandle } from '../src/lib/client-id';
-import { classifyPlanReturn, parsePendingPlan, planArrived, planName } from '../src/lib/plan-return';
+import { classifyPlanReturn, parsePendingPlan, planArrived, planName, upgradeMayStillLand } from '../src/lib/plan-return';
 
 let passed = 0;
 let failed = 0;
@@ -228,6 +228,17 @@ test('plans are named as the merchant sees them', () => {
   assert.strictEqual(planName('growth'), 'Growth');
   assert.strictEqual(planName('scale'), 'Scale');
   assert.strictEqual(planName('enterprise'), 'enterprise');
+});
+
+test('an upgrade that came back on the old plan is waited for, a downgrade is not', () => {
+  // Growth -> Scale, back on Growth: a decline OR a swap Shopify has not finished.
+  assert.strictEqual(upgradeMayStillLand('growth', { from: 'growth', to: 'scale' }), true);
+  assert.strictEqual(upgradeMayStillLand('free', { from: 'free', to: 'growth' }), true);
+  // Going down, or landing somewhere else, or knowing nothing: answer now.
+  assert.strictEqual(upgradeMayStillLand('scale', { from: 'scale', to: 'growth' }), false);
+  assert.strictEqual(upgradeMayStillLand('scale', { from: 'growth', to: 'scale' }), false);
+  assert.strictEqual(upgradeMayStillLand('growth', null), false);
+  assert.strictEqual(upgradeMayStillLand('growth', { from: 'growth' }), false);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

@@ -31,9 +31,12 @@ export function shopifyClientId(): string {
 /**
  * The app's handle in the Shopify admin — the `handle = "..."` line of shopify.app.toml.
  *
- * Needed for exactly one URL: the plan page Shopify hosts for an app on Shopify App Pricing
- * (managed pricing), `https://admin.shopify.com/store/<store>/charges/<handle>/pricing_plans`.
- * The client ID cannot stand in for the handle on that path the way it does on `/apps/<id>`.
+ * Not used by app code today. It is the one value the plan page Shopify hosts for an app on
+ * Shopify App Pricing needs (`/store/<store>/charges/<handle>/pricing_plans`, where the
+ * client ID cannot stand in the way it does on `/apps/<id>`). That hand-off was removed:
+ * subscriptions bought there are visible only to the Partner API, which this app does not
+ * read yet, so sending a merchant there charged them for a plan the app never granted.
+ * Kept for when that reader exists.
  *
  * An environment variable with the toml value as its default, rather than reading the toml
  * at runtime: the file is not shipped in the standalone build. The default is the handle the
