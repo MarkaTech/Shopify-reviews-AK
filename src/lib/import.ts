@@ -233,18 +233,37 @@ export interface ProductLookup {
 export interface MatchIndex {
   byShopifyId: Map<string, string>;
   byHandle: Map<string, string>;
-  byTitle: Map<string, string>;
+  /**
+   * Normalised title -> EVERY product that carries it. A key with more than one id is
+   * ambiguous and never matched on; see buildMatchIndex for why the list is kept.
+   */
+  byTitle: Map<string, string[]>;
 }
 
+/**
+ * Index the catalogue for matchProduct.
+ *
+ * Titles are kept as a list per normalised key rather than a single id. The index used to
+ * be a plain Map, so when two products normalised to the same title the later one silently
+ * overwrote the earlier — and normaliseTitle is aggressive (everything but [a-z0-9] goes),
+ * so "🎁 Lakshmi–Ganesh Silver Coin (999 Purity)" and "Lakshmi–Ganesh Silver Coin (999
+ * Purity)" are one key, as are "Amethyst stone bracelet" and "Amethyst Stone Bracelet".
+ * One real catalogue had eleven such collisions. A review row carrying only a title then
+ * landed on whichever product happened to be indexed last, reported as a successful title
+ * match — the exact misattachment the matcher's own docstring says it exists to prevent.
+ */
 export function buildMatchIndex(products: ProductLookup[]): MatchIndex {
   const byShopifyId = new Map<string, string>();
   const byHandle = new Map<string, string>();
-  const byTitle = new Map<string, string>();
+  const byTitle = new Map<string, string[]>();
 
   for (const p of products) {
     if (p.shopifyId) byShopifyId.set(p.shopifyId, p.id);
     if (p.handle) byHandle.set(p.handle.toLowerCase(), p.id);
-    byTitle.set(normaliseTitle(p.title), p.id);
+    const key = normaliseTitle(p.title);
+    const ids = byTitle.get(key);
+    if (ids) ids.push(p.id);
+    else byTitle.set(key, [p.id]);
   }
 
   return { byShopifyId, byHandle, byTitle };
@@ -252,6 +271,17 @@ export function buildMatchIndex(products: ProductLookup[]): MatchIndex {
 
 function normaliseTitle(t: string): string {
   return t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+export interface ProductMatch {
+  productId: string | null;
+  matchedBy: 'shopifyId' | 'handle' | 'title' | 'fallback' | null;
+  /**
+   * Set when the row's title names more than one product: how many. The row is then
+   * deliberately NOT matched — not even to the fallback product, because the row has
+   * named a product and the fallback is for rows that name none.
+   */
+  titleMatches?: number;
 }
 
 /**
@@ -262,13 +292,18 @@ function normaliseTitle(t: string): string {
  * to the wrong product because two names looked similar is worse than leaving it
  * unattached: the merchant can fix an unattached review, but will probably never notice a
  * misattached one, and it corrupts that product's rating in the meantime.
+ *
+ * By the same reasoning a title shared by several products is no match at all. Picking
+ * any one of them would be a guess presented as a success; the row is handed back as
+ * ambiguous so mapRows can tell the merchant which rows need a product_handle, which the
+ * Excel template fills in for them.
  */
 export function matchProduct(
   row: ParsedRow,
   map: ColumnMap,
   index: MatchIndex,
   fallbackProductId: string | null
-): { productId: string | null; matchedBy: 'shopifyId' | 'handle' | 'title' | 'fallback' | null } {
+): ProductMatch {
   const shopifyId = map.productId ? row[map.productId]?.replace(/\D/g, '') : '';
   if (shopifyId && index.byShopifyId.has(shopifyId)) {
     return { productId: index.byShopifyId.get(shopifyId)!, matchedBy: 'shopifyId' };
@@ -282,8 +317,12 @@ export function matchProduct(
   const title = map.productTitle ? row[map.productTitle] : '';
   if (title) {
     const key = normaliseTitle(title);
-    if (key && index.byTitle.has(key)) {
-      return { productId: index.byTitle.get(key)!, matchedBy: 'title' };
+    const ids = key ? index.byTitle.get(key) : undefined;
+    if (ids && ids.length === 1) {
+      return { productId: ids[0], matchedBy: 'title' };
+    }
+    if (ids && ids.length > 1) {
+      return { productId: null, matchedBy: null, titleMatches: ids.length };
     }
   }
 
@@ -360,7 +399,16 @@ export function mapRows(
     else if (rating > 5) rating = Math.round((rating / 10) * 5);
     rating = Math.min(5, Math.max(1, Math.round(rating)));
 
-    const { productId, matchedBy } = matchProduct(row, map, index, fallback);
+    const { productId, matchedBy, titleMatches } = matchProduct(row, map, index, fallback);
+
+    // An ambiguous title is a row error, not an unattached review. Importing it with no
+    // product would quietly add a review that appears on no product page; skipping it
+    // with the reason puts the fix in the merchant's hands (add product_handle — the
+    // template's dropdown fills it in) and the dedupe key makes the re-upload safe.
+    if (titleMatches && titleMatches > 1) {
+      errors.push({ row: rowNum, reason: `Title matches ${titleMatches} products — add product_handle` });
+      return;
+    }
 
     reviews.push({
       reviewerName: name || 'Anonymous',

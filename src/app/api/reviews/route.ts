@@ -45,8 +45,18 @@ export async function GET(request: NextRequest) {
     const isFeatured = searchParams.get('isFeatured');
     if (isFeatured !== null && isFeatured !== '') where.isFeatured = isFeatured === 'true';
 
-    const verifiedPurchase = searchParams.get('verifiedPurchase');
-    if (verifiedPurchase !== null && verifiedPurchase !== '') where.verifiedPurchase = verifiedPurchase === 'true';
+    // "Verified buyers" is verificationStatus === 'verified_buyer' — the same test the row
+    // badge, the CSV export and the dashboard percentage apply. This used to filter on the
+    // legacy `verifiedPurchase` boolean, which the schema notes can be true with no matched
+    // order, so the filter listed reviews under "Verified buyers" that carried no badge and
+    // exported as "no", and its count disagreed with the dashboard. A leading `!` negates:
+    // `verificationStatus=!verified_buyer` is everything that is not a verified buyer.
+    const verification = searchParams.get('verificationStatus');
+    if (verification) {
+      where.verificationStatus = verification.startsWith('!')
+        ? { not: verification.slice(1) }
+        : verification;
+    }
 
     const sentiment = searchParams.get('sentiment');
     if (sentiment) where.sentiment = sentiment;
