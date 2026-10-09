@@ -49,6 +49,7 @@ import { ExternalLink, ChevronRight } from 'lucide-react';
 import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
 import { MarkaLockup } from '@/components/app/ui-kit';
 import { PENDING_PLAN_KEY } from '@/lib/admin-links';
+import { parsePendingPlan, classifyPlanReturn, planArrived, planName, type PendingPlanChange } from '@/lib/plan-return';
 import { apiFetch, ApiError } from '@/lib/api-client';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
@@ -158,8 +159,14 @@ export default function Home() {
   // support had nothing from the screen to go on.
   const [authDetail, setAuthDetail] = useState('');
   // Set when Shopify has taken the payment but confirm could not yet classify it. Drives
-  // the short poll below so the plan chip catches up without a reload.
-  const [planPending, setPlanPending] = useState(false);
+  // the short poll below so the plan chip catches up without a reload. Holds the change
+  // the merchant went to Shopify for (empty when none was recorded), so the poll waits
+  // for THAT plan; null when nothing is pending.
+  const [planPending, setPlanPending] = useState<PendingPlanChange | null>(null);
+  // A return from Shopify that did not unlock anything — a declined change between paid
+  // plans, or an approved move down — said in a toast once the shell is up. Held in state
+  // for the same reason as the pending toast: checkSession runs before the Toaster exists.
+  const [planNotice, setPlanNotice] = useState<{ text: string; tone: 'neutral' | 'success' } | null>(null);
   // Bumped when the poll sees the paid plan arrive, so the Plan page (which holds its own
   // copy of usage) knows to fetch again.
   const [usageVersion, setUsageVersion] = useState(0);
@@ -190,17 +197,46 @@ export default function Home() {
         const params = new URLSearchParams(window.location.search);
         if (params.get('billing') === 'success') {
           params.delete('billing');
-          const confirmed = await apiFetch<{ activated?: boolean; pending?: boolean }>(
+
+          // The change the merchant went to Shopify for, written by the Plan page before
+          // it handed over. Read and removed here, once, on every outcome: the answer
+          // below is judged against it, the pending poll is handed it, and a stale
+          // { from, to } must never outlive the hand-off it describes. Best effort —
+          // storage can be unavailable in an embedded frame, and every use copes with null.
+          let expected: PendingPlanChange | null = null;
+          try {
+            expected = parsePendingPlan(sessionStorage.getItem(PENDING_PLAN_KEY));
+            sessionStorage.removeItem(PENDING_PLAN_KEY);
+          } catch {
+            /* no storage */
+          }
+
+          const confirmed = await apiFetch<{ activated?: boolean; pending?: boolean; plan?: string }>(
             '/api/billing/confirm'
           ).catch(() => undefined);
 
-          // Land on the Plan tab with the upgrade marked, rather than dropping the
-          // merchant back wherever they happened to be. They have just paid for a named
-          // feature; the next screen should say what they got and where it lives.
-          // Declines resolve to the free plan and get none of this.
+          // Land on the Plan tab rather than dropping the merchant back wherever they
+          // happened to be: it is where they started, and where the answer shows.
+          //
+          // `activated` only means a paid plan is active, not that it is the one they
+          // went for. A Growth store that declines Scale comes back still on Growth, and
+          // marking that as an upgrade put "You just unlocked these" over features it
+          // already had. So the upgrade is marked only when the plan went UP; otherwise
+          // the merchant is told plainly what they are on. Declines from Free resolve to
+          // the free plan and get none of this.
           if (confirmed?.activated) {
             params.set('page', 'plan');
-            params.set('upgraded', '1');
+            const outcome = classifyPlanReturn(confirmed.plan, expected);
+            if (outcome === 'upgraded') {
+              params.set('upgraded', '1');
+            } else if (confirmed.plan) {
+              const name = planName(confirmed.plan);
+              setPlanNotice(
+                outcome === 'unchanged'
+                  ? { text: `No change was made — you're still on ${name}.`, tone: 'neutral' }
+                  : { text: `Switched to the ${name} plan.`, tone: 'success' }
+              );
+            }
             setCurrentPage('plan');
           } else if (confirmed?.pending) {
             // Shopify has the payment but could not yet be asked which plan it is for
@@ -213,7 +249,7 @@ export default function Home() {
             // The toast itself is raised by the polling effect: at this point the
             // authenticated shell, and the Toaster with it, has not mounted yet, and a
             // toast raised before the Toaster exists is never shown.
-            setPlanPending(true);
+            setPlanPending(expected ?? {});
           }
 
           const rest = params.toString();
@@ -300,27 +336,18 @@ export default function Home() {
     let cancelled = false;
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // The change the merchant went to Shopify for, written by the Plan page before it
-    // handed over. Without it, "a paid plan showed up" was the stop signal — and a store
-    // already on Growth buying Scale stopped at once on its old Growth, announced an
-    // upgrade it had not got yet, and never saw Scale arrive.
-    let expected: { from?: string; to?: string } = {};
-    try {
-      expected = JSON.parse(sessionStorage.getItem(PENDING_PLAN_KEY) || '{}');
-      sessionStorage.removeItem(PENDING_PLAN_KEY);
-    } catch {
-      /* no storage: fall back to "any paid plan" below */
-    }
-    const arrived = (plan: string | undefined) =>
-      !!plan && (expected.to ? plan === expected.to : expected.from ? plan !== expected.from : plan !== 'free');
+    // The change the merchant went to Shopify for, read from storage once by checkSession
+    // and handed over in state — see planArrived for why the poll waits for that plan
+    // rather than for any paid one.
+    const expected = planPending;
     const tick = async () => {
       attempts++;
       try {
         const u = await apiFetch<UsageSummary>('/api/usage');
         if (cancelled) return;
         applyUsage(u);
-        if (arrived(u.plan)) {
-          setPlanPending(false);
+        if (planArrived(u.plan, expected)) {
+          setPlanPending(null);
           setUsageVersion((v) => v + 1);
           return;
         }
@@ -329,7 +356,7 @@ export default function Home() {
       }
       if (cancelled) return;
       if (attempts < PLAN_POLL_ATTEMPTS) timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
-      else setPlanPending(false);
+      else setPlanPending(null);
     };
     timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
     return () => {
@@ -337,6 +364,15 @@ export default function Home() {
       if (timer) clearTimeout(timer);
     };
   }, [planPending, isAuthenticated, applyUsage]);
+
+  // Raised once, after the shell (and the Toaster with it) has mounted, then cleared so a
+  // later change of isAuthenticated cannot repeat it.
+  useEffect(() => {
+    if (!planNotice || !isAuthenticated) return;
+    if (planNotice.tone === 'success') toast.success(planNotice.text);
+    else toast(planNotice.text);
+    setPlanNotice(null);
+  }, [planNotice, isAuthenticated]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   /**

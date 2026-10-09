@@ -984,10 +984,11 @@ export interface SubscriptionFailure {
  * API, and a message that drifts should fall through to the generic sentence rather than
  * be misread as a different cause.
  */
-// Deliberately narrow. A false match sends the merchant top-level to the hosted plan page,
-// which is a 404 for an app NOT on Shopify App Pricing — so "pricing plan", which plenty of
-// unrelated errors could contain, is not enough on its own. SHOPIFY_MANAGED_PRICING is the
-// authoritative switch; this only catches Shopify saying so in as many words.
+// Deliberately narrow. A match tells the merchant paid plans are unavailable and raises the
+// operator's MANAGED_PRICING_REFUSAL alarm (see src/app/api/billing/route.ts), so a false
+// one misdiagnoses an ordinary refusal as the app being on Shopify App Pricing — "pricing
+// plan", which plenty of unrelated errors could contain, is not enough on its own. This
+// only catches Shopify saying so in as many words.
 const MANAGED_PRICING_RE = /managed pricing|app pricing/i;
 const DEVELOPMENT_STORE_RE = /development store|partners?\s+area|test (?:charge|mode|subscription)/i;
 const SHOP_INELIGIBLE_RE =
@@ -995,8 +996,12 @@ const SHOP_INELIGIBLE_RE =
 const PENDING_CHARGE_RE = /pending/i;
 
 const FAILURE_MESSAGES: Record<SubscriptionFailureKind, string> = {
+  // Not "choose your plan in your Shopify admin": the app cannot yet see a plan bought
+  // there, so a merchant who followed that advice would be billed and stay on Free. See the
+  // note above POST in src/app/api/billing/route.ts. Nothing was charged — Shopify refused
+  // to create the subscription — and support needs the reference to find the log line.
   'managed-pricing':
-    'This app takes payment through the plan page in your Shopify admin. Choose your plan there.',
+    'Paid plans cannot be started right now, and nothing has been charged. Please contact support and quote the reference.',
   'development-store':
     'This is a development store, and Shopify only allows test charges on it. A paid plan needs a store on a paid Shopify plan.',
   'shop-ineligible':
@@ -1172,19 +1177,6 @@ export async function fetchActiveSubscriptions(
  */
 export function billingTestMode(): boolean {
   return (process.env.SHOPIFY_BILLING_TEST ?? 'false').toLowerCase() === 'true';
-}
-
-/**
- * Is this app on Shopify App Pricing (managed pricing)?
- *
- * When it is, Shopify hosts the plan page and refuses appSubscriptionCreate outright, so
- * the billing route sends the merchant to that page instead of trying. The flag is the
- * explicit answer; a Billing API rejection that names managed pricing is the implicit one,
- * and the route honours both. Off by default: this app was built on the Billing API, and
- * the opt-in has not been confirmed by its owner.
- */
-export function managedPricingEnabled(): boolean {
-  return (process.env.SHOPIFY_MANAGED_PRICING ?? 'false').trim().toLowerCase() === 'true';
 }
 
 const SHOP_PLAN_QUERY = `

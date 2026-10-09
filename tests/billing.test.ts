@@ -1,6 +1,8 @@
 /**
- * Offline tests for the billing route's failure classification and the managed-pricing
- * switches. Pure parts only — nothing here talks to Shopify or the database. Run with:
+ * Offline tests for the billing route's failure classification, its refusal to hand
+ * merchants to Shopify's App Pricing page, and how the app shell reads a return from
+ * Shopify's approval screen. Pure parts only — nothing here talks to Shopify or the
+ * database. Run with:
  *
  *   npx --yes bun@latest run tests/billing.test.ts
  *
@@ -13,12 +15,10 @@
  */
 
 import assert from 'node:assert';
-import {
-  ShopifyGraphQLError,
-  describeSubscriptionFailure,
-  managedPricingEnabled,
-} from '../src/lib/shopify';
+import { readFileSync } from 'node:fs';
+import { ShopifyGraphQLError, describeSubscriptionFailure } from '../src/lib/shopify';
 import { shopifyAppHandle } from '../src/lib/client-id';
+import { classifyPlanReturn, parsePendingPlan, planArrived, planName } from '../src/lib/plan-return';
 
 let passed = 0;
 let failed = 0;
@@ -53,20 +53,43 @@ test('the typed error keeps the userErrors as data', () => {
   assert.strictEqual(err.status, 502);
 });
 
-test('a refusal naming managed pricing is the hosted plan page, not an error', () => {
+test('a refusal naming managed pricing is a 502 that sends nobody to pay', () => {
+  // The app cannot see a plan bought on Shopify's App Pricing page (that needs the Partner
+  // API), so pointing the merchant there would bill them while they stayed on Free. The
+  // message must say paid plans are unavailable, and nothing more actionable than support.
   for (const msg of [
+    'Managed Pricing Apps cannot use the Billing API (to create charges).',
     'This app uses managed pricing; subscriptions must be created from the pricing page',
     'Apps on Shopify App Pricing cannot create subscriptions through the Billing API',
   ]) {
-    assert.strictEqual(describeSubscriptionFailure(refused(msg)).kind, 'managed-pricing', msg);
+    const f = describeSubscriptionFailure(refused(msg));
+    assert.strictEqual(f.kind, 'managed-pricing', msg);
+    assert.strictEqual(f.status, 502);
+    assert.match(f.message, /cannot be started/);
+    assert.match(f.message, /nothing has been charged/);
+    assert.match(f.message, /quote the reference/);
+    assert.doesNotMatch(f.message, /https?:|\/charges\/|pricing_plans|admin\.shopify|myshopify/i, 'a URL reached the merchant');
+    assert.doesNotMatch(f.message, /choose|select|pick|plan page|Shopify admin|pay there|subscribe/i, 'the merchant was told to pay somewhere');
   }
 });
 
-test('the words "pricing plan" alone do not send the merchant to the hosted plan page', () => {
-  // A false match navigates the whole admin to /charges/<handle>/pricing_plans, which is a
-  // 404 for an app not on Shopify App Pricing. Only Shopify naming the feature counts.
+test('the words "pricing plan" alone are not read as Shopify App Pricing', () => {
+  // A false match tells the merchant paid plans are unavailable and raises the operator's
+  // MANAGED_PRICING_REFUSAL alarm for what is an ordinary refusal. Only Shopify naming the
+  // feature counts.
   const kind = describeSubscriptionFailure(refused('Choose a pricing plan in the Shopify admin')).kind;
   assert.notStrictEqual(kind, 'managed-pricing');
+});
+
+test('the billing route never hands a merchant to the App Pricing page', () => {
+  // The route needs a session and a database to run, so this reads its code instead: no
+  // hosted-page URL, no flag that skips the Billing API, and the operator's marker on the
+  // refusal. Comments are stripped first — the route explains the page it does not use.
+  const source = readFileSync(new URL('../src/app/api/billing/route.ts', import.meta.url), 'utf8');
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /pricingPageUrl|pricing_plans|\/charges\//, 'the hosted plan page is back in the billing route');
+  assert.doesNotMatch(code, /managedPricingEnabled|SHOPIFY_MANAGED_PRICING/, 'a switch that skips the Billing API is back');
+  assert.match(code, /MANAGED_PRICING_REFUSAL/);
 });
 
 test('a live charge against a development store is explained as such', () => {
@@ -129,27 +152,10 @@ test('a cancel refusal classifies the same way as a create refusal', () => {
   assert.strictEqual(describeSubscriptionFailure(err).kind, 'shop-ineligible');
 });
 
-console.log('\nManaged pricing switches');
+console.log('\nApp handle');
 
-test('SHOPIFY_MANAGED_PRICING is off unless it says true', () => {
-  const saved = process.env.SHOPIFY_MANAGED_PRICING;
-  try {
-    delete process.env.SHOPIFY_MANAGED_PRICING;
-    assert.strictEqual(managedPricingEnabled(), false);
-    process.env.SHOPIFY_MANAGED_PRICING = 'false';
-    assert.strictEqual(managedPricingEnabled(), false);
-    process.env.SHOPIFY_MANAGED_PRICING = 'yes';
-    assert.strictEqual(managedPricingEnabled(), false);
-    process.env.SHOPIFY_MANAGED_PRICING = 'true';
-    assert.strictEqual(managedPricingEnabled(), true);
-    process.env.SHOPIFY_MANAGED_PRICING = ' TRUE ';
-    assert.strictEqual(managedPricingEnabled(), true);
-  } finally {
-    if (saved === undefined) delete process.env.SHOPIFY_MANAGED_PRICING;
-    else process.env.SHOPIFY_MANAGED_PRICING = saved;
-  }
-});
-
+// Unused by the billing route until the App Pricing hand-off can come back (see the note
+// above POST in src/app/api/billing/route.ts), and kept tested for that day.
 test('the app handle defaults to the published one and follows the env override', () => {
   const saved = process.env.SHOPIFY_APP_HANDLE;
   try {
@@ -163,6 +169,65 @@ test('the app handle defaults to the published one and follows the env override'
     if (saved === undefined) delete process.env.SHOPIFY_APP_HANDLE;
     else process.env.SHOPIFY_APP_HANDLE = saved;
   }
+});
+
+console.log('\nComing back from Shopify\'s approval screen');
+
+test('the stored plan change is read only in the shape the Plan page writes', () => {
+  assert.deepStrictEqual(parsePendingPlan(JSON.stringify({ from: 'growth', to: 'scale' })), { from: 'growth', to: 'scale' });
+  assert.deepStrictEqual(parsePendingPlan(JSON.stringify({ to: 'scale' })), { to: 'scale' });
+  for (const raw of [null, undefined, '', '{}', 'null', '"growth"', '[1]', '{not json', JSON.stringify({ from: 1, to: {} })]) {
+    assert.strictEqual(parsePendingPlan(raw), null, String(raw));
+  }
+  // Stray fields are dropped, not carried along.
+  assert.deepStrictEqual(parsePendingPlan(JSON.stringify({ from: 'free', to: 'growth', extra: 'x' })), { from: 'free', to: 'growth' });
+});
+
+test('a declined Growth to Scale upgrade is not announced as an unlock', () => {
+  // Shopify keeps Growth ACTIVE when Scale is declined, so confirm says activated with
+  // plan growth. That used to put "You just unlocked these" over Growth's features.
+  assert.strictEqual(classifyPlanReturn('growth', { from: 'growth', to: 'scale' }), 'unchanged');
+  assert.strictEqual(classifyPlanReturn('scale', { from: 'scale', to: 'growth' }), 'unchanged');
+});
+
+test('the plan that was bought, or any move up, is an upgrade', () => {
+  assert.strictEqual(classifyPlanReturn('scale', { from: 'growth', to: 'scale' }), 'upgraded');
+  assert.strictEqual(classifyPlanReturn('growth', { from: 'free', to: 'growth' }), 'upgraded');
+  // Not the plan asked for, but up from where they started: still worth marking.
+  assert.strictEqual(classifyPlanReturn('scale', { from: 'free', to: 'growth' }), 'upgraded');
+});
+
+test('an approved move down between paid plans is a switch, not an unlock', () => {
+  assert.strictEqual(classifyPlanReturn('growth', { from: 'scale', to: 'growth' }), 'switched');
+});
+
+test('with nothing to compare against, the long-standing behaviour holds', () => {
+  // No storage in the frame, an older build's tab, or a confirm answer without a plan.
+  assert.strictEqual(classifyPlanReturn('growth', null), 'upgraded');
+  assert.strictEqual(classifyPlanReturn('growth', { to: 'scale' }), 'upgraded');
+  assert.strictEqual(classifyPlanReturn(undefined, { from: 'growth', to: 'scale' }), 'upgraded');
+  assert.strictEqual(classifyPlanReturn('enterprise', { from: 'growth', to: 'scale' }), 'upgraded');
+});
+
+test('the pending poll waits for the plan bought, not for any paid plan', () => {
+  const growthToScale = { from: 'growth', to: 'scale' };
+  assert.strictEqual(planArrived('growth', growthToScale), false);
+  assert.strictEqual(planArrived('scale', growthToScale), true);
+  assert.strictEqual(planArrived(undefined, growthToScale), false);
+  // Only a starting plan recorded: any change from it.
+  assert.strictEqual(planArrived('growth', { from: 'growth' }), false);
+  assert.strictEqual(planArrived('scale', { from: 'growth' }), true);
+  // Nothing recorded: any paid plan, as before.
+  assert.strictEqual(planArrived('free', null), false);
+  assert.strictEqual(planArrived('growth', null), true);
+  assert.strictEqual(planArrived('growth', {}), true);
+});
+
+test('plans are named as the merchant sees them', () => {
+  assert.strictEqual(planName('free'), 'Free');
+  assert.strictEqual(planName('growth'), 'Growth');
+  assert.strictEqual(planName('scale'), 'Scale');
+  assert.strictEqual(planName('enterprise'), 'enterprise');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

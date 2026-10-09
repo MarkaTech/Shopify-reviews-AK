@@ -4,11 +4,10 @@ import {
   createRecurringCharge,
   cancelActiveSubscriptions,
   describeSubscriptionFailure,
-  managedPricingEnabled,
   SHOPIFY_APP_URL,
 } from '@/lib/shopify';
 import { adminUrl } from '@/lib/admin-links';
-import { shopifyClientId, shopifyAppHandle } from '@/lib/client-id';
+import { shopifyClientId } from '@/lib/client-id';
 
 /**
  * Where Shopify sends the merchant after they approve or decline the charge.
@@ -38,26 +37,6 @@ function embeddedReturnUrl(shop: string): string {
 }
 
 /**
- * Shopify's hosted plan page for this app, inside the merchant's admin.
- *
- * New public apps are on Shopify App Pricing by default, and once an app is opted in the
- * Billing API is closed to it: "you can't create new recurring application charges using
- * the Billing API". The merchant picks a plan on a page Shopify hosts at
- * /charges/<app handle>/pricing_plans instead, and Shopify then fires
- * app_subscriptions/update, which the webhook handler already turns into an entitlement.
- *
- * Whether THIS app is opted in has not been confirmed, and merchants are reporting that
- * they cannot pay, so both doors are open: SHOPIFY_MANAGED_PRICING=true sends every
- * upgrade to the hosted page without trying the API, and an API rejection that names
- * managed pricing falls back to the same page. Either way the client receives
- * `pricingPageUrl` and opens it with App Bridge. The handle, unlike the client ID, has no
- * substitute on this path — see shopifyAppHandle().
- */
-function pricingPageUrl(shop: string): string | null {
-  return adminUrl(shop, `/charges/${shopifyAppHandle()}/pricing_plans`);
-}
-
-/**
  * withAuth's own rejection, and nothing else.
  *
  * The response status used to be copied off whatever was thrown, so a 401 from Shopify's
@@ -69,6 +48,34 @@ function isAuthFailure(error: unknown): boolean {
   return error instanceof Error && error.name === 'UnauthorizedError';
 }
 
+/*
+ * Shopify App Pricing (managed pricing): why this route never sends a merchant to Shopify's
+ * hosted plan page.
+ *
+ * An app opted in to App Pricing has the Billing API closed to it — appSubscriptionCreate
+ * is refused with "Managed Pricing Apps cannot use the Billing API" — and merchants pick a
+ * plan on a page Shopify hosts at /charges/<app handle>/pricing_plans instead. An earlier
+ * draft of this route sent merchants there, on a SHOPIFY_MANAGED_PRICING flag and on that
+ * refusal. It must not, yet. A plan bought on that page is visible only through the
+ * Partner API, activeSubscription(appId, shopId); a native App Pricing subscription has no
+ * Admin API AppSubscription, and App Pricing sends no app_subscriptions/update webhook. Every path that grants a plan here reads the
+ * Admin API (currentAppInstallation.activeSubscriptions, via resolveActiveSubscription):
+ * the confirm route, the webhook, /api/store's reconcile and the hourly reconcileSomePlans.
+ * So the merchant would be billed every month while all of them resolved the store to
+ * Free, and the hourly reconcile would undo even an operator's hand-set plan. Refusing,
+ * with nothing charged, is the honest answer until the app can see what it charged for.
+ *
+ * Before the hand-off can come back:
+ *   - a Partner API client, with a Manage apps token in the app settings;
+ *   - activeSubscription(appId, shopId) — shopId from `shop { id }` — merged into
+ *     resolveActiveSubscription, so confirm, /api/store and both reconciles all see it;
+ *   - the welcome link's `plan_handle` return handled in page.tsx through
+ *     /api/billing/confirm, never trusted from the URL itself;
+ *   - downgrades cancelled through the Partner API when an App Pricing subscription exists.
+ *
+ * Until then a refusal is a 502 telling the merchant paid plans cannot be started, and a
+ * console.error carrying MANAGED_PRICING_REFUSAL, which is the line to search the log for.
+ */
 export async function POST(request: NextRequest) {
   // Hoisted out of the try so the failure log can say which shop and plan it was for.
   let shop = '';
@@ -134,7 +141,9 @@ export async function POST(request: NextRequest) {
       // Shopify" — the exact broken state this replaces.
       //
       // Cancellation stays on the Billing API under Shopify App Pricing too: that opt-in
-      // closes subscription CREATION, not appSubscriptionCancel.
+      // closes subscription CREATION, not appSubscriptionCancel. It only reaches the
+      // subscriptions this route created, though — one bought on Shopify's own App Pricing
+      // page is invisible to it (see the note above POST).
       const cancelled = await cancelActiveSubscriptions(shop, accessToken, onUnauthorized);
 
       const { db } = await import('@/lib/db');
@@ -145,17 +154,6 @@ export async function POST(request: NextRequest) {
 
       console.log(`[billing] ${shop} downgraded to free (${cancelled} subscription(s) cancelled)`);
       return NextResponse.json({ success: true, plan: 'free', activated: true, cancelled });
-    }
-
-    // Shopify App Pricing, by configuration: the Billing API is not tried at all.
-    if (managedPricingEnabled()) {
-      const page = pricingPageUrl(shop);
-      if (!page) throw new Error('SHOPIFY_MANAGED_PRICING is on but no admin URL could be built');
-      console.info(
-        `[billing] ${shop} -> ${plan}: Shopify App Pricing is on (SHOPIFY_MANAGED_PRICING); ` +
-          'sending the merchant to the hosted plan page'
-      );
-      return NextResponse.json({ pricingPageUrl: page, plan });
     }
 
     const chargeReturnUrl = embeddedReturnUrl(shop);
@@ -188,21 +186,20 @@ export async function POST(request: NextRequest) {
     // that say what THEY can do about it, plus the reference that finds this log line.
     // The status is ours — 502 when Shopify answered with an error, 500 otherwise — and
     // never Shopify's own.
-    console.error(`[billing] charge/cancel failed for ${shop || 'unknown shop'} (plan '${plan}', ref ${ref}):`, error);
-
     const failure = describeSubscriptionFailure(error);
 
-    // Shopify refused the Billing API because the app is on Shopify App Pricing. Not an
-    // error for the merchant, just the other door: the same response as the opt-in path.
-    if (failure.kind === 'managed-pricing' && shop && plan && plan !== 'free') {
-      const page = pricingPageUrl(shop);
-      if (page) {
-        console.info(
-          `[billing] ${shop} -> ${plan}: the Billing API refused the charge because the app uses ` +
-            `Shopify App Pricing; sending the merchant to the hosted plan page (ref ${ref})`
-        );
-        return NextResponse.json({ pricingPageUrl: page, plan });
-      }
+    if (failure.kind === 'managed-pricing') {
+      // Not one merchant's problem: every paid plan fails this way until the app is taken
+      // off Shopify App Pricing or can read its subscriptions (see the note above POST).
+      // Its own marker so the operator can find it, and alert on it, without reading every
+      // billing failure. The merchant is told nothing was charged and is NOT sent to pay.
+      console.error(
+        `[billing] MANAGED_PRICING_REFUSAL — the app is on Shopify App Pricing; Billing API charges are rejected ` +
+          `(${shop || 'unknown shop'}, plan '${plan}', ref ${ref}):`,
+        error
+      );
+    } else {
+      console.error(`[billing] charge/cancel failed for ${shop || 'unknown shop'} (plan '${plan}', ref ${ref}):`, error);
     }
 
     return NextResponse.json({ error: `${failure.message} (ref ${ref})` }, { status: failure.status });
