@@ -49,7 +49,7 @@ import { ExternalLink, ChevronRight } from 'lucide-react';
 import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
 import { MarkaLockup } from '@/components/app/ui-kit';
 import { PENDING_PLAN_KEY } from '@/lib/admin-links';
-import { parsePendingPlan, classifyPlanReturn, planArrived, planName, upgradeMayStillLand, type PendingPlanChange } from '@/lib/plan-return';
+import { parsePendingPlan, classifyPlanReturn, planArrived, planName, changeMayStillLand, type PendingPlanChange } from '@/lib/plan-return';
 import { apiFetch, ApiError } from '@/lib/api-client';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
@@ -166,6 +166,11 @@ export default function Home() {
   // The Plan page calls this before it changes the plan, so a check still running from the
   // last return from Shopify cannot finish afterwards and announce the old answer.
   const stopPlanCheck = useCallback(() => setPlanPending(null), []);
+  // Bumped only when a late change turns out to be a move UP. The Plan page shows "You
+  // just unlocked these" from this, not from its own snapshot of the plan: the shell knows
+  // where the merchant started; the page may already have loaded the new plan, or failed
+  // to load at all.
+  const [upgradedVersion, setUpgradedVersion] = useState(0);
   // A return from Shopify that did not unlock anything — a declined change between paid
   // plans, or an approved move down — said in a toast once the shell is up. Held in state
   // for the same reason as the pending toast: checkSession runs before the Toaster exists.
@@ -232,7 +237,7 @@ export default function Home() {
             const outcome = classifyPlanReturn(confirmed.plan, expected);
             if (outcome === 'upgraded') {
               params.set('upgraded', '1');
-            } else if (upgradeMayStillLand(confirmed.plan, expected)) {
+            } else if (changeMayStillLand(confirmed.plan, expected)) {
               // Still on the old plan after going to buy a higher one. Keep asking before
               // saying anything: the poll announces the upgrade if it lands, and "no
               // change was made" only once it has waited and nothing came.
@@ -258,7 +263,7 @@ export default function Home() {
             // authenticated shell, and the Toaster with it, has not mounted yet, and a
             // toast raised before the Toaster exists is never shown.
             setPlanPending(expected ?? {});
-          } else if (expected?.to && (confirmed === undefined || upgradeMayStillLand(confirmed.plan, expected))) {
+          } else if (expected?.to && (confirmed === undefined || changeMayStillLand(confirmed.plan, expected))) {
             // Free -> Growth comes back `activated: false` while Shopify is still swapping
             // the plan in — the same "may still land" as Growth -> Scale above, but it never
             // reached that branch, so the merchant was left on the Dashboard reading Free.
@@ -343,6 +348,12 @@ export default function Home() {
     apiFetch<UsageSummary>('/api/usage').then(applyUsage).catch(() => undefined);
   }, [isAuthenticated, currentPage, applyUsage]);
 
+  // For the Plan page after a change made from inside the app (a cancel, a switch to a
+  // gift): the chip and meter up here are the shell's, and nothing else would tell it.
+  const refreshUsage = useCallback(() => {
+    apiFetch<UsageSummary>('/api/usage').then(applyUsage).catch(() => undefined);
+  }, [applyUsage]);
+
   // After a return from Shopify that could not be settled at once — confirm could not
   // classify, or the merchant came back on the plan they left: ask Shopify a few more
   // times, a few seconds apart, and stop as soon as the plan they bought shows up. The Plan page is told (usageVersion)
@@ -390,7 +401,10 @@ export default function Home() {
             if (cancelled) return;
             // A move down that settled late (Scale -> Growth) is said plainly; only a move
             // up gets the unlock panel, which the Plan page now decides by rank.
-            if (classifyPlanReturn(c.plan, expected) !== 'upgraded') {
+            if (classifyPlanReturn(c.plan, expected) === 'upgraded') {
+              setPlanNotice({ text: `You're on the ${planName(c.plan)} plan.`, tone: 'success' });
+              setUpgradedVersion((v) => v + 1);
+            } else {
               setPlanNotice({ text: `Switched to the ${planName(c.plan)} plan.`, tone: 'success' });
             }
             setPlanPending(null);
@@ -545,8 +559,8 @@ export default function Home() {
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage storeDomain={storeDomain} />;
       case 'incentives': return <IncentivesPage />;
-      case 'settings': return <SettingsPage key="settings" onNavigate={navigate} storeDomain={storeDomain} usageVersion={usageVersion} onPlanChangeStarted={stopPlanCheck} />;
-      case 'plan': return <SettingsPage key="plan" onNavigate={navigate} storeDomain={storeDomain} initialTab="subscription" usageVersion={usageVersion} onPlanChangeStarted={stopPlanCheck} />;
+      case 'settings': return <SettingsPage key="settings" onNavigate={navigate} storeDomain={storeDomain} usageVersion={usageVersion} upgradedVersion={upgradedVersion} onPlanChangeStarted={stopPlanCheck} onPlanChanged={refreshUsage} />;
+      case 'plan': return <SettingsPage key="plan" onNavigate={navigate} storeDomain={storeDomain} initialTab="subscription" usageVersion={usageVersion} upgradedVersion={upgradedVersion} onPlanChangeStarted={stopPlanCheck} onPlanChanged={refreshUsage} />;
       default: return <DashboardPage onNavigate={navigate} storeName={storeName} />;
     }
   };

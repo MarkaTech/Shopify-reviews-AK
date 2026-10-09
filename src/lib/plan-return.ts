@@ -86,16 +86,15 @@ export function classifyPlanReturn(
  * it had not got yet, and never see Scale arrive.
  */
 /**
- * Back on the plan they left, having gone to buy a HIGHER one: a decline, or an approval
- * Shopify has not finished swapping in yet. One read cannot tell them apart, so the shell
- * keeps asking for a little while before it says "no change was made" — telling someone
- * who has just paid for Scale that they are still on Growth is the worse mistake.
+ * Back on the plan they left, having gone to change it: a decline, or an approval Shopify
+ * has not finished swapping in yet. One read cannot tell them apart — in either direction:
+ * a Scale -> Growth approval can lag exactly as Growth -> Scale does — so the shell keeps
+ * asking for a little while before it says "no change was made". Telling someone whose
+ * change went through that it did not is the worse mistake: they try again.
  */
-export function upgradeMayStillLand(confirmedPlan: string | undefined, expected: PendingPlanChange | null): boolean {
+export function changeMayStillLand(confirmedPlan: string | undefined, expected: PendingPlanChange | null): boolean {
   if (!confirmedPlan || !expected?.from || !expected.to || confirmedPlan !== expected.from) return false;
-  const from = PLAN_RANK[expected.from];
-  const to = PLAN_RANK[expected.to];
-  return from !== undefined && to !== undefined && to > from;
+  return expected.to !== expected.from && PLAN_RANK[expected.to] !== undefined && PLAN_RANK[expected.from] !== undefined;
 }
 
 export function planArrived(plan: string | undefined, expected: PendingPlanChange | null): boolean {

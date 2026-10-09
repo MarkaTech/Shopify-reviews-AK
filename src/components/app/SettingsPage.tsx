@@ -420,7 +420,9 @@ export default function SettingsPage({
   storeDomain,
   initialTab,
   usageVersion = 0,
+  upgradedVersion = 0,
   onPlanChangeStarted,
+  onPlanChanged,
 }: {
   onNavigate?: Navigate;
   storeDomain?: string;
@@ -433,6 +435,10 @@ export default function SettingsPage({
    * the old answer ("no change — still on Growth") over the new one.
    */
   onPlanChangeStarted?: () => void;
+  /** Bumped by the shell when a late change turned out to be a move up: show the unlock panel. */
+  upgradedVersion?: number;
+  /** Called after this page changed the plan, so the shell's chip and meter catch up. */
+  onPlanChanged?: () => void;
 }) {
   const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
@@ -599,29 +605,34 @@ export default function SettingsPage({
     if (savedReq.current) savedReq.current = { ...savedReq.current, remindersAllowed: allowed };
   }, []);
 
-  // The plan on screen, readable from the effect below without making it a dependency.
-  const planShownRef = useRef(usage?.plan ?? 'free');
-  useEffect(() => {
-    planShownRef.current = usage?.plan ?? 'free';
-  }, [usage?.plan]);
   const seenUsageVersion = useRef(usageVersion);
   useEffect(() => {
     if (usageVersion === seenUsageVersion.current) return;
     seenUsageVersion.current = usageVersion;
     apiFetch<Usage>('/api/usage')
       .then(u => {
-        // "You just unlocked these" only for a move UP from what this page was showing. A
-        // settled move down (Scale -> Growth) is a change too, and is not an unlock.
-        const before = planShownRef.current;
         setUsage(u);
         setUsageError(null);
         applyPlanToRequests(u);
-        if (rankOf(u.plan) > rankOf(before)) setJustUpgraded(true);
       })
       .catch(() => undefined);
   }, [usageVersion, applyPlanToRequests]);
 
+  // "You just unlocked these" is the shell's call, made when it saw a late change land as
+  // a move UP from where the merchant started. This page's own copy of the plan cannot
+  // say: it may already show the new plan, or never have loaded.
+  const seenUpgradedVersion = useRef(upgradedVersion);
+  useEffect(() => {
+    if (upgradedVersion === seenUpgradedVersion.current) return;
+    seenUpgradedVersion.current = upgradedVersion;
+    setJustUpgraded(true);
+  }, [upgradedVersion]);
+
   const currentPlan = usage?.plan ?? 'free';
+  // Minimal draws no card on the page — only the overlay layouts paint a panel. The preview
+  // follows the same rule as the storefront stylesheet.
+  const minimalOnPage =
+    config?.layout.theme === 'minimal' && !['floating', 'popup', 'sidebar'].includes(String(config?.layout.type));
   const complimentary = usage?.complimentary === true;
   /**
    * The plan Marka gave this store free, if any. Taken from the API when it says; failing
@@ -973,6 +984,7 @@ export default function SettingsPage({
         const u = await apiFetch<Usage>('/api/usage');
         setUsage(u);
         applyPlanToRequests(u);
+        onPlanChanged?.();
       }
       setUpgrading(null);
     } catch (err) {
@@ -1224,17 +1236,18 @@ export default function SettingsPage({
                       // storefront (dark for light text, white for dark) — except under
                       // Minimal on the page, which draws no card at all. The preview shows
                       // exactly that, so a white-on-white Minimal choice looks white on white.
-                      background:
-                        config.colors.cardBg ??
-                        (config.layout.theme === 'minimal' && !['floating', 'popup', 'sidebar'].includes(String(config.layout.type))
-                          ? undefined
-                          : pairedCardBackground(config.colors.cardText)) ??
-                        undefined,
+                      background: minimalOnPage
+                        ? undefined
+                        : config.colors.cardBg ?? pairedCardBackground(config.colors.cardText) ?? undefined,
                       // Card text left to the theme on a background the merchant chose is
                       // paired by the storefront with whichever of dark or white reads on
                       // it; the preview pairs it the same way. For display only: the field
                       // keeps saying "Follows your theme", and nothing writes this back.
-                      color: config.colors.cardText ?? pairedCardText(config.colors.cardBg) ?? undefined,
+                      // Under Minimal on the page only a text chosen WITHOUT a card is used
+                      // (--rm-card-text-bare in the stylesheet); anything else follows the theme.
+                      color: minimalOnPage
+                        ? (config.colors.cardBg ? undefined : config.colors.cardText ?? undefined)
+                        : config.colors.cardText ?? pairedCardText(config.colors.cardBg) ?? undefined,
                       borderColor: config.colors.border,
                       borderRadius: `${num(config.layout.borderRadius, 8)}px`,
                       // Only a valid family reaches the preview, as on the storefront.

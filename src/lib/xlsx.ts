@@ -308,7 +308,10 @@ const MAX_CELL_CHARS = 32_767;
  * so the scan is linear; a bare '&' is never matched and simply rides along in the next
  * slice of plain text.
  */
-const ENTITY = /&(?:#[xX]([0-9a-fA-F]{1,8})|#([0-9]{1,10})|(amp|lt|gt|quot|apos));/g;
+// Digit runs are unbounded so zero-padded references decode as the spec says; the range is
+// checked after parsing (a huge run parses to a huge number or Infinity and is kept as
+// written). No `0*` prefix: on long zero runs with no ';' that backtracks.
+const ENTITY = /&(?:#[xX]([0-9a-fA-F]+)|#([0-9]+)|(amp|lt|gt|quot|apos));/g;
 const NAMED: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
 function decodeXml(s: string, max = MAX_CELL_CHARS): string {
@@ -369,38 +372,48 @@ function attr(attrs: string, name: string): string | undefined {
 /** The text of every `<t>` in a run of rich text, phonetic guides dropped. */
 function textOf(inner: string): string {
   if (!inner) return '';
-  let text = inner;
-  if (inner.includes('<rPh')) {
-    // Phonetic guides (furigana over Japanese text) carry a <t> of their own that is a
-    // reading aid, not part of the cell's text.
-    let kept = '';
-    let pos = 0;
-    for (;;) {
-      const open = findTag(inner, 'rPh', pos);
-      if (open < 0) break;
-      const gt = inner.indexOf('>', open);
-      if (gt < 0) break;
-      let next = gt + 1; // after a self-closing <rPh/>
-      if (inner.charCodeAt(gt - 1) !== 47) {
-        const end = inner.indexOf('</rPh>', gt);
-        if (end < 0) break;
-        next = end + 6;
-      }
-      kept += inner.slice(pos, open);
-      pos = next;
-    }
-    text = kept + inner.slice(pos);
-  }
   // Rich text is many runs; the cell's total is what Excel caps, so the budget is shared.
-  // Joined once, not appended run by run: see decodeXml on cons-string chains.
+  // Pieces are gathered and joined once, never appended (see decodeXml on cons-string
+  // chains), and an empty run adds nothing — a cell of millions of <t/> held an array slot
+  // for each of them.
   const parts: string[] = [];
   let len = 0;
-  eachElement(text, 't', (_, t) => {
-    const piece = decodeXml(t, MAX_CELL_CHARS - len);
-    parts.push(piece);
-    len += piece.length;
-    return len < MAX_CELL_CHARS; // full: stop walking the runs
-  });
+  const walk = (text: string): boolean => {
+    let more = true;
+    eachElement(text, 't', (_, t) => {
+      const piece = decodeXml(t, MAX_CELL_CHARS - len);
+      if (piece) {
+        parts.push(piece);
+        len += piece.length;
+      }
+      more = len < MAX_CELL_CHARS;
+      return more; // full: stop walking the runs
+    });
+    return more;
+  };
+  if (!inner.includes('<rPh')) {
+    walk(inner);
+    return parts.join('');
+  }
+  // Phonetic guides (furigana over Japanese text) carry a <t> of their own that is a
+  // reading aid, not part of the cell's text. The runs BETWEEN them are walked in place;
+  // gluing the gaps back together first built one string node per guide.
+  let pos = 0;
+  for (;;) {
+    const open = findTag(inner, 'rPh', pos);
+    if (open < 0) break;
+    const gt = inner.indexOf('>', open);
+    if (gt < 0) break;
+    let next = gt + 1; // after a self-closing <rPh/>
+    if (inner.charCodeAt(gt - 1) !== 47) {
+      const end = inner.indexOf('</rPh>', gt);
+      if (end < 0) break;
+      next = end + 6;
+    }
+    if (open > pos && !walk(inner.slice(pos, open))) return parts.join('');
+    pos = next;
+  }
+  if (pos < inner.length) walk(inner.slice(pos));
   return parts.join('');
 }
 
