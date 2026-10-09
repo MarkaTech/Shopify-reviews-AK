@@ -13,10 +13,23 @@
 .rm-star--full { color: var(--rm-star-color, #E8871E); }
 .rm-star--half { background: linear-gradient(90deg, var(--rm-star-color, #E8871E) 50%, #D9D3C7 50%);
   -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* A darker edge on every filled star. Marka Orange on its own measures 2.65:1 against white
+   and 2.38:1 against the cream it is paired with, under the 3:1 WCAG 1.4.11 asks of a
+   meaningful graphic — and 1.78:1 against the empty star, so three stars and five were hard
+   to tell apart for a low-vision shopper. A translucent dark halo rather than a fixed brown:
+   it darkens the rim of whatever colour the merchant chose and leaves the fill itself alone.
+   On the element, not its mask layer: a shadow drawn inside the mask is masked away with
+   everything else outside the shape. Covers the glyph fallback too. */
+.rm-star--full, .rm-star--half, .rm-rating-input__star.is-on {
+  filter: drop-shadow(0 0 .5px rgba(0, 0, 0, .55));
+}
 .rm-stars { display: inline-flex; align-items: center; gap: .4em; }
 .rm-stars--small { font-size: .85rem; }
 .rm-stars--medium { font-size: 1rem; }
 .rm-stars--large { font-size: 1.3rem; }
+/* The average as a number beside the stars (the star block's show_value). It had no rule, so
+   it took whatever size and weight the surrounding theme element had. */
+.rm-stars__value { font-size: .9em; font-weight: 600; margin-left: .35em; }
 .rm-stars__count { font-size: .85em; color: inherit; opacity: .7; text-decoration: none; }
 .rm-stars__count:hover { text-decoration: underline; }
 
@@ -34,7 +47,9 @@
   padding: .55rem 1rem; font: inherit; font-size: .9rem; cursor: pointer; }
 .rm-btn--primary { background: var(--rm-accent, #1B3358); color: #fff; }
 .rm-btn--primary:hover { filter: brightness(.94); }
-.rm-btn--ghost { background: transparent; border-color: #7B8794; }
+/* color: inherit, so the ghost button reads on a dark theme: a <button> otherwise takes the
+   browser's black, which vanished against a dark storefront. */
+.rm-btn--ghost { background: transparent; border-color: #7B8794; color: inherit; }
 
 .rm-histogram { display: grid; gap: .25rem; margin: 1rem 0; max-width: 320px; }
 /* color: inherit, because a <button> takes the browser's black otherwise: on a dark theme the
@@ -48,9 +63,12 @@
 .rm-hist__n { width: 2em; font-size: .8rem; opacity: .7; text-align: right; }
 
 .rm-filters { display: flex; gap: .5rem; margin: 1rem 0; flex-wrap: wrap; }
+/* A white control needs its own dark text. On a dark theme the inherited (light) text colour
+   made "With photos" a blank white pill; the native <select> beside it only read because the
+   browser forces black on it. */
 .rm-filters__sort, .rm-filters__media { border: 1px solid #7B8794;
   border-radius: var(--rm-radius, 8px); padding: .4rem .7rem; font: inherit;
-  font-size: .85rem; background: #fff; cursor: pointer; }
+  font-size: .85rem; background: #fff; color: #1f2937; cursor: pointer; }
 .rm-filters__media.is-active { background: var(--rm-accent, #1B3358); color: #fff;
   border-color: transparent; }
 
@@ -132,7 +150,9 @@
 .rm-file { display: inline-flex; align-items: center; gap: .6rem; cursor: pointer; }
 .rm-file__input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.rm-file__btn { display: inline-block; border: 1px solid #7B8794; background: #fff;
+/* Dark text on the white pill: it inherited the theme's text colour, so on a dark theme the
+   shopper saw a blank white pill where "Add photos" should be. */
+.rm-file__btn { display: inline-block; border: 1px solid #7B8794; background: #fff; color: #1f2937;
   border-radius: var(--rm-radius, 8px); padding: .45rem .9rem; font-size: .85rem; }
 .rm-file:hover .rm-file__btn { border-color: var(--rm-accent, #1B3358); }
 .rm-file__input:focus-visible + .rm-file__btn { outline: 2px solid var(--rm-accent, #1B3358);
@@ -188,12 +208,16 @@
 
 /* Card surface colours, so a merchant on a dark theme is not stuck with white cards. */
 .rm-review { background: var(--rm-card-bg, transparent); color: var(--rm-card-text, inherit); }
+/* These layouts fall back to a white card, so their text fallback has to be dark to match:
+   with `inherit` here a dark theme's near-white text landed on the white card and the review
+   was unreadable. A merchant's own card colours still win through the custom properties. */
 .rm-widget--grid .rm-review,
 .rm-widget--masonry .rm-widget .rm-review,
 .rm-widget--masonry .rm-review,
 .rm-widget--carousel .rm-review {
   padding: 1rem; border: 1px solid var(--rm-border, #e5e7eb);
   border-radius: var(--rm-radius, 8px); background: var(--rm-card-bg, #fff);
+  color: var(--rm-card-text, #1f2937);
 }
 
 /* ── Grid ── */
@@ -233,9 +257,11 @@
 .rm-carousel-nav { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .5rem; }
 
 /* ── Testimonial ── */
+/* Same pairing as the cards above: a light fallback surface takes a dark text fallback. */
 .rm-widget--testimonial .rm-review {
   border: 0; text-align: center; padding: 2rem 1.5rem;
   background: var(--rm-card-bg, #f8fafc); border-radius: var(--rm-radius, 8px);
+  color: var(--rm-card-text, #1f2937);
 }
 .rm-widget--testimonial .rm-review__head { justify-content: center; }
 .rm-widget--testimonial .rm-review__date { margin-left: 0; }
@@ -270,9 +296,11 @@
 .rm-trigger__star { color: var(--rm-star-color, #E8871E); }
 .rm-widget--popup .rm-trigger { display: none; }
 
+/* The panel falls back to white, so its text falls back to dark — the same pairing as the
+   grid cards, for the same reason. */
 .rm-panel {
   position: fixed; z-index: 2147483001; background: var(--rm-card-bg, #fff);
-  color: var(--rm-card-text, inherit); box-shadow: 0 10px 40px rgba(0,0,0,.22);
+  color: var(--rm-card-text, #1f2937); box-shadow: 0 10px 40px rgba(0,0,0,.22);
   overflow-y: auto; padding: 1.5rem; display: none;
 }
 .rm-widget.is-open .rm-panel { display: block; }
@@ -525,3 +553,25 @@
 /* The theme's own font unless the merchant named one in Settings -> Display (a font the
    theme already loads; naming it here does not load it). */
 .rm-widget, .rm-stars, .rm-trigger, .rm-panel { font-family: var(--rm-font, inherit); }
+
+/* ── Touch targets ──
+   On a coarse pointer every control a shopper taps is at least 44 px (WCAG 2.5.8, and
+   Apple's and Android's guidance alike). Measured before this: the rating buttons were
+   26 px, the Helpful button 25 px tall, a histogram row 20 px and a page button 34 px, so
+   a thumb picking three stars landed on two or four. The star keeps its size — the button
+   grows around it, and in the mask build the mark is drawn at 1.6rem centred in the box.
+   The attribution link stays 24 px: that is the most Shopify's requirement 5.1 allows.
+   Last in the file on purpose, so it wins over the mask block's sizing above. */
+@media (pointer: coarse) {
+  .rm-rating-input__star {
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .rm-rating-input__star::before {
+    top: 50%; left: 50%; right: auto; bottom: auto; width: 1.6rem; height: 1.6rem;
+    transform: translate(-50%, -50%);
+  }
+  .rm-helpful, .rm-hist__row, .rm-page { min-height: 44px; }
+  /* Square, like the arrows beside it: a 34 px-wide target was still a miss sideways. */
+  .rm-page { min-width: 44px; }
+}

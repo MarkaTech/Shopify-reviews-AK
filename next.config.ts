@@ -19,6 +19,24 @@ const nextConfig: NextConfig = {
   },
 
   reactStrictMode: false,
+
+  /**
+   * Long-lived caching for the brand images and the self-hosted fonts.
+   *
+   * Next serves `public/` with `Cache-Control: public, max-age=0`, so every free-plan
+   * product page view revalidated the attribution icon against the app server instead of
+   * the shopper's cache — and on a cold instance the icon popped in late, or not at all.
+   * The brand PNGs and the Archivo files are fixed artwork that only ever changes under a
+   * new filename, which is exactly the contract `immutable` describes. The middleware
+   * matcher already excludes both folders, so nothing downstream rewrites this.
+   */
+  async headers() {
+    const immutable = [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }];
+    return [
+      { source: '/brand/:path*', headers: immutable },
+      { source: '/fonts/:path*', headers: immutable },
+    ];
+  },
 };
 
 export default nextConfig;

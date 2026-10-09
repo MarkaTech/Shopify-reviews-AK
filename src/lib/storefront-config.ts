@@ -353,21 +353,50 @@ function flatten(config: StorefrontConfig): Record<string, string> {
  * A store whose saved value is still exactly one of these did not choose it: it is what the
  * Settings and widget screens saved back untouched. So it moves to the new default with
  * every other store. A colour a merchant actually picked is left alone.
+ *
+ * Exported for the tests.
  */
-const LEGACY_DEFAULT_COLORS: Partial<Record<keyof StorefrontConfig['colors'], string>> = {
+export const LEGACY_DEFAULT_COLORS: Partial<Record<keyof StorefrontConfig['colors'], string>> = {
   accent: '#059669',
   star: '#F5A623',
   verifiedBg: '#ECFDF5',
   verifiedText: '#047857',
 };
 
-function rebrandLegacyDefaults(colors: StorefrontConfig['colors']): void {
+/**
+ * When the rename went live.
+ *
+ * "Still exactly the old default" only proves nothing was chosen for rows written BEFORE
+ * this. Since then the Settings screen has shown navy and orange, so a merchant who typed
+ * #059669 after the rename wanted that green — and the remap used to take it away on the
+ * very next read, with nothing on the screen to say why. A row's updatedAt against this
+ * date is what separates the two.
+ */
+export const REBRAND_DEPLOYED_AT = new Date('2026-10-08T00:00:00Z');
+
+/** When each colour row was last written, by field. No entry for a field with no row. */
+export type ColorSavedAt = Partial<Record<keyof StorefrontConfig['colors'], Date>>;
+
+/**
+ * Move the pre-rename defaults to the Marka ones — for values saved before the rename.
+ *
+ * @param savedAt When each colour was written. A field with no entry is remapped as before:
+ *   a legacy value can only arrive from a StoreSetting row, so a missing date means the
+ *   caller did not look it up, and the historical behaviour is the safe reading for it.
+ */
+export function rebrandLegacyDefaults(colors: StorefrontConfig['colors'], savedAt: ColorSavedAt = {}): void {
   const same = (x: string | null | undefined, y: string) => typeof x === 'string' && x.trim().toLowerCase() === y.toLowerCase();
+  const chosenAfterRename = (field: keyof StorefrontConfig['colors']) => {
+    const at = savedAt[field];
+    return at instanceof Date && at.getTime() >= REBRAND_DEPLOYED_AT.getTime();
+  };
   // Whether the badge text was ever a merchant's choice, decided before anything is remapped.
-  const textWasDefault = same(colors.verifiedText, DEFAULT_CONFIG.colors.verifiedText) || same(colors.verifiedText, LEGACY_DEFAULT_COLORS.verifiedText!);
+  const textWasDefault =
+    same(colors.verifiedText, DEFAULT_CONFIG.colors.verifiedText) ||
+    (same(colors.verifiedText, LEGACY_DEFAULT_COLORS.verifiedText!) && !chosenAfterRename('verifiedText'));
 
   for (const [field, legacy] of Object.entries(LEGACY_DEFAULT_COLORS) as Array<[keyof StorefrontConfig['colors'], string]>) {
-    if (same(colors[field], legacy)) {
+    if (same(colors[field], legacy) && !chosenAfterRename(field)) {
       (colors as Record<string, string | null>)[field] = DEFAULT_CONFIG.colors[field];
     }
   }
@@ -447,10 +476,13 @@ export async function getStorefrontConfig(
 ): Promise<StorefrontConfig> {
   const rows = await db.storeSetting.findMany({
     where: { storeId, key: { startsWith: PREFIX } },
-    select: { key: true, value: true },
+    // updatedAt: when a colour was written decides whether a pre-rename default is remapped
+    // below, or was chosen after the rename and stays.
+    select: { key: true, value: true, updatedAt: true },
   });
 
   const config = emptyConfig();
+  const colorSavedAt: ColorSavedAt = {};
 
   for (const row of rows) {
     if (row.key === CSS_KEY) {
@@ -472,6 +504,7 @@ export async function getStorefrontConfig(
         (config.colors as Record<string, string | null>)[field] = null;
       } else if (HEX.test(row.value)) {
         (config.colors as Record<string, string | null>)[field] = row.value;
+        colorSavedAt[field as keyof StorefrontConfig['colors']] = row.updatedAt;
       }
     } else if (group === 'layout' && field in config.layout) {
       if (field === 'type' && !LAYOUTS.includes(row.value as LayoutType)) continue;
@@ -488,7 +521,7 @@ export async function getStorefrontConfig(
     await applyActiveWidget(storeId, placement, config);
   }
 
-  rebrandLegacyDefaults(config.colors);
+  rebrandLegacyDefaults(config.colors, colorSavedAt);
 
   // Resolved from the plan rather than from a setting, and last, so nothing above can
   // overwrite it. The attribution is what the Free tier trades for being free — and what
@@ -744,15 +777,21 @@ export async function getSubmissionRules(storeId: string): Promise<{
 export async function getRatingLook(storeId: string): Promise<{ starStyle: string; starColor: string }> {
   const rows = await db.storeSetting.findMany({
     where: { storeId, key: { in: [`${PREFIX}layout.starStyle`, `${PREFIX}color.star`] } },
-    select: { key: true, value: true },
+    select: { key: true, value: true, updatedAt: true },
   });
   const out = { starStyle: DEFAULT_CONFIG.layout.starStyle, starColor: DEFAULT_CONFIG.colors.star };
+  // When the star colour was written, so the legacy-default remap below applies the same
+  // rule as getStorefrontConfig: the review page must not show a star the widget does not.
+  const savedAt: ColorSavedAt = {};
   for (const row of rows) {
     if (row.key.endsWith('.starStyle') && validLayoutValue('starStyle', row.value)) out.starStyle = row.value;
-    if (row.key.endsWith('.star') && HEX.test(row.value)) out.starColor = row.value;
+    if (row.key.endsWith('.star') && HEX.test(row.value)) {
+      out.starColor = row.value;
+      savedAt.star = row.updatedAt;
+    }
   }
   const colors = { ...DEFAULT_CONFIG.colors, star: out.starColor };
-  rebrandLegacyDefaults(colors);
+  rebrandLegacyDefaults(colors, savedAt);
   out.starColor = colors.star;
   return out;
 }

@@ -19,7 +19,11 @@ import {
   STAR_STYLES,
   BADGE_ICONS,
   FONT_FAMILY,
+  rebrandLegacyDefaults,
+  LEGACY_DEFAULT_COLORS,
+  REBRAND_DEPLOYED_AT,
 } from '../src/lib/storefront-config';
+import { BRAND } from '../src/lib/brand';
 
 let passed = 0;
 let failed = 0;
@@ -190,6 +194,93 @@ test('a font family that could escape its CSS declaration is refused', () => {
   ]) {
     assert.ok(!FONT_FAMILY.test(bad), bad);
   }
+});
+
+// ── The rebrand remap: only for values saved before the rename ──
+//
+// The remap used to apply on every read regardless of when the row was written, which made
+// the old defaults unreachable: a merchant who typed the old green after the rename had it
+// taken away on the next read. The row's updatedAt against the rename date is the guard.
+
+console.log('\nrebrandLegacyDefaults — the pre-rename defaults, and when they are a choice');
+
+const legacy = () => ({
+  ...DEFAULT_CONFIG.colors,
+  accent: LEGACY_DEFAULT_COLORS.accent!,
+  star: LEGACY_DEFAULT_COLORS.star!,
+  verifiedBg: LEGACY_DEFAULT_COLORS.verifiedBg!,
+  verifiedText: LEGACY_DEFAULT_COLORS.verifiedText!,
+});
+const DAY = 24 * 3600 * 1000;
+const before = new Date(REBRAND_DEPLOYED_AT.getTime() - DAY);
+const after = new Date(REBRAND_DEPLOYED_AT.getTime() + DAY);
+
+test('a legacy default saved before the rename moves to the Marka default', () => {
+  const colors = legacy();
+  rebrandLegacyDefaults(colors, { accent: before, star: before, verifiedBg: before, verifiedText: before });
+  assert.strictEqual(colors.accent, DEFAULT_CONFIG.colors.accent);
+  assert.strictEqual(colors.star, DEFAULT_CONFIG.colors.star);
+  assert.strictEqual(colors.verifiedBg, DEFAULT_CONFIG.colors.verifiedBg);
+  assert.strictEqual(colors.verifiedText, DEFAULT_CONFIG.colors.verifiedText);
+});
+
+test('a legacy default saved after the rename is a choice, and is kept', () => {
+  const colors = legacy();
+  rebrandLegacyDefaults(colors, { accent: after, star: after, verifiedBg: after, verifiedText: after });
+  assert.strictEqual(colors.accent, LEGACY_DEFAULT_COLORS.accent);
+  assert.strictEqual(colors.star, LEGACY_DEFAULT_COLORS.star);
+  assert.strictEqual(colors.verifiedBg, LEGACY_DEFAULT_COLORS.verifiedBg);
+  assert.strictEqual(colors.verifiedText, LEGACY_DEFAULT_COLORS.verifiedText);
+});
+
+test('the date is per field: a green chosen after the rename does not keep an old star', () => {
+  const colors = legacy();
+  rebrandLegacyDefaults(colors, { accent: after, star: before });
+  assert.strictEqual(colors.accent, LEGACY_DEFAULT_COLORS.accent);
+  assert.strictEqual(colors.star, DEFAULT_CONFIG.colors.star);
+});
+
+test('no save date means the historical behaviour: remapped', () => {
+  // What a caller that did not look the date up gets — the safe reading, since a legacy
+  // value can only have come from a row.
+  const colors = legacy();
+  rebrandLegacyDefaults(colors);
+  assert.strictEqual(colors.accent, DEFAULT_CONFIG.colors.accent);
+  assert.strictEqual(colors.star, DEFAULT_CONFIG.colors.star);
+});
+
+test('the rename date itself counts as after: a row written that day is a choice', () => {
+  const colors = legacy();
+  rebrandLegacyDefaults(colors, { accent: new Date(REBRAND_DEPLOYED_AT) });
+  assert.strictEqual(colors.accent, LEGACY_DEFAULT_COLORS.accent);
+});
+
+test('matching is case-insensitive: a lower-case hex from an older save is still the legacy default', () => {
+  const colors = { ...legacy(), star: '#f5a623' };
+  rebrandLegacyDefaults(colors, { star: before });
+  assert.strictEqual(colors.star, DEFAULT_CONFIG.colors.star);
+});
+
+test('a colour the merchant actually picked is left alone, whenever it was saved', () => {
+  for (const at of [before, after, undefined]) {
+    const colors = { ...DEFAULT_CONFIG.colors, accent: '#123456', star: '#ABCDEF' };
+    rebrandLegacyDefaults(colors, at ? { accent: at, star: at } : {});
+    assert.strictEqual(colors.accent, '#123456');
+    assert.strictEqual(colors.star, '#ABCDEF');
+  }
+});
+
+test('badge text follows a merchant-chosen badge background by contrast when the text was never chosen', () => {
+  // Cream text would be unreadable on the light green a merchant picked last year.
+  const colors = { ...DEFAULT_CONFIG.colors, verifiedBg: '#E0F2E9' };
+  rebrandLegacyDefaults(colors, { verifiedBg: before });
+  assert.strictEqual(colors.verifiedText, BRAND.navy);
+});
+
+test('a legacy badge text saved after the rename is a choice too, and is not re-derived', () => {
+  const colors = { ...DEFAULT_CONFIG.colors, verifiedBg: '#E0F2E9', verifiedText: LEGACY_DEFAULT_COLORS.verifiedText! };
+  rebrandLegacyDefaults(colors, { verifiedBg: after, verifiedText: after });
+  assert.strictEqual(colors.verifiedText, LEGACY_DEFAULT_COLORS.verifiedText);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

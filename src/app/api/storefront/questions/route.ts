@@ -28,6 +28,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const shop = searchParams.get('shop');
     const shopifyProductId = searchParams.get('product_id');
+    // Where the block sits, read as the reviews route reads it, so the widget the merchant
+    // designed for this placement (its star colour, for one) reaches Q&A as well. Null when
+    // the block sent nothing: getStorefrontConfig still resolves the store's active widget.
+    const placement = searchParams.get('placement');
     if (!shop) return NextResponse.json({ error: 'shop is required' }, { status: 400, headers: CORS });
 
     const store = await db.store.findUnique({
@@ -58,15 +62,31 @@ export async function GET(request: NextRequest) {
     // Colours ride along for the same reason they do on the review payload: a Q&A block
     // on a page with no review block would otherwise never receive the merchant's accent
     // colour, and Settings -> Display would appear to do nothing to it.
-    const [plan, config] = await Promise.all([getStorePlan(store.id), getStorefrontConfig(store.id)]);
+    const [plan, config] = await Promise.all([getStorePlan(store.id), getStorefrontConfig(store.id, placement)]);
     const canAsk = PLANS[plan].questionsAndAnswers;
+
+    // The rest of what makes a block look like the merchant's storefront: the star shape
+    // and badge icon (the "Store" label on an answer reuses the badge), the font, and the
+    // merchant's own CSS. Only the review widget published these, so a Q&A block on a page
+    // with no review list — a FAQ page, a collection — rendered in the theme's font with
+    // none of the merchant's CSS while the same block on the product page got both. New
+    // keys only: a widget build that does not know them ignores them.
+    const look = {
+      colors: config.colors,
+      layout: {
+        starStyle: config.layout.starStyle,
+        badgeIcon: config.layout.badgeIcon,
+        fontFamily: config.layout.fontFamily,
+      },
+      customCss: config.customCss,
+    };
 
     // A product_id that does not resolve yields an EMPTY list, as the reviews route does.
     // It used to drop the filter instead, so a product page whose Product row had not
     // synced yet showed every other product's questions.
     if (shopifyProductId && !product) {
       return NextResponse.json(
-        { questions: [], canAsk, colors: config.colors },
+        { questions: [], canAsk, ...look },
         { headers: { ...CORS, 'Cache-Control': CACHE } }
       );
     }
@@ -113,7 +133,7 @@ export async function GET(request: NextRequest) {
           })),
         })),
         canAsk,
-        colors: config.colors,
+        ...look,
       },
       { headers: { ...CORS, 'Cache-Control': CACHE } }
     );

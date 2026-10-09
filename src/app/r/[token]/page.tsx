@@ -33,6 +33,15 @@ interface RequestData {
   /** The store's star shape and colour, so this page matches its storefront widget. */
   starStyle?: string;
   starColor?: string;
+  /**
+   * The store's active review incentive, with its disclosure, when its plan includes one.
+   * Shown before the buyer writes, as the storefront widget shows it: FTC 16 CFR 465 wants
+   * the offer disclosed where it is made, and the thank-you code otherwise arrived
+   * unannounced. Older responses have no such key; nothing is shown then.
+   */
+  offer?: { offer: string; disclosure: string; requiresMedia: boolean } | null;
+  /** False on a white-label plan, where the same badge is left out of the email too. */
+  showBadge?: boolean;
 }
 
 interface Attachment { file: File; url: string; isVideo: boolean }
@@ -134,7 +143,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
 
   if (done) {
     return (
-      <Shell>
+      <Shell showBadge={data?.showBadge !== false}>
         <div className="py-8 text-center">
           <div className="mx-auto mb-5 w-fit">
             {/* Success: the guideline green, with the tick and the heading below saying it too. */}
@@ -177,15 +186,13 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
   const starVariant: StarStyle = data.starStyle === 'classic' ? 'classic' : 'tick';
 
   return (
-    <Shell>
+    <Shell showBadge={data.showBadge !== false}>
       <div className="text-center">
-        {/* The store's star, as on its storefront: the Marka tick-star unless it chose the classic one. */}
+        {/* The store's star, as on its storefront: its shape AND its colour. The rating
+            buttons below already used both; this mark was a fixed amber classic star or the
+            raw tick-star PNG, so a store with red stars saw an amber one at the top. */}
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-[#1B3358]">
-          {starVariant === 'classic' ? (
-            <RatingStar size={26} color="#FFC24B" variant="classic" />
-          ) : (
-            <img src={BRAND_ASSETS.tickStar} alt="" width={30} height={30} className="size-[30px]" />
-          )}
+          <RatingStar size={26} color={data.starColor} variant={starVariant} />
         </div>
         <h1 className="text-[24px] font-bold leading-tight tracking-tight text-slate-900">
           How was your order?
@@ -202,6 +209,22 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
         <p className="mt-5 rounded-xl bg-rose-50 px-3.5 py-2.5 text-[13px] font-medium text-rose-700 ring-1 ring-inset ring-rose-600/15">
           {loadError}
         </p>
+      )}
+
+      {/* The store's review incentive, before the buyer writes — as the storefront widget
+          shows it (.rm-offer), and for the same reason: the offer is disclosed where it is
+          made (FTC 16 CFR 465), and the reviews written from this email are the ones it
+          rewards, so a buyer who was never told about it got the thank-you code unannounced. */}
+      {data.offer?.offer && (
+        <div
+          role="note"
+          className="mt-6 rounded-xl border border-dashed border-[#1B3358] bg-[#FDF1DE]/40 px-4 py-3"
+        >
+          <p className="text-[14px] font-semibold text-slate-900">{data.offer.offer}</p>
+          {data.offer.disclosure && (
+            <p className="mt-1 text-[12.5px] leading-relaxed text-slate-500">{data.offer.disclosure}</p>
+          )}
+        </div>
       )}
 
       <div className="mt-7 space-y-4">
@@ -437,7 +460,13 @@ function MediaPicker({
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * `showBadge` is false on a white-label plan. The email that brought the buyer here leaves
+ * the badge out for those plans, and a Marka-branded page right after a branding-free email
+ * is what white label is paid to avoid. On by default, for the loading and error states,
+ * where the plan is not known yet.
+ */
+function Shell({ children, showBadge = true }: { children: React.ReactNode; showBadge?: boolean }) {
   return (
     <main className="relative min-h-screen bg-slate-50 px-4 py-10 sm:py-14">
       {/* The same ambient wash as the admin, so a merchant who sees both recognises them
@@ -460,13 +489,15 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
       {/* The brand badge. Reviews written here come from a real order, which is exactly
           what it stands for. */}
-      <img
-        src={BRAND_ASSETS.badge}
-        alt="Verified by Marka"
-        width={96}
-        height={32}
-        className="mx-auto mt-6 block h-8 w-auto rounded-md opacity-90"
-      />
+      {showBadge && (
+        <img
+          src={BRAND_ASSETS.badge}
+          alt="Verified by Marka"
+          width={96}
+          height={32}
+          className="mx-auto mt-6 block h-8 w-auto rounded-md opacity-90"
+        />
+      )}
     </main>
   );
 }

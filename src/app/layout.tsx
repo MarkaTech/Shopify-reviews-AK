@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "next-themes";
 import { shopifyClientId } from "@/lib/client-id";
+import { APP_NAME, BRAND } from "@/lib/brand";
 
 /**
  * No web fonts are loaded for the app itself.
@@ -48,6 +49,28 @@ export const dynamic = 'force-dynamic';
  * without this tag cannot mint session tokens, which is the one thing App Store review
  * checks for.
  */
+/**
+ * The app's public origin, for the absolute URLs Open Graph needs. Without a base Next
+ * resolves them against localhost in a standalone build. Read at request time like the
+ * client ID: it is an Azure setting, not a build argument. Undefined when unset or not a
+ * URL, in which case the tags are emitted relative and a preview simply has no image.
+ */
+function metadataBase(): URL | undefined {
+  const raw = (process.env.SHOPIFY_APP_URL || '').trim();
+  if (!raw) return undefined;
+  try {
+    return new URL(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * themeColor belongs on the viewport export, not in metadata, since Next 14 — in metadata
+ * it is logged as unsupported. The brand navy, so browser chrome that takes it matches.
+ */
+export const viewport: Viewport = { themeColor: BRAND.navy };
+
 export async function generateMetadata(): Promise<Metadata> {
   const clientId = shopifyClientId();
   if (!clientId && process.env.NODE_ENV === 'production') {
@@ -57,10 +80,21 @@ export async function generateMetadata(): Promise<Metadata> {
     );
   }
 
+  const description =
+    "The most powerful and customizable review app for Shopify stores. Import reviews, showcase them beautifully, and build trust with your customers.";
+  const base = metadataBase();
+
   return {
+    ...(base ? { metadataBase: base } : {}),
     title: "Marka Reviews — The Ultimate Shopify Review App",
-    description:
-      "The most powerful and customizable review app for Shopify stores. Import reviews, showcase them beautifully, and build trust with your customers.",
+    description,
+    // A link to the app or a legal page previewed with no name and no icon before this.
+    // The review page a buyer opens overrides only the title, in its own layout.
+    openGraph: {
+      title: APP_NAME,
+      description,
+      images: ["/brand/marka-reviews-icon-192.png"],
+    },
     icons: {
       // First-party. This pointed at z-cdn.chatglm.cn — an unrelated third-party CDN,
       // in the <head> of every page, on every load. A reviewer opening devtools sees a
