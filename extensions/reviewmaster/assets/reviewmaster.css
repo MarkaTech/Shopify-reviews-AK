@@ -360,10 +360,11 @@
    own on the page or the panel's inside an overlay. The card layouts above pair their white
    fallback card with dark fallback text. This rule has their specificity and comes later, so
    it already beat their background; without a colour of its own it kept their #1f2937, and
-   Minimal on a dark theme put dark text straight onto the dark page. A text colour the
-   merchant CHOSE is honoured (--rm-card-text); one the widget DERIVED to match a card
-   background (--rm-card-text-auto) is not, because Minimal never paints that background. */
-.rm-theme--minimal .rm-review { border: 0; background: transparent; color: var(--rm-card-text, inherit);
+   Minimal on a dark theme put dark text straight onto the dark page. Only a text colour
+   chosen WITHOUT a card background is used here (--rm-card-text-bare): one chosen with a
+   card was picked against that card, and one derived for it (--rm-card-text-auto) was
+   computed for it — Minimal paints neither, so both could land white on a white page. */
+.rm-theme--minimal .rm-review { border: 0; background: transparent; color: var(--rm-card-text-bare, inherit);
   padding-left: 0; padding-right: 0; }
 .rm-theme--minimal .rm-summary { border: 0; }
 .rm-theme--minimal .rm-btn--primary { background: transparent; color: var(--rm-accent, #1B3358);

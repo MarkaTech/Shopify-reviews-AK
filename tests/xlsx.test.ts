@@ -541,4 +541,43 @@ test('unknown or malformed entities are kept as written', () => {
   assert.deepStrictEqual(parseXlsx(buf)[0].rows[0], ['a & b', 'x &bogus; y', '&#99999999;']);
 });
 
+test('bare ampersands with no ";" nearby stay linear (the search window is bounded)', () => {
+  const cell = (text: string) => buildZip([
+    { name: 'xl/workbook.xml', data: Buffer.from('<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>') },
+    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>${text}</t></is></c></row></sheetData></worksheet>`) },
+  ]);
+  for (const text of ['&'.repeat(2_000_000), '&'.repeat(2_000_000) + ';']) {
+    const t0 = Date.now();
+    const v = parseXlsx(cell(text))[0].rows[0][0];
+    assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+    assert.strictEqual(v.length, 32_767);
+  }
+});
+
+test('an attribute made of ampersands is bounded too', () => {
+  const amps = '&'.repeat(33_000);
+  const row = Array.from({ length: 600 }, (_, i) => `<c r="A${i + 1}" s="${amps}" t="${amps}"><v>1</v></c>`).join('');
+  const buf = buildZip([
+    { name: 'xl/workbook.xml', data: Buffer.from('<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>') },
+    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<worksheet><sheetData><row r="1">${row}</row></sheetData></worksheet>`) },
+  ]);
+  const t0 = Date.now();
+  parseXlsx(buf);
+  assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+});
+
+test('entities decode exactly as before for every form', () => {
+  const buf = buildZip([
+    { name: 'xl/workbook.xml', data: Buffer.from('<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>') },
+    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from('<worksheet><sheetData><row r="1">' +
+      ['&amp;&lt;&gt;&quot;&apos;', '&#65;&#x42;&#X43;&#128512;', 'a & b', 'tail &', '&amp', '&#xZZ;', '&nbsp;', '&#;'].map((t, i) =>
+        `<c r="${String.fromCharCode(65 + i)}1" t="inlineStr"><is><t>${t}</t></is></c>`).join('') +
+      '</row></sheetData></worksheet>') },
+  ]);
+  assert.deepStrictEqual(parseXlsx(buf)[0].rows[0], ['&<>"\'', 'ABC😀', 'a & b', 'tail &', '&amp', '&#xZZ;', '&nbsp;', '&#;']);
+});
+
 console.log(`\n${passed} passed`);

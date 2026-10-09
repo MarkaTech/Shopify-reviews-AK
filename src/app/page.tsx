@@ -255,6 +255,14 @@ export default function Home() {
             // authenticated shell, and the Toaster with it, has not mounted yet, and a
             // toast raised before the Toaster exists is never shown.
             setPlanPending(expected ?? {});
+          } else if (expected?.to && (confirmed === undefined || upgradeMayStillLand(confirmed.plan, expected))) {
+            // Free -> Growth comes back `activated: false` while Shopify is still swapping
+            // the plan in — the same "may still land" as Growth -> Scale above, but it never
+            // reached that branch, so the merchant was left on the Dashboard reading Free.
+            // A confirm that failed outright is treated the same way: nothing is known yet.
+            params.set('page', 'plan');
+            setCurrentPage('plan');
+            setPlanPending({ ...expected, unsure: true });
           }
 
           const rest = params.toString();
@@ -332,8 +340,9 @@ export default function Home() {
     apiFetch<UsageSummary>('/api/usage').then(applyUsage).catch(() => undefined);
   }, [isAuthenticated, currentPage, applyUsage]);
 
-  // After a payment that confirm could not classify: ask a few more times, a few seconds
-  // apart, and stop as soon as a paid plan shows up. The Plan page is told (usageVersion)
+  // After a return from Shopify that could not be settled at once — confirm could not
+  // classify, or the merchant came back on the plan they left: ask Shopify a few more
+  // times, a few seconds apart, and stop as soon as the plan they bought shows up. The Plan page is told (usageVersion)
   // so its own "Current plan" header catches up at the same moment as the chip.
   useEffect(() => {
     if (!planPending || !isAuthenticated) return;
@@ -348,16 +357,42 @@ export default function Home() {
     // and handed over in state — see planArrived for why the poll waits for that plan
     // rather than for any paid one.
     const expected = planPending;
+    // The last plan Shopify actually reported. The final word is about THIS, never about
+    // what we assumed: a poll that never got an answer says nothing, and a plan that moved
+    // somewhere else (the merchant cancelled from the Plan tab meanwhile) is not "no change".
+    let lastSeen: string | undefined;
+    const settle = async () => {
+      try {
+        const u = await apiFetch<UsageSummary>('/api/usage');
+        if (!cancelled) applyUsage(u);
+      } catch {
+        /* the chip catches up on the next navigation */
+      }
+    };
     const tick = async () => {
       attempts++;
       try {
-        const u = await apiFetch<UsageSummary>('/api/usage');
+        // Shopify, not our own database. /api/usage reads store.plan, which only the
+        // webhook could change inside this window — and confirm has just stamped the
+        // reconcile marker, so nothing else would ask. confirm asks Shopify every time,
+        // writes what it finds, and is safe to repeat.
+        const c = await apiFetch<{ activated?: boolean; pending?: boolean; plan?: string }>('/api/billing/confirm');
         if (cancelled) return;
-        applyUsage(u);
-        if (planArrived(u.plan, expected)) {
-          setPlanPending(null);
-          setUsageVersion((v) => v + 1);
-          return;
+        if (!c.pending && c.plan) {
+          lastSeen = c.plan;
+          if (planArrived(c.plan, expected)) {
+            setPlanPending(null);
+            await settle();
+            setUsageVersion((v) => v + 1);
+            return;
+          }
+          if (expected.from && c.plan !== expected.from) {
+            // Moved, but not to what was bought: the merchant changed course. Show what
+            // is true and stop — no announcement either way.
+            setPlanPending(null);
+            await settle();
+            return;
+          }
         }
       } catch {
         // A failed poll is not news; the next one may succeed.
@@ -367,7 +402,8 @@ export default function Home() {
         timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
       } else {
         setPlanPending(null);
-        if (expected.unsure && expected.from) {
+        await settle();
+        if (expected.unsure && expected.from && lastSeen === expected.from) {
           setPlanNotice({ text: `No change was made — you're still on ${planName(expected.from)}.`, tone: 'neutral' });
         }
       }

@@ -78,8 +78,10 @@
     return fallback;
   }
 
+  // 3, 4, 6 or 8 digits: the lengths CSS accepts. A 5- or 7-digit typo passed before, and
+  // CSS then dropped the colour at computed-value time with nothing to say why.
   function isHex(v) {
-    return typeof v === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(v);
+    return typeof v === 'string' && /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v);
   }
 
   /** WCAG relative luminance of a #rgb, #rgba, #rrggbb or #rrggbbaa colour; null otherwise. */
@@ -128,7 +130,9 @@
    * that pairedText would put dark text on is itself light, so it wants the dark surface.
    */
   function pairedBackground(text) {
-    return pairedText(text) === '#1f2937' ? '#111827' : '#ffffff';
+    var t = pairedText(text);
+    if (t === null) return null;
+    return t === '#1f2937' ? '#111827' : '#ffffff';
   }
 
   /**
@@ -151,21 +155,34 @@
     // honours a chosen text colour but must ignore one derived for a background it never
     // draws. And a text colour chosen on its own gets a surface it can be read on, rather
     // than white text on the white fallback card.
+    //
+    // --rm-card-text-bare is a chosen text with NO chosen card: the only text Minimal, which
+    // paints no card, may use. A text chosen for a card the merchant also chose was picked
+    // against that card, and on Minimal's bare page it can vanish (white on white).
+    var bg = isHex(colors.cardBg);
+    var text = isHex(colors.cardText);
     var vars = {};
     Object.keys(map).forEach(function (k) { vars[map[k]] = colors[k]; });
-    if (isHex(colors.cardBg) && !isHex(colors.cardText)) vars['--rm-card-text-auto'] = pairedText(colors.cardBg);
-    if (isHex(colors.cardText) && !isHex(colors.cardBg)) vars['--rm-card-bg-auto'] = pairedBackground(colors.cardText);
+    if (bg && !text) vars['--rm-card-text-auto'] = pairedText(colors.cardBg);
+    if (text && !bg) {
+      vars['--rm-card-bg-auto'] = pairedBackground(colors.cardText);
+      vars['--rm-card-text-bare'] = colors.cardText;
+    }
     Object.keys(vars).forEach(function (name) {
       var v = vars[name];
       if (!isHex(v)) return;
 
       if (!root.style.getPropertyValue(name)) root.style.setProperty(name, v);
 
-      // Also publish to the document root, so blocks that never fetch anything pick these
-      // up by inheritance. The standalone star-rating block is pure Liquid with no network
-      // call — deliberately, it is a few hundred bytes on a collection page — so without
-      // this it could never honour a colour set in the app. An inline value on that block
-      // still wins locally, which is what a merchant who set it there expects.
+      // The page-wide colours also go on the document root, so blocks that never fetch
+      // anything pick them up by inheritance: the standalone star-rating block is pure
+      // Liquid with no network call, and could otherwise never honour a colour set in the
+      // app. An inline value on that block still wins locally.
+      //
+      // Card colours do NOT. Nothing outside a widget draws a card, and published on the
+      // root they leaked between widgets — first writer wins — so a Minimal list inherited
+      // the white text paired for the floating widget's dark panel, on a white page.
+      if (name.indexOf('--rm-card-') === 0) return;
       if (!document.documentElement.style.getPropertyValue(name)) {
         document.documentElement.style.setProperty(name, v);
       }

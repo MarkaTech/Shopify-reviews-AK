@@ -423,8 +423,36 @@ test('a background from a server that does not pair still goes out with readable
   // does not. The plain variable is reserved for what the merchant chose.
   assert.strictEqual(root.style.props['--rm-card-text-auto'], '#ffffff');
   assert.strictEqual(root.style.props['--rm-card-text'], undefined);
-  // On the document root as well, where the Liquid-only blocks inherit from.
-  assert.strictEqual(documentElement.style.props['--rm-card-text-auto'], '#ffffff');
+  // NOT on the document root: card colours stay with the widget that drew them.
+  assert.strictEqual(documentElement.style.props['--rm-card-text-auto'], undefined);
+  assert.strictEqual(documentElement.style.props['--rm-card-bg'], undefined);
+});
+
+test('two widgets on one page keep their own card colours', () => {
+  // A floating widget with a dark panel (paired white text) and a Minimal list with no
+  // card text: the list must not inherit the panel's white through the document root.
+  const documentElement = { style: fakeStyle() };
+  const { applyColors } = widgetFunctions(COLOUR_FNS, { documentElement });
+  const panel = { style: fakeStyle() };
+  applyColors(panel, { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: '#ffffff' });
+  const list = { style: fakeStyle() };
+  applyColors(list, { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: null });
+  for (const k of ['--rm-card-text', '--rm-card-bg', '--rm-card-text-auto', '--rm-card-bg-auto', '--rm-card-text-bare']) {
+    assert.strictEqual(documentElement.style.props[k], undefined, `${k} leaked to the document root`);
+  }
+  assert.strictEqual(list.style.props['--rm-card-text'], undefined);
+  // Page-wide colours still reach the root for the Liquid-only star block.
+  assert.ok(documentElement.style.props['--rm-star-color']);
+});
+
+test('a 5- or 7-digit hex is not a colour, and gets no derived surface', () => {
+  const documentElement = { style: fakeStyle() };
+  const { applyColors, pairedBackground } = widgetFunctions(COLOUR_FNS, { documentElement });
+  assert.strictEqual(pairedBackground('#fffff'), null);
+  const root = { style: fakeStyle() };
+  applyColors(root, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: '#fffff' });
+  assert.strictEqual(root.style.props['--rm-card-text'], undefined);
+  assert.strictEqual(root.style.props['--rm-card-bg-auto'], undefined);
 });
 
 test('a text colour chosen on its own gets a surface it can be read on', () => {
@@ -434,6 +462,8 @@ test('a text colour chosen on its own gets a surface it can be read on', () => {
   applyColors(light, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: '#ffffff' });
   assert.strictEqual(light.style.props['--rm-card-text'], '#ffffff');
   assert.strictEqual(light.style.props['--rm-card-bg-auto'], '#111827');
+  // Chosen with no card: the one text Minimal may use.
+  assert.strictEqual(light.style.props['--rm-card-text-bare'], '#ffffff');
   const dark = { style: fakeStyle() };
   applyColors(dark, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: '#1f2937' });
   assert.strictEqual(dark.style.props['--rm-card-bg-auto'], '#ffffff');
@@ -447,6 +477,8 @@ test('the widget keeps a chosen card text, and publishes none without a backgrou
   assert.strictEqual(chosen.style.props['--rm-card-text'], '#ff0000');
   assert.strictEqual(chosen.style.props['--rm-card-text-auto'], undefined);
   assert.strictEqual(chosen.style.props['--rm-card-bg-auto'], undefined);
+  // Chosen together with a card: picked against that card, so not for Minimal's bare page.
+  assert.strictEqual(chosen.style.props['--rm-card-text-bare'], undefined);
 
   const bare = { style: fakeStyle() };
   applyColors(bare, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: null });
@@ -486,10 +518,10 @@ test('Minimal takes the colour of what it sits on, and wins over the card layout
   const minimal = rules.find((r) => r.selectors.includes('.rm-theme--minimal .rm-review'));
   assert.ok(minimal, 'no Minimal review rule');
   assert.match(minimal.body, /background:\s*transparent/);
-  // A CHOSEN text colour is honoured; the derived one (--rm-card-text-auto) is not, since
-  // it was derived for a card background Minimal never paints.
-  assert.match(minimal.body, /(^|;|\s)color:\s*var\(--rm-card-text,\s*inherit\)\s*(;|$)/);
-  assert.doesNotMatch(minimal.body, /--rm-card-text-auto/);
+  // Only a text chosen WITHOUT a card; never one chosen for, or derived from, a card that
+  // Minimal does not paint.
+  assert.match(minimal.body, /(^|;|\s)color:\s*var\(--rm-card-text-bare,\s*inherit\)\s*(;|$)/);
+  assert.doesNotMatch(minimal.body, /--rm-card-text-auto|--rm-card-text[,)]/);
   const cards = rules.filter((r) =>
     r.selectors.some((x) => /^\.rm-widget--[a-z]+ \.rm-review$/.test(x)) && /(^|;|\s)color:/.test(r.body)
   );

@@ -474,7 +474,8 @@ export function rebrandLegacyDefaults(colors: StorefrontConfig['colors'], savedA
 /** The full set of valid keys, so an unknown key from a request can be rejected. */
 export const VALID_KEYS = new Set([...Object.keys(flatten(DEFAULT_CONFIG)), CSS_KEY]);
 
-const HEX = /^#[0-9a-fA-F]{3,8}$/;
+// The lengths CSS accepts. 5 and 7 digits passed before and then failed silently in the browser.
+const HEX = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
 
 /** Coerce one persisted string into the shape the config field expects. */

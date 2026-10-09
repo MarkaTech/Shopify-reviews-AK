@@ -313,9 +313,18 @@ function decodeXml(s: string, max = MAX_CELL_CHARS): string {
       break;
     }
     out += s.slice(pos, amp);
-    const semi = s.indexOf(';', amp);
-    // Entities are short; a ';' further than 12 characters away is not ending this one.
-    if (semi < 0 || semi - amp > 12) {
+    // The ';' is looked for only where an entity could end — the longest we decode,
+    // `&#x10FFFF;`, closes within 12 characters. indexOf(';', amp) searched to the END of
+    // the string for every '&', and a cell of millions of bare '&' made that quadratic:
+    // a 60 KB upload held the event loop for a minute.
+    let semi = -1;
+    for (let j = amp + 1, stop = Math.min(s.length, amp + 13); j < stop; j++) {
+      if (s.charCodeAt(j) === 59 /* ; */) {
+        semi = j;
+        break;
+      }
+    }
+    if (semi < 0) {
       out += '&';
       pos = amp + 1;
       continue;

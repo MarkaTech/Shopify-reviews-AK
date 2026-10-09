@@ -155,8 +155,20 @@ const CARD_TEXT_LIGHT = '#ffffff';
  * background. tests/merchant-ui.test.ts holds the two to the same answer.
  */
 export function pairedCardText(bg: string | null | undefined): string | null {
-  if (typeof bg !== 'string' || !/^#[0-9a-fA-F]{3,8}$/.test(bg)) return null;
+  if (typeof bg !== 'string' || !/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(bg)) return null;
   const dark = contrastRatio(CARD_TEXT_DARK, bg) ?? 0;
   const light = contrastRatio(CARD_TEXT_LIGHT, bg) ?? 0;
   return dark >= light ? CARD_TEXT_DARK : CARD_TEXT_LIGHT;
+}
+
+/**
+ * The card surface the widget gives a text colour chosen without a background — the mirror
+ * of pairedCardText, and the same choice as pairedBackground in the widget: light text gets
+ * the dark surface, dark text the white one. Shared so the Settings preview shows what the
+ * storefront will paint.
+ */
+export function pairedCardBackground(text: string | null | undefined): string | null {
+  const t = pairedCardText(text);
+  if (t === null) return null;
+  return t === CARD_TEXT_DARK ? '#111827' : '#ffffff';
 }

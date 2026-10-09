@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 import type { Navigate, PageId } from './TopNav';
 import { adminUrl, navigateTop, PENDING_PLAN_KEY } from '@/lib/admin-links';
 import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton, Stars, VerifiedMark, EmptyState } from './ui-kit';
-import { BRAND, contrastRatio, pairedCardText, FONT_FAMILY_PATTERN as FONT_FAMILY } from '@/lib/brand';
+import { BRAND, contrastRatio, pairedCardText, pairedCardBackground, FONT_FAMILY_PATTERN as FONT_FAMILY } from '@/lib/brand';
 import { describeRequests } from './RequestPerformance';
 
 // Mirrors src/lib/plans.ts. Prices and limits must match the server, which is what
@@ -1204,7 +1204,9 @@ export default function SettingsPage({
                     style={{
                       // `?? undefined` so an inherited colour falls through to the preview
                       // surface rather than being pinned to a literal.
-                      background: config.colors.cardBg ?? undefined,
+                      // A text chosen with no background is given a surface by the
+                      // storefront (dark for light text, white for dark); so is the preview.
+                      background: config.colors.cardBg ?? pairedCardBackground(config.colors.cardText) ?? undefined,
                       // Card text left to the theme on a background the merchant chose is
                       // paired by the storefront with whichever of dark or white reads on
                       // it; the preview pairs it the same way. For display only: the field
