@@ -5,7 +5,7 @@ import { isAdminRequest } from '@/lib/admin-auth';
 import {
   getRequestUsage, normalisePlan, PLANS, COMPLIMENTARY_KEY, COMPLIMENTARY_PLANS, parseComplimentary,
   serialiseComplimentary, planPaidAbove, entitledPlan, getComplimentary, higherPlan,
-  recordComplimentaryGrant, recordComplimentaryEnd, type PlanId,
+  recordComplimentaryGrant, endComplimentary, type PlanId,
 } from '@/lib/plans';
 
 /**
@@ -296,15 +296,23 @@ export async function PATCH(
       });
     }
     case 'end-complimentary': {
-      // Written empty rather than deleted: the portal does not delete. Then back to what
-      // the store actually pays for, asked of Shopify now rather than at the next check.
-      await db.storeSetting.upsert({
-        where: { storeId_key: { storeId: id, key: COMPLIMENTARY_KEY } },
-        create: { storeId: id, key: COMPLIMENTARY_KEY, value: '' },
-        update: { value: '' },
-      });
-      if (store.shopifyDomain) await recordComplimentaryEnd(store.shopifyDomain);
+      // The setting and the ledger end together or not at all (see endComplimentary). The
+      // ledger write used to be a separate, never-throw call after the setting: when it
+      // failed, this still answered "Ended", and the open ledger row brought the gift back
+      // after an uninstall, shop/redact and reinstall. Now a failure changes nothing and
+      // says so, and the drawer still shows the gift with its End button.
+      try {
+        await endComplimentary(id, store.shopifyDomain);
+      } catch (error) {
+        console.error(`[admin] could not end the complimentary plan for ${store.shopifyDomain}`, error);
+        return NextResponse.json(
+          { error: 'The free plan could not be ended, so nothing was changed. Try again in a minute.' },
+          { status: 500 }
+        );
+      }
       console.warn(`[admin] complimentary plan ended for ${store.shopifyDomain} by operator`);
+      // Then back to what the store actually pays for, asked of Shopify now rather than at
+      // the next check.
       try {
         const { reconcileStorePlan } = await import('@/lib/plan-reconcile');
         const { getFreshAccessTokenByStoreId, tokenRefresherFor } = await import('@/lib/shopify-token');

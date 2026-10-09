@@ -1,6 +1,7 @@
 /**
- * Offline tests for the shopper-facing email templates. Pure rendering only — nothing
- * here sends, and nothing touches the database. Run with:
+ * Offline tests for the shopper-facing email templates, and the merchant's new-review
+ * alert subject. Pure rendering only — nothing here sends, and nothing touches the
+ * database. Run with:
  *
  *   npx --yes bun@latest run tests/email.test.ts
  *
@@ -14,6 +15,7 @@
 import assert from 'node:assert';
 import { renderReviewRequestEmail } from '../src/lib/email';
 import { POWERED_BY, APP_STORE_URL } from '../src/lib/brand';
+import { newReviewSubject } from '../src/lib/notifications';
 
 let passed = 0;
 let failed = 0;
@@ -108,6 +110,24 @@ test('a reminder uses the softer copy and subject', () => {
   const msg = renderReviewRequestEmail({ ...base, isReminder: true, showAttribution: false });
   assert.strictEqual(msg.subject, 'A quick reminder from Divine Hindu');
   assert.ok(/gentle nudge/.test(msg.html));
+});
+
+console.log('\nMerchant new-review alert');
+
+test('an auto-published review is announced as published, not awaiting approval', () => {
+  // The body already says "It is already live on your storefront"; the subject used to say
+  // the opposite and send the merchant to an empty moderation queue.
+  assert.strictEqual(newReviewSubject(4, false, true), 'New 4-star review published');
+  assert.ok(!/awaiting approval/.test(newReviewSubject(5, false, true)));
+});
+
+test('a held review still says it is awaiting approval', () => {
+  assert.strictEqual(newReviewSubject(4, false, false), 'New 4-star review awaiting approval');
+});
+
+test('a negative review needs attention whether or not it is live', () => {
+  assert.strictEqual(newReviewSubject(1, true, true), '1-star review needs your attention');
+  assert.strictEqual(newReviewSubject(2, true, false), '2-star review needs your attention');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
