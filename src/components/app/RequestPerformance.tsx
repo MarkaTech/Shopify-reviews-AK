@@ -7,11 +7,40 @@ import { Panel, PanelHeader, Meter, Pill, Skeleton, EmptyState } from './ui-kit'
 import { cn } from '@/lib/utils';
 import type { Navigate } from './TopNav';
 
-/** The three request settings the status line needs; /api/request-settings returns these and more. */
+/** The request settings the status line needs; /api/request-settings returns these and more. */
 export interface RequestSummary {
   enabled: boolean;
   delayDays: number;
+  /** The count the merchant stored. Not what is sent when `remindersAllowed` is false. */
   reminders: number;
+  /** Only customers who accepted marketing at checkout are asked. */
+  requireMarketingConsent?: boolean;
+  /**
+   * Whether the store's plan sends reminders at all; the route answers it beside the
+   * settings. On Free, request-sender.ts sends the first email and nothing after it,
+   * whatever `reminders` says. Undefined means the server did not say (an older build),
+   * and the stored count is shown as it always was.
+   */
+  remindersAllowed?: boolean;
+}
+
+/** What GET and PUT /api/request-settings answer, as far as these surfaces read it. */
+export interface RequestSettingsResponse {
+  settings?: RequestSummary;
+  remindersAllowed?: boolean;
+}
+
+/**
+ * The settings with the plan's answer folded in, or null when the response carries no
+ * usable settings. One reader for every surface, so none of them can take the settings and
+ * leave the plan half behind — which is how all four came to promise Free stores a reminder.
+ */
+export function requestSummaryFrom(r: RequestSettingsResponse | null | undefined): RequestSummary | null {
+  // The route answers { settings: { delayDays, ... } }; a body without the number is not settings.
+  if (!r?.settings || typeof r.settings.delayDays !== 'number') return null;
+  return typeof r.remindersAllowed === 'boolean'
+    ? { ...r.settings, remindersAllowed: r.remindersAllowed }
+    : { ...r.settings };
 }
 
 /**
@@ -26,14 +55,23 @@ export interface RequestSummary {
  * the defaults, so it stays true after they change the timing.
  *
  * Lower-case start, because callers lead with "Review requests are ON — ".
+ *
+ * What is SENT, not only what is stored: a plan without reminders sends none whatever the
+ * count says, and the consent filter narrows who is asked at all.
  */
 export function describeRequests(s: RequestSummary): string {
   if (!s.enabled) return 'no invitation emails go out after an order is fulfilled.';
   const when = s.delayDays === 0
     ? 'the day an order is fulfilled'
     : `${s.delayDays} day${s.delayDays === 1 ? '' : 's'} after fulfilment`;
-  const reminders = s.reminders === 0 ? 'no reminder' : `${s.reminders} reminder${s.reminders === 1 ? '' : 's'}`;
-  return `first email ${when}, ${reminders}.`;
+  const reminders =
+    s.reminders === 0
+      ? 'no reminder'
+      : s.remindersAllowed === false
+        ? 'no reminders (the Growth plan adds them)'
+        : `${s.reminders} reminder${s.reminders === 1 ? '' : 's'}`;
+  const who = s.requireMarketingConsent ? ' Only customers who accepted marketing are asked.' : '';
+  return `first email ${when}, ${reminders}.${who}`;
 }
 
 /** The status sentence with its link, for any surface that has the settings to hand. */
@@ -128,8 +166,11 @@ export default function RequestPerformance({ onNavigate }: { onNavigate?: Naviga
       .finally(() => { if (!cancelled) setLoading(false); });
     // The settings behind the numbers, for the status line. Best effort: the panel is
     // about the figures, and a missing sentence is better than a missing panel.
-    apiFetch<{ settings?: RequestSummary }>('/api/request-settings')
-      .then((r) => { if (!cancelled && r.settings) setSettings(r.settings); })
+    apiFetch<RequestSettingsResponse>('/api/request-settings')
+      .then((r) => {
+        const s = requestSummaryFrom(r);
+        if (!cancelled && s) setSettings(s);
+      })
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, []);

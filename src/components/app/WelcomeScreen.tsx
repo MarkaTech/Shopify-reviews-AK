@@ -55,10 +55,14 @@ const FEATURES = [
     body: 'AliExpress listings, Etsy shops and CSV files, mapped to your products and deduplicated.',
   },
   {
+    // Google only. Ratings in the Shop app need Shopify's review syndication programme and
+    // the write_product_reviews / read_metaobjects scopes, neither of which the app has;
+    // the Shop wording comes back the day both land, the same rule as the pricing cards
+    // in SettingsPage.tsx.
     icon: TrendingUp,
     tone: 'tile-amber',
-    title: 'Rich snippets & Shop sync',
-    body: 'Star ratings in Google results and in the Shop app, kept in step with what you publish.',
+    title: 'Rich snippets',
+    body: 'Star ratings in Google search results, kept in step with what you publish.',
   },
 ] as const;
 

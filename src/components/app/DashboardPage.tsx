@@ -38,7 +38,9 @@ const SentimentChart = dynamic(
   () => import('./DashboardCharts').then((m) => m.SentimentChart),
   { ssr: false, loading: () => <ChartFallback height={168} /> }
 );
-import RequestPerformance from './RequestPerformance';
+import RequestPerformance, {
+  describeRequests, requestSummaryFrom, type RequestSummary, type RequestSettingsResponse,
+} from './RequestPerformance';
 import {
   Panel, PanelHeader, StatCard, StatSkeletonRow, Skeleton, Stars, Pill,
   Meter, EmptyState, ActionButton, SectionTitle, Tile, CountUp, RatingStar, VerifiedMark,
@@ -93,6 +95,9 @@ export default function DashboardPage({
 }) {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
+  // The store's request settings, for the empty state's sentence about them. Null until
+  // known, and left null on a failure: the sentence is then left out, never guessed.
+  const [reqSettings, setReqSettings] = useState<RequestSummary | null>(null);
   const go: Navigate = onNavigate ?? (() => undefined);
 
   useEffect(() => {
@@ -100,6 +105,16 @@ export default function DashboardPage({
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
+  }, []);
+
+  // Alongside the analytics rather than after them, so the sentence does not land a beat
+  // after the panel it sits in. Best effort, like the request panel's own read.
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<RequestSettingsResponse>('/api/request-settings')
+      .then((r) => { if (!cancelled) setReqSettings(requestSummaryFrom(r)); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <DashboardSkeleton />;
@@ -139,6 +154,16 @@ export default function DashboardPage({
     .map(([key, value]) => ({ name: SOURCE_LABELS[key] || key, value }))
     .sort((a, b) => b.value - a.value);
   const sourceMax = Math.max(1, ...sources.map((s) => s.value));
+
+  // What the empty state says about requests: the store's own state, or nothing. It used to
+  // say "already on" to every store, including one that had switched requests off — and
+  // the request panel that does read the setting only appears once a store has reviews.
+  const requestsLine =
+    reqSettings === null
+      ? ''
+      : reqSettings.enabled
+        ? ` Review requests are already on — ${describeRequests(reqSettings)}`
+        : ' Review requests are off, so no emails go out after orders are fulfilled.';
 
   return (
     <div className="space-y-6">
@@ -210,18 +235,19 @@ export default function DashboardPage({
       {!hasReviews ? (
         <Panel elevation="raised" className="overflow-hidden">
           {/* "Set up requests" implied nothing was being sent. Requests are on from
-              install; the honest offer is to adjust them, on the tab where they live. */}
+              install unless the merchant switched them off; the button offers whichever
+              of adjusting or turning on is true, on the tab where they live. */}
           <EmptyState
             icon={Inbox}
             title="Your first reviews will land here"
-            description="Import reviews you already own from AliExpress, Etsy or a CSV. Review requests are already on: after an order is fulfilled, Marka Reviews emails that customer for a review automatically."
+            description={`Import reviews you already own from AliExpress, Etsy or a CSV.${requestsLine}`}
             action={
               <>
                 <ActionButton icon={Sparkles} onClick={() => go('bulk-upload')}>
                   Import reviews
                 </ActionButton>
                 <ActionButton variant="outline" onClick={() => go('settings', { tab: 'notifications' })}>
-                  Adjust requests
+                  {reqSettings?.enabled === false ? 'Turn on requests' : 'Adjust requests'}
                 </ActionButton>
               </>
             }

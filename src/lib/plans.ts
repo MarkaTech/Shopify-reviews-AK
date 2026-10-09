@@ -704,12 +704,13 @@ export function planLimitResponse(error: unknown) {
         currentPlan: error.currentPlan,
         suggestedPlan: error.suggestedPlan,
         usage: error.usage,
-        // `?page=settings`, not `/billing`. There is no /billing route — the app is a
-        // single embedded page that switches on a `page` query parameter (see PAGE_IDS in
-        // src/app/page.tsx), and the plan picker lives on the Settings screen. Nothing in
-        // the UI reads this field today, so the dead path was invisible; it is part of the
-        // 402 body and any client that followed it would have got a 404.
-        upgradeUrl: '?page=settings',
+        // `?page=plan`, not `/billing`. There is no /billing route — the app is a single
+        // embedded page that switches on a `page` query parameter (see PAGE_IDS in
+        // src/app/page.tsx), and the plan picker is the `plan` page (Settings opened on its
+        // Plan tab; plain `settings` opens on General). Nothing in the UI reads this field
+        // today, so the dead path was invisible; it is part of the 402 body and any client
+        // that followed it would have got a 404.
+        upgradeUrl: '?page=plan',
       },
       status: error.status,
     };

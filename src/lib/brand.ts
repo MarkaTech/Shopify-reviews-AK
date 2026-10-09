@@ -137,3 +137,26 @@ export function contrastRatio(a: string, b: string): number | null {
   const [hi, lo] = la > lb ? [la, lb] : [lb, la];
   return (hi + 0.05) / (lo + 0.05);
 }
+
+/** The storefront stylesheet's fallback card text, and the light text it is weighed against. */
+const CARD_TEXT_DARK = '#1f2937';
+const CARD_TEXT_LIGHT = '#ffffff';
+
+/**
+ * The card text the storefront uses on a card background the merchant chose while leaving
+ * card text to follow the theme: whichever of the stylesheet's dark text and white reads
+ * better on it, ties to dark. Null when there is no background (or it is not a hex), which
+ * is when the theme's own pairing applies.
+ *
+ * The same choice pairCardText makes in storefront-config.ts for what the storefront
+ * reads. Here so the Settings preview can make it too, for display only: the admin read
+ * keeps the merchant's own value — null, "follows your theme" — and a derived colour held
+ * in that state would show as a choice they made and go stale when they change the
+ * background. tests/merchant-ui.test.ts holds the two to the same answer.
+ */
+export function pairedCardText(bg: string | null | undefined): string | null {
+  if (typeof bg !== 'string' || !/^#[0-9a-fA-F]{3,8}$/.test(bg)) return null;
+  const dark = contrastRatio(CARD_TEXT_DARK, bg) ?? 0;
+  const light = contrastRatio(CARD_TEXT_LIGHT, bg) ?? 0;
+  return dark >= light ? CARD_TEXT_DARK : CARD_TEXT_LIGHT;
+}

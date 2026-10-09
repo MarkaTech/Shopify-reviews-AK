@@ -258,7 +258,9 @@ export default function QuestionsPage({
           title="Questions & answers is on the Growth plan"
           description="Shoppers ask questions from a block on your product page; you answer here and the answer publishes there. Your current plan does not include it, so the block will not accept questions until you upgrade."
           action={
-            <ActionButton onClick={() => onNavigate?.('settings')}>
+            // The Plan page, not Settings: Settings opens on General (moderation), with
+            // no plan in view, so "See plans" showed none.
+            <ActionButton onClick={() => onNavigate?.('plan')}>
               See plans
             </ActionButton>
           }
