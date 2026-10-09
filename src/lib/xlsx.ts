@@ -297,62 +297,48 @@ const MAX_CELL_CHARS = 32_767;
 /**
  * Decode XML entities, stopping once `max` characters have been produced.
  *
- * A forward scan that appends slices. `String.replace` with a callback was linear in time
- * but not in memory — V8 collects every match before replacing — and a cell's text can be
- * a whole 64 MB part of `&amp;`. The cap means a hostile cell costs at most `max` output
- * characters however large it is.
+ * One global-regex scan, pieces gathered in an array and joined once. Both halves matter,
+ * and both were learned the hard way:
+ *  - `String.replace` with a callback over the whole string is linear in time, but a cell's
+ *    text can be a whole 64 MB part, and the cap below is what bounds the output.
+ *  - Building the result with `+=` per piece left a V8 cons-string chain per cell — one
+ *    ~32-byte node for every bare '&' — and every chain stayed alive in the shared-strings
+ *    table: a 110 KB upload grew the heap by 3 GB and took the process down.
+ * The pattern has no nested quantifiers and every alternative starts after a literal '&',
+ * so the scan is linear; a bare '&' is never matched and simply rides along in the next
+ * slice of plain text.
  */
+const ENTITY = /&(?:#[xX]([0-9a-fA-F]{1,8})|#([0-9]{1,10})|(amp|lt|gt|quot|apos));/g;
+const NAMED: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
 function decodeXml(s: string, max = MAX_CELL_CHARS): string {
+  if (max <= 0) return '';
   if (s.indexOf('&') < 0) return s.length > max ? s.slice(0, max) : s;
-  let out = '';
+  const parts: string[] = [];
+  let len = 0;
   let pos = 0;
-  while (pos < s.length && out.length < max) {
-    const amp = s.indexOf('&', pos);
-    if (amp < 0) {
-      out += s.slice(pos);
-      break;
+  ENTITY.lastIndex = 0;
+  for (let m = ENTITY.exec(s); m && len < max; m = ENTITY.exec(s)) {
+    let ch: string;
+    if (m[3]) ch = NAMED[m[3]];
+    else {
+      const code = m[1] !== undefined ? parseInt(m[1], 16) : parseInt(m[2], 10);
+      // fromCodePoint throws past U+10FFFF; such a reference is kept as written.
+      if (code > 0x10ffff) continue;
+      ch = String.fromCodePoint(code);
     }
-    out += s.slice(pos, amp);
-    // The ';' is looked for only where an entity could end — the longest we decode,
-    // `&#x10FFFF;`, closes within 12 characters. indexOf(';', amp) searched to the END of
-    // the string for every '&', and a cell of millions of bare '&' made that quadratic:
-    // a 60 KB upload held the event loop for a minute.
-    let semi = -1;
-    for (let j = amp + 1, stop = Math.min(s.length, amp + 13); j < stop; j++) {
-      if (s.charCodeAt(j) === 59 /* ; */) {
-        semi = j;
-        break;
-      }
+    if (m.index > pos) {
+      const plain = s.slice(pos, Math.min(m.index, pos + (max - len)));
+      parts.push(plain);
+      len += plain.length;
+      if (len >= max) break;
     }
-    if (semi < 0) {
-      out += '&';
-      pos = amp + 1;
-      continue;
-    }
-    const e = s.slice(amp + 1, semi);
-    let ch: string | null = null;
-    if (e === 'amp') ch = '&';
-    else if (e === 'lt') ch = '<';
-    else if (e === 'gt') ch = '>';
-    else if (e === 'quot') ch = '"';
-    else if (e === 'apos') ch = "'";
-    else if (e[0] === '#') {
-      const hex = e[1] === 'x' || e[1] === 'X';
-      const digits = hex ? e.slice(2) : e.slice(1);
-      if (digits && (hex ? /^[0-9a-fA-F]+$/ : /^\d+$/).test(digits)) {
-        const code = parseInt(digits, hex ? 16 : 10);
-        // fromCodePoint throws past U+10FFFF, and "&#99999999;" is one keystroke away.
-        ch = code <= 0x10ffff ? String.fromCodePoint(code) : '';
-      }
-    }
-    if (ch === null) {
-      out += '&'; // not an entity we know: keep the text as written
-      pos = amp + 1;
-    } else {
-      out += ch;
-      pos = semi + 1;
-    }
+    parts.push(ch);
+    len += ch.length;
+    pos = ENTITY.lastIndex;
   }
+  if (len < max && pos < s.length) parts.push(s.slice(pos, pos + (max - len)));
+  const out = parts.join('');
   return out.length > max ? out.slice(0, max) : out;
 }
 
@@ -406,12 +392,16 @@ function textOf(inner: string): string {
     text = kept + inner.slice(pos);
   }
   // Rich text is many runs; the cell's total is what Excel caps, so the budget is shared.
-  let out = '';
+  // Joined once, not appended run by run: see decodeXml on cons-string chains.
+  const parts: string[] = [];
+  let len = 0;
   eachElement(text, 't', (_, t) => {
-    out += decodeXml(t, MAX_CELL_CHARS - out.length);
-    return out.length < MAX_CELL_CHARS; // full: stop walking the runs
+    const piece = decodeXml(t, MAX_CELL_CHARS - len);
+    parts.push(piece);
+    len += piece.length;
+    return len < MAX_CELL_CHARS; // full: stop walking the runs
   });
-  return out;
+  return parts.join('');
 }
 
 function parseSharedStrings(xml: string | undefined): string[] {

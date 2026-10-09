@@ -77,11 +77,17 @@ export async function GET(request: NextRequest) {
     // reconcile marker, and consumes the one-per-store trial when this is a paid, non-test
     // subscription. The trial is consumed here, on entitlement, not when the charge was
     // created — a merchant who opened the approval screen and closed it keeps theirs.
-    await applyResolvedSubscription(storeId, shop, resolved);
+    const applied = await applyResolvedSubscription(storeId, shop, resolved);
 
     return NextResponse.json({
       success: true,
-      plan: resolved.plan,
+      // The plan the store is ENTITLED to — the paid plan or a gift, whichever is higher —
+      // which is what /api/usage reports and what the Plan page records as `from` before
+      // handing off. Returning what Shopify bills made a gifted Growth store read 'free'
+      // here: a decline looked like a change of course, and a slow approval was never
+      // waited for. `activated` still means "Shopify bills a paid plan".
+      plan: applied.after,
+      billed: resolved.plan,
       activated: resolved.plan !== 'free',
     });
   } catch (error: unknown) {

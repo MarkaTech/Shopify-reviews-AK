@@ -580,4 +580,28 @@ test('entities decode exactly as before for every form', () => {
   assert.deepStrictEqual(parseXlsx(buf)[0].rows[0], ['&<>"\'', 'ABC😀', 'a & b', 'tail &', '&amp', '&#xZZ;', '&nbsp;', '&#;']);
 });
 
+test('thousands of entity-heavy cells keep the heap small (no cons-string chains)', () => {
+  // ~2,000 shared strings and ~1,000 inline cells of 32,000 bare '&' each: the shape that
+  // grew the heap by 3 GB when the decoder appended one piece at a time.
+  const amps = '&'.repeat(32_000);
+  const si = Array.from({ length: 2000 }, () => `<si><t>${amps}</t></si>`).join('');
+  const rows = Array.from({ length: 1000 }, (_, i) => `<row r="${i + 1}"><c r="A${i + 1}" t="s"><v>${i}</v></c><c r="B${i + 1}" t="inlineStr"><is><t>${amps}</t></is></c></row>`).join('');
+  const buf = buildZip([
+    { name: 'xl/workbook.xml', data: Buffer.from('<workbook><sheets><sheet name="Reviews" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>') },
+    { name: 'xl/sharedStrings.xml', data: Buffer.from(`<sst>${si}</sst>`) },
+    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<worksheet><sheetData>${rows}</sheetData></worksheet>`) },
+  ]);
+  (globalThis as { gc?: () => void }).gc?.();
+  const before = process.memoryUsage().heapUsed;
+  const t0 = Date.now();
+  const sheets = parseXlsx(buf, { maxRows: 50_002, sheet: 'reviews' });
+  const ms = Date.now() - t0;
+  const grew = (process.memoryUsage().heapUsed - before) / 1024 / 1024;
+  assert.strictEqual(sheets[0].rows.length, 1000);
+  assert.strictEqual(sheets[0].rows[0][1].length, 32_000);
+  assert.ok(ms < 3000, `took ${ms} ms`);
+  assert.ok(grew < 400, `heap grew ${grew.toFixed(0)} MB`);
+});
+
 console.log(`\n${passed} passed`);

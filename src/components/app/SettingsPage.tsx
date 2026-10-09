@@ -420,12 +420,19 @@ export default function SettingsPage({
   storeDomain,
   initialTab,
   usageVersion = 0,
+  onPlanChangeStarted,
 }: {
   onNavigate?: Navigate;
   storeDomain?: string;
   initialTab?: string;
   /** Bumped by the shell when it learns the plan changed (a payment settling), so the Plan tab fetches again. */
   usageVersion?: number;
+  /**
+   * Called before this page changes the plan. The shell may still be checking on a
+   * previous return from Shopify; a check that finished after this change would announce
+   * the old answer ("no change — still on Growth") over the new one.
+   */
+  onPlanChangeStarted?: () => void;
 }) {
   const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
@@ -592,16 +599,24 @@ export default function SettingsPage({
     if (savedReq.current) savedReq.current = { ...savedReq.current, remindersAllowed: allowed };
   }, []);
 
+  // The plan on screen, readable from the effect below without making it a dependency.
+  const planShownRef = useRef(usage?.plan ?? 'free');
+  useEffect(() => {
+    planShownRef.current = usage?.plan ?? 'free';
+  }, [usage?.plan]);
   const seenUsageVersion = useRef(usageVersion);
   useEffect(() => {
     if (usageVersion === seenUsageVersion.current) return;
     seenUsageVersion.current = usageVersion;
     apiFetch<Usage>('/api/usage')
       .then(u => {
+        // "You just unlocked these" only for a move UP from what this page was showing. A
+        // settled move down (Scale -> Growth) is a change too, and is not an unlock.
+        const before = planShownRef.current;
         setUsage(u);
         setUsageError(null);
         applyPlanToRequests(u);
-        if (u.plan !== 'free') setJustUpgraded(true);
+        if (rankOf(u.plan) > rankOf(before)) setJustUpgraded(true);
       })
       .catch(() => undefined);
   }, [usageVersion, applyPlanToRequests]);
@@ -924,6 +939,7 @@ export default function SettingsPage({
       if (!ok) return;
     }
 
+    onPlanChangeStarted?.();
     setUpgrading(planId);
     try {
       const data = await apiFetch<{ confirmationUrl?: string; activated?: boolean; plan?: string }>('/api/billing', {
@@ -1205,8 +1221,15 @@ export default function SettingsPage({
                       // `?? undefined` so an inherited colour falls through to the preview
                       // surface rather than being pinned to a literal.
                       // A text chosen with no background is given a surface by the
-                      // storefront (dark for light text, white for dark); so is the preview.
-                      background: config.colors.cardBg ?? pairedCardBackground(config.colors.cardText) ?? undefined,
+                      // storefront (dark for light text, white for dark) — except under
+                      // Minimal on the page, which draws no card at all. The preview shows
+                      // exactly that, so a white-on-white Minimal choice looks white on white.
+                      background:
+                        config.colors.cardBg ??
+                        (config.layout.theme === 'minimal' && !['floating', 'popup', 'sidebar'].includes(String(config.layout.type))
+                          ? undefined
+                          : pairedCardBackground(config.colors.cardText)) ??
+                        undefined,
                       // Card text left to the theme on a background the merchant chose is
                       // paired by the storefront with whichever of dark or white reads on
                       // it; the preview pairs it the same way. For display only: the field

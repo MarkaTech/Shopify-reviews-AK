@@ -163,6 +163,9 @@ export default function Home() {
   // the merchant went to Shopify for (empty when none was recorded), so the poll waits
   // for THAT plan; null when nothing is pending.
   const [planPending, setPlanPending] = useState<PendingPlanChange | null>(null);
+  // The Plan page calls this before it changes the plan, so a check still running from the
+  // last return from Shopify cannot finish afterwards and announce the old answer.
+  const stopPlanCheck = useCallback(() => setPlanPending(null), []);
   // A return from Shopify that did not unlock anything — a declined change between paid
   // plans, or an approved move down — said in a toast once the shell is up. Held in state
   // for the same reason as the pending toast: checkSession runs before the Toaster exists.
@@ -222,8 +225,8 @@ export default function Home() {
           // went for. A Growth store that declines Scale comes back still on Growth, and
           // marking that as an upgrade put "You just unlocked these" over features it
           // already had. So the upgrade is marked only when the plan went UP; otherwise
-          // the merchant is told plainly what they are on. Declines from Free resolve to
-          // the free plan and get none of this.
+          // the merchant is told plainly what they are on. A return from Free still on Free
+          // is handled below with the other "may still land" cases.
           if (confirmed?.activated) {
             params.set('page', 'plan');
             const outcome = classifyPlanReturn(confirmed.plan, expected);
@@ -361,10 +364,12 @@ export default function Home() {
     // what we assumed: a poll that never got an answer says nothing, and a plan that moved
     // somewhere else (the merchant cancelled from the Plan tab meanwhile) is not "no change".
     let lastSeen: string | undefined;
+    // Refresh the chip and meter. Deliberately not gated on `cancelled`: the shell stays
+    // mounted, and every caller runs this BEFORE ending the poll — ending it first ran the
+    // effect's cleanup, and the refresh that came back afterwards was thrown away.
     const settle = async () => {
       try {
-        const u = await apiFetch<UsageSummary>('/api/usage');
-        if (!cancelled) applyUsage(u);
+        applyUsage(await apiFetch<UsageSummary>('/api/usage'));
       } catch {
         /* the chip catches up on the next navigation */
       }
@@ -381,16 +386,24 @@ export default function Home() {
         if (!c.pending && c.plan) {
           lastSeen = c.plan;
           if (planArrived(c.plan, expected)) {
-            setPlanPending(null);
             await settle();
+            if (cancelled) return;
+            // A move down that settled late (Scale -> Growth) is said plainly; only a move
+            // up gets the unlock panel, which the Plan page now decides by rank.
+            if (classifyPlanReturn(c.plan, expected) !== 'upgraded') {
+              setPlanNotice({ text: `Switched to the ${planName(c.plan)} plan.`, tone: 'success' });
+            }
+            setPlanPending(null);
             setUsageVersion((v) => v + 1);
             return;
           }
           if (expected.from && c.plan !== expected.from) {
             // Moved, but not to what was bought: the merchant changed course. Show what
             // is true and stop — no announcement either way.
-            setPlanPending(null);
             await settle();
+            if (cancelled) return;
+            setPlanPending(null);
+            setUsageVersion((v) => v + 1);
             return;
           }
         }
@@ -401,8 +414,9 @@ export default function Home() {
       if (attempts < PLAN_POLL_ATTEMPTS) {
         timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
       } else {
-        setPlanPending(null);
         await settle();
+        if (cancelled) return;
+        setPlanPending(null);
         if (expected.unsure && expected.from && lastSeen === expected.from) {
           setPlanNotice({ text: `No change was made — you're still on ${planName(expected.from)}.`, tone: 'neutral' });
         }
@@ -531,8 +545,8 @@ export default function Home() {
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage storeDomain={storeDomain} />;
       case 'incentives': return <IncentivesPage />;
-      case 'settings': return <SettingsPage key="settings" onNavigate={navigate} storeDomain={storeDomain} usageVersion={usageVersion} />;
-      case 'plan': return <SettingsPage key="plan" onNavigate={navigate} storeDomain={storeDomain} initialTab="subscription" usageVersion={usageVersion} />;
+      case 'settings': return <SettingsPage key="settings" onNavigate={navigate} storeDomain={storeDomain} usageVersion={usageVersion} onPlanChangeStarted={stopPlanCheck} />;
+      case 'plan': return <SettingsPage key="plan" onNavigate={navigate} storeDomain={storeDomain} initialTab="subscription" usageVersion={usageVersion} onPlanChangeStarted={stopPlanCheck} />;
       default: return <DashboardPage onNavigate={navigate} storeName={storeName} />;
     }
   };
