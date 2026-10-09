@@ -1,9 +1,10 @@
 /**
  * Offline tests for the storefront configuration layer.
  *
- * Only the pure parts — no database, no network. Run with:
+ * The pure parts, plus getStorefrontConfig against an in-process stand-in for the database
+ * client: nothing connects and nothing is written. No network. Run with:
  *
- *   npx tsx tests/storefront-config.test.ts
+ *   npx --yes bun@latest run tests/storefront-config.test.ts
  *
  * The CSS sanitiser gets the most attention here because it is the one function in this
  * module whose output is injected into a merchant's live storefront. Everything else is a
@@ -11,6 +12,8 @@
  */
 
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   sanitiseCss,
   DEFAULT_CONFIG,
@@ -23,8 +26,13 @@ import {
   LEGACY_DEFAULT_COLORS,
   REBRAND_DEPLOYED_AT,
   pairCardText,
+  pairedCardText,
+  pairCardTextForLayout,
+  getStorefrontConfig,
+  type StorefrontConfig,
 } from '../src/lib/storefront-config';
-import { BRAND } from '../src/lib/brand';
+import { BRAND, contrastRatio } from '../src/lib/brand';
+import { db } from '../src/lib/db';
 
 let passed = 0;
 let failed = 0;
@@ -310,5 +318,250 @@ test('a legacy badge text saved after the rename is a choice too, and is not re-
   assert.strictEqual(colors.verifiedText, LEGACY_DEFAULT_COLORS.verifiedText);
 });
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-if (failed > 0) process.exit(1);
+console.log('\nCard text pairing — which layouts get one');
+
+const paired = (theme: string, type: StorefrontConfig['layout']['type'], cardBg: string | null, cardText: string | null = null) => {
+  const config = {
+    colors: { ...DEFAULT_CONFIG.colors, cardBg, cardText },
+    layout: { ...DEFAULT_CONFIG.layout, theme, type },
+  };
+  pairCardTextForLayout(config);
+  return config.colors.cardText;
+};
+
+test('pairedCardText is the choice pairCardText makes', () => {
+  for (const bg of ['#111827', '#fdf1de', '#1B3358', '#E8871E', '#808080', '#fff', '#000000ff']) {
+    const colors = { ...DEFAULT_CONFIG.colors, cardBg: bg, cardText: null };
+    pairCardText(colors);
+    assert.strictEqual(colors.cardText, pairedCardText(bg), bg);
+  }
+});
+
+test('Minimal on the page gets no paired text: it paints no card for the text to sit on', () => {
+  // The widget already live colours a Minimal review with var(--rm-card-text, inherit). A
+  // text paired with the light card it never draws put #1f2937 onto a dark theme's page.
+  for (const type of ['list', 'grid', 'masonry', 'carousel', 'testimonial', 'badge'] as const) {
+    assert.strictEqual(paired('minimal', type, '#fdf1de'), null, type);
+  }
+});
+
+test('Minimal in an overlay still pairs: the panel paints the card background', () => {
+  for (const type of ['floating', 'popup', 'sidebar'] as const) {
+    assert.strictEqual(paired('minimal', type, '#111827'), '#ffffff', type);
+  }
+});
+
+test('every theme that draws cards pairs, on every layout', () => {
+  for (const theme of ['modern', 'classic', 'bold']) {
+    for (const type of LAYOUTS) {
+      assert.strictEqual(paired(theme, type, '#111827'), '#ffffff', `${theme} ${type}`);
+    }
+  }
+});
+
+test('a chosen card text is kept under every theme, Minimal included', () => {
+  assert.strictEqual(paired('minimal', 'grid', '#111827', '#ff0000'), '#ff0000');
+  assert.strictEqual(paired('modern', 'grid', '#111827', '#ff0000'), '#ff0000');
+});
+
+console.log('\nThe widget pairs card text too (extension-src/reviewmaster.js)');
+
+/**
+ * Named functions lifted out of the widget's IIFE and evaluated on their own, with a
+ * stand-in document. Brace counting is enough: these functions hold no brace inside a
+ * string, and the {3,8} in isHex's regex is itself balanced.
+ */
+function widgetFunctions(names: string[], document: unknown): Record<string, (...args: any[]) => unknown> {
+  const src = readFileSync(join(__dirname, '..', 'extension-src', 'reviewmaster.js'), 'utf8');
+  const bodies = names.map((name) => {
+    const start = src.indexOf(`function ${name}(`);
+    assert.ok(start >= 0, `the widget has no function ${name}`);
+    let depth = 0;
+    let i = src.indexOf('{', start);
+    for (; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}' && --depth === 0) break;
+    }
+    return src.slice(start, i + 1);
+  });
+  return new Function('document', `${bodies.join('\n')}\nreturn { ${names.join(', ')} };`)(document);
+}
+
+/** Just the part of CSSStyleDeclaration applyColors uses. */
+function fakeStyle() {
+  const props: Record<string, string> = {};
+  return {
+    props,
+    getPropertyValue: (k: string) => props[k] || '',
+    setProperty: (k: string, v: string) => { props[k] = v; },
+  };
+}
+
+const COLOUR_FNS = ['isHex', 'luminance', 'pairedText', 'applyColors'];
+
+test('the widget picks the same text as the server for every background', () => {
+  const { pairedText } = widgetFunctions(COLOUR_FNS, {});
+  // Every #rgb, which spans the whole range in 4096 steps, plus long forms.
+  for (let i = 0; i < 4096; i++) {
+    const bg = '#' + i.toString(16).padStart(3, '0');
+    assert.strictEqual(pairedText(bg), pairedCardText(bg), bg);
+  }
+  for (const bg of ['#111827', '#fdf1de', '#1B3358', '#7f7f7f', '#767676', '#11182780', '#fffa']) {
+    assert.strictEqual(pairedText(bg), pairedCardText(bg), bg);
+  }
+});
+
+test('a background from a server that does not pair still goes out with readable text', () => {
+  // The extension deployed ahead of the server: cardBg arrives with cardText null, and the
+  // stylesheet's #1f2937 fallback would otherwise land on the merchant's dark card.
+  const documentElement = { style: fakeStyle() };
+  const { applyColors } = widgetFunctions(COLOUR_FNS, { documentElement });
+  const root = { style: fakeStyle() };
+  applyColors(root, { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: null });
+  assert.strictEqual(root.style.props['--rm-card-bg'], '#111827');
+  assert.strictEqual(root.style.props['--rm-card-text'], '#ffffff');
+  // On the document root as well, where the Liquid-only blocks inherit from.
+  assert.strictEqual(documentElement.style.props['--rm-card-text'], '#ffffff');
+});
+
+test('the widget keeps a chosen card text, and publishes none without a background', () => {
+  const documentElement = { style: fakeStyle() };
+  const { applyColors } = widgetFunctions(COLOUR_FNS, { documentElement });
+  const chosen = { style: fakeStyle() };
+  applyColors(chosen, { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: '#ff0000' });
+  assert.strictEqual(chosen.style.props['--rm-card-text'], '#ff0000');
+
+  const bare = { style: fakeStyle() };
+  applyColors(bare, { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: null });
+  assert.strictEqual(bare.style.props['--rm-card-bg'], undefined);
+  assert.strictEqual(bare.style.props['--rm-card-text'], undefined);
+});
+
+console.log('\nThe stylesheet pairs its own fallbacks');
+
+const CSS = readFileSync(join(__dirname, '..', 'extensions', 'reviewmaster', 'assets', 'reviewmaster.css'), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
+const rules = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+  selectors: m[1].split(',').map((x) => x.trim()),
+  body: m[2],
+  at: m.index ?? 0,
+}));
+
+test('dark fallback text only ever sits on a light fallback surface', () => {
+  const dark = rules.filter((r) => /(^|;|\s)color:\s*var\(--rm-card-text,\s*#1f2937\)/.test(r.body));
+  assert.ok(dark.length > 0, 'found no rule with the dark text fallback');
+  for (const r of dark) {
+    const bg = /background:\s*var\(--rm-card-bg,\s*(#[0-9a-fA-F]{3,8})\)/.exec(r.body);
+    assert.ok(bg, `${r.selectors.join(', ')} has dark fallback text and no card background fallback`);
+    assert.ok((contrastRatio('#1f2937', bg[1]) ?? 0) >= 4.5, `${r.selectors.join(', ')} pairs #1f2937 with ${bg[1]}`);
+  }
+});
+
+test('Minimal takes the colour of what it sits on, and wins over the card layouts', () => {
+  // Same specificity as `.rm-widget--grid .rm-review` and the rest, so it has to come
+  // later, and it has to set the colour: otherwise it kept the cards' #1f2937 on a page
+  // with no card under it.
+  const minimal = rules.find((r) => r.selectors.includes('.rm-theme--minimal .rm-review'));
+  assert.ok(minimal, 'no Minimal review rule');
+  assert.match(minimal.body, /background:\s*transparent/);
+  assert.match(minimal.body, /(^|;|\s)color:\s*inherit\s*(;|$)/);
+  const cards = rules.filter((r) =>
+    r.selectors.some((x) => /^\.rm-widget--[a-z]+ \.rm-review$/.test(x)) && /(^|;|\s)color:/.test(r.body)
+  );
+  assert.ok(cards.length > 0);
+  for (const r of cards) assert.ok(r.at < minimal.at, `${r.selectors.join(', ')} comes after Minimal`);
+});
+
+test('a Bold border is drawn in the card text colour, so it shows wherever the text does', () => {
+  const bold = rules.find((r) => r.selectors.includes('.rm-theme--bold .rm-review'));
+  assert.ok(bold, 'no Bold review rule');
+  assert.match(bold.body, /border:\s*2px solid currentColor/);
+});
+
+console.log('\nThe review page header tile');
+
+test('navy or cream always gives the store star at least 3:1, so the tile is never empty', () => {
+  // src/app/r/[token]/page.tsx picks whichever of the two the star contrasts with more. A
+  // page cannot export a helper, so this checks the guarantee it relies on: for every
+  // #rgb star colour the better tile clears WCAG's 3:1 for a graphic.
+  let worst = Infinity;
+  for (let i = 0; i < 4096; i++) {
+    const star = '#' + i.toString(16).padStart(3, '0');
+    worst = Math.min(worst, Math.max(contrastRatio(star, BRAND.navy) ?? 0, contrastRatio(star, BRAND.cream) ?? 0));
+  }
+  assert.ok(worst >= 3, `worst case ${worst.toFixed(2)}:1`);
+  // And the default orange keeps the navy tile it always had.
+  assert.ok((contrastRatio(BRAND.orange, BRAND.navy) ?? 0) > (contrastRatio(BRAND.orange, BRAND.cream) ?? 0));
+});
+
+/** Async tests, run in order after the synchronous ones above. */
+const asyncTests: Array<[string, () => Promise<void>]> = [];
+const testAsync = (name: string, fn: () => Promise<void>) => asyncTests.push([name, fn]);
+
+/**
+ * Stand in for the three queries getStorefrontConfig makes, on the shared client
+ * instance. Nothing connects: the stand-ins are plain objects, and this process runs only
+ * this file.
+ */
+function stubDb(settings: Record<string, string>, widgets: Array<{ widgetType: string; placement: string; config: string }> = []) {
+  const updatedAt = new Date();
+  const stubs: Record<string, unknown> = {
+    storeSetting: { findMany: async () => Object.entries(settings).map(([key, value]) => ({ key, value, updatedAt })) },
+    widgetConfig: { findMany: async () => widgets },
+    store: { findUnique: async () => ({ plan: 'free' }) },
+  };
+  for (const [model, stub] of Object.entries(stubs)) {
+    Object.defineProperty(db, model, { value: stub, configurable: true, writable: true });
+  }
+}
+
+testAsync('the storefront read pairs a card background left with theme text', async () => {
+  stubDb({ 'sf.color.cardBg': '#111827' });
+  const config = await getStorefrontConfig('store', null);
+  assert.strictEqual(config.colors.cardText, '#ffffff');
+});
+
+testAsync('the admin read (pairText: false) returns only what the merchant chose', async () => {
+  // Otherwise Settings shows a derived #ffffff as the merchant's "Card text", with a
+  // "Use theme colour" link that the next read undoes.
+  stubDb({ 'sf.color.cardBg': '#111827' });
+  const config = await getStorefrontConfig('store', undefined, { pairText: false });
+  assert.strictEqual(config.colors.cardBg, '#111827');
+  assert.strictEqual(config.colors.cardText, null);
+});
+
+testAsync('the admin read still returns a card text the merchant did choose', async () => {
+  stubDb({ 'sf.color.cardBg': '#111827', 'sf.color.cardText': '#ff0000' });
+  const config = await getStorefrontConfig('store', undefined, { pairText: false });
+  assert.strictEqual(config.colors.cardText, '#ff0000');
+});
+
+testAsync('Minimal pairs or not by the layout the placement really renders', async () => {
+  // The theme is a store setting; the layout comes from the placement's widget, so the
+  // decision has to follow applyActiveWidget.
+  stubDb({ 'sf.color.cardBg': '#fdf1de', 'sf.layout.theme': 'minimal', 'sf.layout.type': 'grid' });
+  assert.strictEqual((await getStorefrontConfig('store', null)).colors.cardText, null);
+
+  stubDb(
+    { 'sf.color.cardBg': '#fdf1de', 'sf.layout.theme': 'minimal', 'sf.layout.type': 'grid' },
+    [{ widgetType: 'floating', placement: 'all_pages', config: '{}' }]
+  );
+  assert.strictEqual((await getStorefrontConfig('store', null)).colors.cardText, '#1f2937');
+});
+
+void (async () => {
+  if (asyncTests.length) console.log('\ngetStorefrontConfig — who gets a paired card text');
+  for (const [name, fn] of asyncTests) {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ok  ${name}`);
+    } catch (err) {
+      failed++;
+      console.error(`  FAIL  ${name}`);
+      console.error(`        ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  console.log(`\n${passed} passed, ${failed} failed\n`);
+  if (failed > 0) process.exit(1);
+})();
