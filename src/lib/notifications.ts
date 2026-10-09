@@ -125,12 +125,20 @@ function esc(s: unknown): string {
 }
 
 function shell(title: string, inner: string, footer: string): string {
-  // The brand badge heads every merchant email. Left out, rather than broken, when there is
-  // no public app URL to load it from.
-  const badge = brandImageUrl(BRAND_ASSETS.badgePng);
-  const header = badge
-    ? `<img src="${badge}" width="150" height="50" alt="Verified by Marka" style="display:block;width:150px;height:50px;border:0;outline:none;margin:0 0 22px;border-radius:8px">`
-    : '';
+  // The app icon and name head every merchant email.
+  //
+  // This used to be the "Verified by Marka" badge, which is a claim about a review's
+  // provenance — and it sat above "New 3-star review awaiting approval" for anonymous
+  // storefront submissions the body itself calls unverified, above the weekly digest and
+  // above the question alert. The badge belongs where a purchase really was verified (the
+  // /r/<token> page); an email header is identity, not a claim. The icon is left out,
+  // rather than broken, when there is no public app URL to load it from; the name stays.
+  // Its alt is empty because the name is right beside it as text.
+  const icon = brandImageUrl(BRAND_ASSETS.icon);
+  const header = `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr>
+      ${icon ? `<td style="padding:0 10px 0 0"><img src="${icon}" width="32" height="32" alt="" style="display:block;width:32px;height:32px;border:0;outline:none;border-radius:8px"></td>` : ''}
+      <td style="font-size:15px;font-weight:700;color:${BRAND.navy};letter-spacing:.01em">${esc(APP_NAME)}</td>
+    </tr></table>`;
   return `<!doctype html><html><body style="margin:0;padding:24px;background:#FAF6F0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1B3358">
   <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #E4DED4">
     ${header}

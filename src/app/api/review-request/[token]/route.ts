@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { resolveToken } from '@/lib/review-requests';
-import { assertReviewCapacity, planLimitResponse } from '@/lib/plans';
+import { resolveToken, isPageDataFetch } from '@/lib/review-requests';
+import { assertReviewCapacity, planLimitResponse, getStorePlan, PLANS } from '@/lib/plans';
 import { validateFiles, uploadToShopify, MediaError, type ValidatedFile } from '@/lib/media';
 import { getFreshAccessToken, tokenRefresherFor, TOKEN_SELECT } from '@/lib/shopify-token';
 import { getSubmissionRules, getRatingLook } from '@/lib/storefront-config';
+import { describeActiveIncentive } from '@/lib/incentives';
+import { notifyNewReview } from '@/lib/notifications';
+import { syncReviewToShop, isSyndicationEnabled } from '@/lib/syndication';
 
 /**
  * Public endpoints — the buyer is a customer of the merchant, not a logged-in user of
@@ -19,7 +22,7 @@ const REASONS: Record<string, { status: number; message: string }> = {
   already_submitted: { status: 409, message: 'A review has already been submitted using this link.' },
 };
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   try {
     const { token } = await params;
     const state = await resolveToken(token);
@@ -45,8 +48,25 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     // The store's star shape and colour, so this page matches the widget on its storefront.
     const look = await getRatingLook(state.request.storeId);
 
-    // Record that the customer opened the link, for the merchant's request analytics.
-    if (!state.request.openedAt) {
+    // Two more things the page may show, both plan-gated exactly as the widget's are.
+    //
+    // The incentive offer and its disclosure, shown before the buyer writes. The widget
+    // did this; this page returned nothing, so the buyers arriving from the invitation —
+    // the ones rewardPublishedReview actually pays on this path — were never told a
+    // reward existed and the thank-you code arrived unannounced. Gated on the plan as
+    // grantIncentive is, so a downgraded store never advertises a reward it will not pay.
+    //
+    // The "Verified by Marka" mark. It is truthful here (every review from this page is
+    // tied to the order the token was issued for), but a white-label plan pays for a page
+    // with nothing of ours on it, and the invitation that linked here already honoured
+    // that — the page then showed the mark anyway.
+    const plan = await getStorePlan(state.request.storeId);
+    const offer = PLANS[plan].incentives ? await describeActiveIncentive(state.request.storeId) : null;
+
+    // Record that the customer opened the link, for the merchant's request analytics —
+    // but only for the page's own fetch. Mail gateways and link scanners GET this URL at
+    // delivery time, and an unconditional stamp counted every one of them as an open.
+    if (!state.request.openedAt && isPageDataFetch(request.headers)) {
       await db.reviewRequest.update({
         where: { id: state.request.id },
         data: { openedAt: new Date() },
@@ -62,6 +82,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       allowVideo: rules.allowVideo,
       starStyle: look.starStyle,
       starColor: look.starColor,
+      offer,
+      showBadge: !PLANS[plan].whiteLabel,
     });
   } catch (error) {
     console.error('[review-request GET]', error);
@@ -259,6 +281,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data: { submittedAt: new Date() },
     });
 
+    // ── Tell the merchant, after the response has flushed ──
+    //
+    // Only the storefront widget did this. The reviews arriving here are the ones the
+    // negative-review alert exists for — a verified buyer's one-star, with a reply window
+    // measured in hours — and the merchant heard nothing, while an anonymous storefront
+    // submission of the same rating sent the alert. Same call as the widget's, one notice
+    // per review since each is its own product. notifyNewReview never throws, and a mail
+    // provider having a bad day must never turn a saved review into an error for the buyer.
+    {
+      const reviewerName = state.request.customerName || 'Verified Customer';
+      const notices = submitted.map((r) => ({
+        reviewerName,
+        rating: r.rating!,
+        title: r.title?.trim().slice(0, 200) || null,
+        body: r.body!.trim().slice(0, 5000),
+        productTitle:
+          r.productId && allowedProductIds.has(r.productId)
+            ? state.lineItems.find((li) => li.productId === r.productId)?.title ?? null
+            : null,
+        isPublished: rules.autoPublish,
+      }));
+      after(async () => {
+        for (const notice of notices) await notifyNewReview(storeId, notice);
+      });
+    }
+
     // ── Aggregates and reward, for reviews that went live immediately ──
     //
     // Both were missing here. This route had neither an import of @/lib/ratings nor any
@@ -350,6 +398,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
     }
 
+    // ── Shop app syndication, for reviews that went live immediately ──
+    //
+    // syncReviewToShop was only called from the merchant's PUT handler, and a review born
+    // published never gets one — so with syndication on, nothing from this route reached
+    // Shop. The program's rule is "syndicate everything"; isSyndicationEnabled is the
+    // plan gate, so on a store not paying for Shop sync this resolves to nothing.
+    //
+    // Chained after the media upload when there is one. after() callbacks run
+    // concurrently, and a push that raced the upload would reach Shop without its photos
+    // — and with no later PUT to re-sync an auto-published review, that is the version
+    // Shop would keep.
+    const syndicate = async () => {
+      const shop = store.shopifyDomain;
+      if (!rules.autoPublish || !shop) return;
+      try {
+        if (!(await isSyndicationEnabled(storeId))) return;
+        const accessToken = await getFreshAccessToken(store);
+        const ctx = { shop, accessToken, onUnauthorized: tokenRefresherFor(storeId) };
+        for (const { id } of createdIds) await syncReviewToShop(storeId, id, ctx);
+      } catch (err) {
+        // Best effort: the reviews are live on the storefront regardless, and the
+        // merchant's next edit re-syncs.
+        console.error('[review-request] Shop syndication failed:', err);
+      }
+    };
+
     // ── Media upload, off the response path ──
     //
     // Same reasoning as the storefront widget: handing bytes to Shopify Files is three
@@ -393,7 +467,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           // written review to save the photo would be worse.
           console.error('[review-request] background media upload failed:', err);
         }
+        await syndicate();
       });
+    } else if (rules.autoPublish && store.shopifyDomain) {
+      after(syndicate);
     }
 
     await db.analyticsEvent.create({

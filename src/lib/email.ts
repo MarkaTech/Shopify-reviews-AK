@@ -18,6 +18,7 @@
 
 import crypto from 'crypto';
 import { isSuppressed } from './suppression';
+import { APP_STORE_URL, BRAND_ASSETS, POWERED_BY } from './brand';
 
 export type SendResult =
   | { sent: true; provider: 'ses' | 'resend' | 'sendgrid'; id?: string }
@@ -436,11 +437,16 @@ export interface ReviewRequestEmailInput {
   /** Softer copy for the second and third touch. Same single CTA, no pressure tactics. */
   isReminder?: boolean;
   /**
-   * The small "Verified by Marka" mark under the email. Free plan only, like the widget's
-   * attribution line; a white-label plan sends the merchant's email with nothing of ours.
-   * Truthful here: a review written from this link is tied to the order it came from.
+   * The "Powered by Marka Reviews" line under the email: the 20 px icon and the words, the
+   * same attribution the storefront widget carries. Free plan only; a white-label plan
+   * sends the merchant's email with nothing of ours in it.
+   *
+   * Not the "Verified by Marka" badge, which this used to be. Nothing has been verified
+   * when an invitation goes out — no review exists yet — and that mark is a claim about a
+   * review's provenance. It belongs on the review page, where every submission is tied to
+   * the order the token was issued for.
    */
-  showBadge?: boolean;
+  showAttribution?: boolean;
 }
 
 /**
@@ -456,10 +462,15 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
   const orderRef = input.orderNumber ? ` #${escapeHtml(input.orderNumber)}` : '';
   const store = escapeHtml(input.storeName);
 
-  const badgeUrl = input.showBadge ? brandImageUrl('/brand/verified-by-marka.png') : null;
-  const badgeHtml = badgeUrl
+  // The icon is left out, rather than broken, when there is no public app URL to load it
+  // from; the words still carry the attribution. Its alt is empty because the words are
+  // right beside it.
+  const iconUrl = input.showAttribution ? brandImageUrl(BRAND_ASSETS.icon) : null;
+  const attributionHtml = input.showAttribution
     ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px auto 0;">
-        <tr><td align="center"><img src="${badgeUrl}" width="96" height="32" alt="Verified by Marka" style="display:block;width:96px;height:32px;border:0;outline:none;border-radius:5px;"></td></tr>
+        <tr><td align="center" style="font-size:12px;line-height:20px;color:#5A6675;">
+          <a href="${APP_STORE_URL}" rel="noopener nofollow" style="color:#5A6675;text-decoration:none;">${iconUrl ? `<img src="${iconUrl}" width="20" height="20" alt="" style="display:inline-block;width:20px;height:20px;border:0;outline:none;vertical-align:middle;margin:0 6px 0 0;border-radius:4px;">` : ''}${escapeHtml(POWERED_BY)}</a>
+        </td></tr>
       </table>`
     : '';
 
@@ -498,7 +509,7 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
           </p>` : ''}
         </td></tr>
       </table>
-      ${badgeHtml}
+      ${attributionHtml}
     </td></tr>
   </table>
 </body></html>`;
@@ -519,6 +530,7 @@ export function renderReviewRequestEmail(input: ReviewRequestEmailInput): EmailM
     ...(input.unsubscribeUrl
       ? ['', `Prefer not to receive these? Unsubscribe: ${input.unsubscribeUrl}`]
       : []),
+    ...(input.showAttribution ? ['', POWERED_BY] : []),
   ].join('\n');
 
   return {

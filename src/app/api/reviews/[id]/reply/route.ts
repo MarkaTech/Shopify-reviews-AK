@@ -1,13 +1,14 @@
 import { db } from '@/lib/db';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import { syncReviewToShop, isSyndicationEnabled } from '@/lib/syndication';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { storeId } = await withAuth(request);
+    const { storeId, shop, accessToken, onUnauthorized } = await withAuth(request);
     const { id } = await params;
     const body = (await request.json()) as { reply?: unknown };
     // Typed and capped. `reply` was accepted as anything truthy: an object became a Prisma
@@ -23,6 +24,16 @@ export async function POST(
       where: { id },
       data: { reply, repliedAt: new Date() },
     });
+
+    // The reply is part of what the Shop app shows (merchant_reply, merchant_replied_at),
+    // and the Reviews page replies through this route — not through PUT, which was the
+    // only handler that re-synced. So a store with syndication on had its replies on the
+    // storefront and never in Shop. Off the response path, because a Shop push must not
+    // slow the merchant's reply; the sync records its own outcome on the row.
+    if (await isSyndicationEnabled(storeId)) {
+      after(() => syncReviewToShop(storeId, id, { shop, accessToken, onUnauthorized }));
+    }
+
     return NextResponse.json(updated);
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();

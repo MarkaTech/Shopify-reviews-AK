@@ -19,6 +19,15 @@ export const APP_NAME = 'Marka Reviews';
 /** For "formerly ReviewMaster" lines only. Never use it as the name. */
 export const FORMER_APP_NAME = 'ReviewMaster';
 
+/**
+ * The attribution line a Free-plan store carries: the 20 px icon plus these words, under
+ * the storefront widget and under the review invitation email. It is identity, not a claim
+ * — the "Verified by Marka" badge is reserved for where a purchase really was verified.
+ */
+export const POWERED_BY = `Powered by ${APP_NAME}`;
+/** Where the attribution links. The listing URL keeps the old handle on purpose. */
+export const APP_STORE_URL = 'https://apps.shopify.com/reviewmaster';
+
 /** The named colours. Navy first; warm accents with purpose. */
 export const BRAND = {
   /** Identity, text, primary actions. */

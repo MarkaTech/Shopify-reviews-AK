@@ -277,3 +277,25 @@ export async function resolveToken(token: string): Promise<RequestState> {
 export function reviewRequestUrl(token: string, appUrl: string): string {
   return `${appUrl.replace(/\/$/, '')}/r/${token}`;
 }
+
+/**
+ * Does this request look like the review page's own data fetch?
+ *
+ * The /r/<token> page loads its JSON with fetch() from the browser, which sends
+ * `Sec-Fetch-Mode: cors` and `Sec-Fetch-Dest: empty` for exactly that. Everything else
+ * that touches the URL looks different: a person or a scanner opening it directly is a
+ * navigation (`Sec-Fetch-Dest: document`), a browser or mail client warming the link
+ * carries a prefetch marker, and a gateway's link check sends none of these headers at
+ * all. None of those is a customer reading the form.
+ *
+ * The merchant's open rate is computed from `openedAt`, and Defender Safe Links,
+ * Proofpoint and Mimecast fetch every link in a message at delivery time — so without this
+ * a store whose customers sit behind a scanning gateway saw opens that never happened and
+ * a form-completion rate that was wrongly low.
+ */
+export function isPageDataFetch(headers: Headers): boolean {
+  if (headers.get('sec-fetch-mode') !== 'cors') return false;
+  if (headers.get('sec-fetch-dest') !== 'empty') return false;
+  const purpose = `${headers.get('sec-purpose') || ''} ${headers.get('purpose') || ''}`.toLowerCase();
+  return !/prefetch|prerender/.test(purpose);
+}

@@ -28,33 +28,39 @@ const SHOP_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
 
+  // The shared hardening comes first, before any branch can return.
+  //
+  // The Web App accepts plain HTTP unless httpsOnly is set on the Azure side. This header
+  // makes a browser that has seen the app once refuse to talk to it in cleartext again,
+  // which covers the merchant's admin and the operator portal. Set httpsOnly too (az
+  // webapp update --set httpsOnly=true) — HSTS only helps after the first HTTPS visit.
+  //
+  // It used to sit below the operator-portal early return, so the one surface that takes
+  // the cross-tenant portal password — and the API that returns every merchant's data —
+  // was exactly the surface a browser was never told to pin to HTTPS, while the comment
+  // claimed otherwise. An operator who only ever opens /admin never received it.
+  response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+  // Cheap hardening that costs nothing and is expected of a merchant-facing app.
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  // The operator portal is never framed by anyone — not even Shopify — and must not
+  // appear in a search index. This branch only decides the CSP and the robots rule; it
+  // inherits everything above.
+  if (request.nextUrl.pathname.startsWith('/admin') || request.nextUrl.pathname.startsWith('/api/admin')) {
+    response.headers.set('Content-Security-Policy', "frame-ancestors 'none';");
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return response;
+  }
+
   const shop = request.nextUrl.searchParams.get('shop');
   const ancestors =
     shop && SHOP_PATTERN.test(shop)
       ? `https://${shop} https://admin.shopify.com`
       : 'https://admin.shopify.com';
 
-  // The operator portal is never framed by anyone — not even Shopify — and must not
-  // appear in a search index.
-  if (request.nextUrl.pathname.startsWith('/admin') || request.nextUrl.pathname.startsWith('/api/admin')) {
-    response.headers.set('Content-Security-Policy', "frame-ancestors 'none';");
-    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
-    response.headers.set('X-Content-Type-Options', 'nosniff');
-    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    return response;
-  }
-
   response.headers.set('Content-Security-Policy', `frame-ancestors ${ancestors};`);
-
-  // The Web App accepts plain HTTP unless httpsOnly is set on the Azure side. This header
-  // makes a browser that has seen the app once refuse to talk to it in cleartext again,
-  // which covers the merchant's admin and the operator portal. Set httpsOnly too (az
-  // webapp update --set httpsOnly=true) — HSTS only helps after the first HTTPS visit.
-  response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-
-  // Cheap hardening that costs nothing and is expected of a merchant-facing app.
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
   return response;
 }

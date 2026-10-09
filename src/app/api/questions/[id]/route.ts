@@ -51,7 +51,8 @@ export async function PUT(
       data.isPublished = true;
 
       // Fulfil what the form promised: "used only to let you know when the shop answers".
-      // Once — the FIRST answer notifies; notifiedAt stops a second answer mailing again.
+      // Once — the first answer that actually reaches the provider notifies; notifiedAt
+      // stops a later answer mailing again.
       const asked = await db.question.findUnique({
         where: { id },
         select: { askerName: true, askerEmail: true, body: true, notifiedAt: true, product: { select: { title: true, handle: true } } },
@@ -59,7 +60,6 @@ export async function PUT(
       if (asked?.askerEmail && !asked.notifiedAt) {
         const askerEmail = asked.askerEmail;
         const shopDomain = (await db.store.findUnique({ where: { id: storeId }, select: { shopifyDomain: true, name: true } }));
-        data.notifiedAt = new Date();
         after(async () => {
           try {
             const { renderAnswerEmail, sendEmail } = await import('@/lib/email');
@@ -76,7 +76,17 @@ export async function PUT(
               unsubscribeUrl: appUrl ? `${appUrl}/api/unsubscribe?t=${encodeURIComponent(unsubscribeToken(askerEmail))}` : undefined,
             });
             const r = await sendEmail({ ...msg, to: askerEmail });
-            if (!r.sent) console.warn('[questions] answer notification not sent:', r.reason);
+            // Stamped only once the provider has accepted the message. It used to be
+            // written with the answer itself, before the send was attempted, so a
+            // not-yet-configured provider or a suppressed address left the shopper
+            // untold — and every later answer skipped the mail because the row said it
+            // had gone. A failed send now leaves notifiedAt null and the next answer
+            // tries again.
+            if (r.sent) {
+              await db.question.update({ where: { id }, data: { notifiedAt: new Date() } });
+            } else {
+              console.warn('[questions] answer notification not sent:', r.reason);
+            }
           } catch (err) {
             console.error('[questions] answer notification failed:', err);
           }
