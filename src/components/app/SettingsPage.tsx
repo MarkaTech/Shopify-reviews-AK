@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Settings, Bell, Palette, CheckCircle, CreditCard, Crown, AlertTriangle,
   RotateCcw, Send, Loader2, Check, Sparkles, Mail, Clock, Eye, Code2, Compass,
@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 import type { Navigate, PageId } from './TopNav';
 import { adminUrl, navigateTop, PENDING_PLAN_KEY } from '@/lib/admin-links';
 import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton, Stars, VerifiedMark, EmptyState } from './ui-kit';
-import { BRAND, contrastRatio, FONT_FAMILY_PATTERN as FONT_FAMILY } from '@/lib/brand';
+import { BRAND, contrastRatio, pairedCardText, FONT_FAMILY_PATTERN as FONT_FAMILY } from '@/lib/brand';
 import { describeRequests } from './RequestPerformance';
 
 // Mirrors src/lib/plans.ts. Prices and limits must match the server, which is what
@@ -301,7 +301,17 @@ function ContrastNotes({
  * Plan tab, which needs neither. A merchant hit by a blip on either endpoint could not
  * reach the payment screen until they reloaded the entire admin frame.
  */
-function TabFallback({ what, error, onRetry }: { what: string; error: string | null; onRetry: () => void }) {
+function TabFallback({
+  what, error, onRetry, note = 'Nothing has changed. The other tabs still work.', panels = 2,
+}: {
+  what: string;
+  error: string | null;
+  onRetry: () => void;
+  /** Under the Retry button. A fallback for one panel of a tab says the rest of the tab works. */
+  note?: string;
+  /** Skeleton panels while loading: as many as the loaded content has, so nothing jumps. */
+  panels?: number;
+}) {
   if (error) {
     return (
       <Panel>
@@ -315,7 +325,7 @@ function TabFallback({ what, error, onRetry }: { what: string; error: string | n
               Try again
             </ActionButton>
           }
-          secondary="Nothing has changed. The other tabs still work."
+          secondary={note}
         />
       </Panel>
     );
@@ -324,7 +334,7 @@ function TabFallback({ what, error, onRetry }: { what: string; error: string | n
     // Static, as the guidelines ask of loading states; the status line says what is happening.
     <div className="space-y-4" role="status" aria-busy="true">
       <span className="sr-only">Loading {what}…</span>
-      {[0, 1].map(i => (
+      {Array.from({ length: panels }, (_, i) => (
         <Panel key={i} className="p-5">
           <div className="flex items-center gap-3">
             <Skeleton className="size-9 rounded-xl" />
@@ -381,6 +391,25 @@ const TIMING_LABELS: Record<string, string> = {
   reminderGapDays: 'Days between sends',
 };
 
+/** /api/request-settings' settings, with the plan's answer on reminders folded in. */
+interface RequestSettingsState {
+  enabled: boolean;
+  requireMarketingConsent: boolean;
+  delayDays: number;
+  reminders: number;
+  reminderGapDays: number;
+  /** False on a plan that sends no reminders; undefined if the server did not say. */
+  remindersAllowed?: boolean;
+}
+
+/** What GET and PUT /api/request-settings answer, as far as this page reads it. */
+interface RequestSettingsBody {
+  settings: Omit<RequestSettingsState, 'remindersAllowed'>;
+  remindersAllowed?: boolean;
+}
+
+const withPlan = (r: RequestSettingsBody): RequestSettingsState => ({ ...r.settings, remindersAllowed: r.remindersAllowed });
+
 export default function SettingsPage({
   onNavigate,
   storeDomain,
@@ -396,7 +425,7 @@ export default function SettingsPage({
   const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
-  const [reqSettings, setReqSettings] = useState<{ enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number } | null>(null);
+  const [reqSettings, setReqSettings] = useState<RequestSettingsState | null>(null);
   const [dirtyReq, setDirtyReq] = useState<Record<string, string>>({});
   const [mailProvider, setMailProvider] = useState<string | null>(null);
   const [fallbackEmail, setFallbackEmail] = useState<string | null>(null);
@@ -405,6 +434,7 @@ export default function SettingsPage({
   const [configError, setConfigError] = useState<string | null>(null);
   const [notifError, setNotifError] = useState<string | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [reqError, setReqError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Three states, not two. `undefined` means we have not been able to find out — still
   // loading, or the request failed. `null` means the server told us no token exists.
@@ -458,6 +488,15 @@ export default function SettingsPage({
   const [dirty, setDirty] = useState<Record<string, string>>({});
   const [dirtyNotif, setDirtyNotif] = useState<Record<string, string>>({});
 
+  // What the server last returned for each group: set by every successful load and save,
+  // read only by Discard. The setters below write each edit into config / notif /
+  // reqSettings, which is what the controls show, as well as into the dirty maps — so
+  // clearing the maps alone left the edited values on screen while the server still had
+  // the old ones.
+  const savedConfig = useRef<StorefrontConfig | null>(null);
+  const savedNotif = useRef<NotificationSettings | null>(null);
+  const savedReq = useRef<RequestSettingsState | null>(null);
+
   // Four loads, each on its own. Nothing here sets state synchronously: these run from an
   // effect body, and a synchronous setState there is a cascading render — which is what
   // react-hooks/set-state-in-effect flags. The Retry buttons clear their error flag
@@ -466,6 +505,7 @@ export default function SettingsPage({
     () =>
       apiFetch<{ config: StorefrontConfig }>('/api/storefront-config')
         .then(c => {
+          savedConfig.current = c.config;
           setConfig(c.config);
           setConfigError(null);
           setDirty({});
@@ -481,6 +521,7 @@ export default function SettingsPage({
         fallbackEmail: string | null;
       }>('/api/notifications')
         .then(n => {
+          savedNotif.current = n.settings;
           setNotif(n.settings);
           setMailProvider(n.provider);
           setFallbackEmail(n.fallbackEmail);
@@ -503,11 +544,20 @@ export default function SettingsPage({
         }),
     []
   );
+  // A failure here gets its own error and Retry like the others. It used to be swallowed,
+  // and the timing controls then showed the defaults (ON, 14 days, 1 reminder) as if they
+  // were the store's — editable, so a save could write values the merchant never saw.
   const loadRequestSettings = useCallback(
     () =>
-      apiFetch<{ settings: { enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number } }>('/api/request-settings')
-        .then(r => { setReqSettings(r.settings); setDirtyReq({}); })
-        .catch(() => setReqSettings(null)),
+      apiFetch<RequestSettingsBody>('/api/request-settings')
+        .then(r => {
+          const settings = withPlan(r);
+          savedReq.current = settings;
+          setReqSettings(settings);
+          setReqError(null);
+          setDirtyReq({});
+        })
+        .catch(err => setReqError(errorMessage(err, 'Could not load your review request settings.'))),
     []
   );
 
@@ -523,8 +573,14 @@ export default function SettingsPage({
   // The shell saw the plan change (a payment that took a moment to settle): read the
   // plan again so the header and the cards agree with the chip above them, and announce
   // the unlock the way a normal return from Shopify would.
+  //
+  // Only a change while this page is open counts. The shell keeps usageVersion for the
+  // whole session and this page mounts afresh on every visit, so reacting to the value it
+  // mounted with announced "You just unlocked these" on every visit after the first.
+  const seenUsageVersion = useRef(usageVersion);
   useEffect(() => {
-    if (!usageVersion) return;
+    if (usageVersion === seenUsageVersion.current) return;
+    seenUsageVersion.current = usageVersion;
     apiFetch<Usage>('/api/usage')
       .then(u => {
         setUsage(u);
@@ -630,10 +686,15 @@ export default function SettingsPage({
   /**
    * Throw away every pending edit and go back to what is saved.
    *
-   * All three dirty maps are overlays on top of the loaded values, so clearing them is the
-   * whole operation — nothing needs re-fetching.
+   * The edits live in the displayed state as well as in the dirty maps, so both go back:
+   * the displayed state to what the server last returned, the maps to empty. Nothing is
+   * re-fetched, so Discard cannot fail, and a group whose save just succeeded goes back to
+   * that save rather than to the first load.
    */
   const discard = () => {
+    setConfig(savedConfig.current);
+    setNotif(savedNotif.current);
+    setReqSettings(savedReq.current);
     setDirty({});
     setDirtyNotif({});
     setDirtyReq({});
@@ -669,6 +730,7 @@ export default function SettingsPage({
           '/api/storefront-config',
           { method: 'PUT', body: JSON.stringify({ updates: dirty }) }
         );
+        savedConfig.current = res.config;
         setConfig(res.config);
         // Rejected keys are surfaced, not swallowed. A merchant who typed "emerald" into a
         // colour field deserves to know that field did not save, rather than discover it
@@ -685,14 +747,15 @@ export default function SettingsPage({
         // The response is used, not discarded. `reminderGapDays` has a floor of one day,
         // so typing 0 stores 1 — and the old code threw the response away, left the 0 on
         // screen and said "Saved", which is the app telling the merchant something untrue.
-        const res = await apiFetch<{
-          settings: { enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number };
+        const res = await apiFetch<RequestSettingsBody & {
           adjusted?: Array<{ field: string; requested: number; applied: number; min: number; max: number }>;
         }>('/api/request-settings', {
           method: 'PUT',
           body: JSON.stringify({ updates: dirtyReq }),
         });
-        setReqSettings(res.settings);
+        const settings = withPlan(res);
+        savedReq.current = settings;
+        setReqSettings(settings);
         setDirtyReq({});
         for (const a of res.adjusted ?? []) {
           toast.warning(`${TIMING_LABELS[a.field] ?? a.field} saved as ${a.applied}, not ${a.requested}`, {
@@ -706,6 +769,7 @@ export default function SettingsPage({
           '/api/notifications',
           { method: 'PUT', body: JSON.stringify({ updates: dirtyNotif }) }
         );
+        savedNotif.current = res.settings;
         setNotif(res.settings);
         if (res.rejected?.length) {
           toast.warning('Some notification settings were not valid');
@@ -1124,7 +1188,11 @@ export default function SettingsPage({
                       // `?? undefined` so an inherited colour falls through to the preview
                       // surface rather than being pinned to a literal.
                       background: config.colors.cardBg ?? undefined,
-                      color: config.colors.cardText ?? undefined,
+                      // Card text left to the theme on a background the merchant chose is
+                      // paired by the storefront with whichever of dark or white reads on
+                      // it; the preview pairs it the same way. For display only: the field
+                      // keeps saying "Follows your theme", and nothing writes this back.
+                      color: config.colors.cardText ?? pairedCardText(config.colors.cardBg) ?? undefined,
                       borderColor: config.colors.border,
                       borderRadius: `${num(config.layout.borderRadius, 8)}px`,
                       // Only a valid family reaches the preview, as on the storefront.
@@ -1551,6 +1619,18 @@ export default function SettingsPage({
               </div>
             </Panel>
 
+            {/* Its own fallback, not the defaults. These controls decide what is emailed
+                to customers; showing ON / 14 / 1 / 7 when the store's values did not load
+                presented made-up numbers as the merchant's, and let a save write them. */}
+            {!reqSettings ? (
+              <TabFallback
+                what="your review request settings"
+                error={reqError}
+                onRetry={() => { setReqError(null); loadRequestSettings(); }}
+                note="Nothing has changed. The rest of this tab still works."
+                panels={1}
+              />
+            ) : (
             <Panel>
               <PanelHeader
                 icon={Clock}
@@ -1564,55 +1644,74 @@ export default function SettingsPage({
                     email — and nothing on this page said so: a merchant read the fields
                     below as "nothing happens until I fill these in". Reads the live values,
                     so an unsaved edit shows here too. */}
-                {reqSettings && (
-                  <div
-                    role="status"
-                    className={cn(
-                      'px-5 py-3 text-[12.5px] leading-snug',
-                      reqSettings.enabled
-                        ? 'bg-brand-50/70 text-brand-900 dark:bg-brand-500/10 dark:text-brand-100'
-                        : 'bg-ink-50/70 text-ink-700 dark:bg-white/[0.03] dark:text-ink-200'
-                    )}
-                  >
-                    <strong className="font-semibold">Review requests are {reqSettings.enabled ? 'ON' : 'OFF'}</strong>
-                    {' — '}
-                    {describeRequests(reqSettings)}
-                    {reqSettings.enabled ? ' Change the numbers below, or switch them off.' : ' Switch them on below to start asking.'}
-                  </div>
-                )}
+                <div
+                  role="status"
+                  className={cn(
+                    'px-5 py-3 text-[12.5px] leading-snug',
+                    reqSettings.enabled
+                      ? 'bg-brand-50/70 text-brand-900 dark:bg-brand-500/10 dark:text-brand-100'
+                      : 'bg-ink-50/70 text-ink-700 dark:bg-white/[0.03] dark:text-ink-200'
+                  )}
+                >
+                  <strong className="font-semibold">Review requests are {reqSettings.enabled ? 'ON' : 'OFF'}</strong>
+                  {' — '}
+                  {describeRequests(reqSettings)}
+                  {reqSettings.enabled ? ' Change the numbers below, or switch them off.' : ' Switch them on below to start asking.'}
+                </div>
                 {/* The off switch. Until this existed every fulfilled order emailed its
                     customer from the day the app was installed, and the only way to stop
                     it was to uninstall. */}
                 <ToggleRow
                   title="Send review requests"
                   description="Off stops new invitations and cancels any already waiting to go out. Reviews already collected stay."
-                  checked={reqSettings?.enabled ?? true}
+                  checked={reqSettings.enabled}
                   onChange={v => setReqFlag('enabled', v)}
                 />
                 <ToggleRow
                   title="Only ask customers who accepted marketing"
                   description="Skips anyone who left the marketing box unticked at checkout. Turn this on if your region treats review invitations as marketing email."
-                  checked={reqSettings?.requireMarketingConsent ?? false}
+                  checked={reqSettings.requireMarketingConsent}
                   onChange={v => setReqFlag('requireMarketingConsent', v)}
-                  disabled={reqSettings?.enabled === false}
+                  disabled={!reqSettings.enabled}
                 />
                 <SettingRow htmlFor="delayDays" title="Days after fulfilment (0–60)">
                   <Input id="delayDays" type="number" min={0} max={60} className="h-9 w-[120px] rounded-xl text-[13px]"
-                    value={reqSettings?.delayDays ?? 14}
+                    value={reqSettings.delayDays}
                     onChange={e => setReqField('delayDays', Number(e.target.value))} />
                 </SettingRow>
-                <SettingRow htmlFor="reminders" title="Reminders (0–2)">
+                {/* On a plan without reminders the sender sends none, whatever these say,
+                    so they are shown as stored but not editable, with the reason. The
+                    stored count stays: it is what resumes on an upgrade. */}
+                <SettingRow
+                  htmlFor="reminders"
+                  title="Reminders (0–2)"
+                  description={reqSettings.remindersAllowed === false ? (
+                    <>
+                      Your plan sends the first email only. Reminders, and the days between them, come with the Growth plan.{' '}
+                      <button
+                        type="button"
+                        onClick={() => setTab('subscription')}
+                        className="ring-focus rounded font-semibold text-brand-700 underline-offset-2 hover:underline dark:text-brand-400"
+                      >
+                        See plans
+                      </button>
+                    </>
+                  ) : undefined}
+                >
                   <Input id="reminders" type="number" min={0} max={2} className="h-9 w-[120px] rounded-xl text-[13px]"
-                    value={reqSettings?.reminders ?? 1}
+                    value={reqSettings.reminders}
+                    disabled={reqSettings.remindersAllowed === false}
                     onChange={e => setReqField('reminders', Number(e.target.value))} />
                 </SettingRow>
                 <SettingRow htmlFor="reminderGapDays" title="Days between sends (1–14)">
                   <Input id="reminderGapDays" type="number" min={1} max={14} className="h-9 w-[120px] rounded-xl text-[13px]"
-                    value={reqSettings?.reminderGapDays ?? 7}
+                    value={reqSettings.reminderGapDays}
+                    disabled={reqSettings.remindersAllowed === false}
                     onChange={e => setReqField('reminderGapDays', Number(e.target.value))} />
                 </SettingRow>
               </div>
             </Panel>
+            )}
 
             <Panel>
               <PanelHeader

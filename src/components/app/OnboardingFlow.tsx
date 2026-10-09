@@ -10,7 +10,9 @@ import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { ActionButton, Pill, RatingStar, VerifiedMark, type TileTone, TILE_TONE } from './ui-kit';
 import type { PageId, Navigate } from './TopNav';
-import { RequestsStatus, describeRequests, type RequestSummary } from './RequestPerformance';
+import {
+  RequestsStatus, describeRequests, requestSummaryFrom, type RequestSummary, type RequestSettingsResponse,
+} from './RequestPerformance';
 
 /**
  * First-run setup.
@@ -139,9 +141,11 @@ function requestsStep(step: StepMeta, s: RequestSummary | null): Pick<StepMeta, 
       cta: 'Turn on',
     };
   }
+  // "the reminders" only where the plan sends them; on Free there are none to adjust.
+  const adjustable = s.remindersAllowed === false ? 'the timing' : 'the timing, the reminders';
   return {
     title: 'Review requests are on',
-    body: `Already running — ${describeRequests(s)} Adjust the timing, the reminders or turn them off under Settings → Notifications.`,
+    body: `Already running — ${describeRequests(s)} Adjust ${adjustable} or turn them off under Settings → Notifications.`,
     cta: 'Adjust timing',
   };
 }
@@ -163,10 +167,10 @@ export default function OnboardingFlow({
     apiFetch<Progress>('/api/onboarding')
       .then(setData)
       .catch(() => setData(null));
-    // The route answers { settings: { delayDays, ... } }; reading r.delayDays found nothing,
-    // so the card always fell back to "You choose the timing".
-    apiFetch<{ settings?: RequestSummary }>('/api/request-settings')
-      .then((r) => setReqSettings(r.settings && typeof r.settings.delayDays === 'number' ? r.settings : null))
+    // The route answers { settings: { delayDays, ... }, remindersAllowed }; reading
+    // r.delayDays found nothing, so the card always fell back to "You choose the timing".
+    apiFetch<RequestSettingsResponse>('/api/request-settings')
+      .then((r) => setReqSettings(requestSummaryFrom(r)))
       .catch(() => undefined);
   }, []);
 
