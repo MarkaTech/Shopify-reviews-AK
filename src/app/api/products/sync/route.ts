@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       synced: result.created,
+      updated: result.updated,
       alreadyPresent: result.alreadyPresent,
       total: result.fetched,
       truncated: result.truncated,

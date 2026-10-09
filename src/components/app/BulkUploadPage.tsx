@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Upload, Download, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle,
   ShoppingBag, Plus, Trash2, Table, Store, ShieldAlert, Info, Link2,
-  ArrowRight, Sparkles, Check,
+  ArrowRight, Sparkles, Check, ChevronsUpDown, RefreshCw,
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -17,10 +19,27 @@ import { Panel, PanelHeader, ActionButton, Pill, Tile, type TileTone } from './u
 interface Product {
   id: string;
   title: string;
-  image: string | null;
-  reviewCount: number;
-  averageRating: number;
+  handle: string | null;
 }
+
+/** The import template's columns, in order, with the example row the template ships with. */
+const TEMPLATE_PREVIEW: Array<[string, string]> = [
+  ['product_title', 'Pick from the dropdown'],
+  ['product_handle', '(fills itself in)'],
+  ['rating', '5'],
+  ['author', 'Asha Sharma'],
+  ['title', 'Beautiful quality'],
+  ['content', 'Very happy with this product.'],
+  ['created_at', '2026-10-08'],
+  ['verified', 'true'],
+  ['status', 'approved'],
+  ['image_urls', 'https://…/photo.jpg'],
+  ['email', 'asha@example.com'],
+  ['country', 'IN'],
+];
+
+/** How many products the picker lists at once; the search narrows a large catalogue. */
+const PICKER_VISIBLE = 200;
 
 type Source = 'csv' | 'manual' | 'aliexpress' | 'etsy';
 
@@ -31,7 +50,7 @@ const SOURCES: Array<{
   icon: typeof FileSpreadsheet;
   tone: TileTone;
 }> = [
-  { id: 'csv', label: 'CSV file', blurb: 'From another review app or your seller account', icon: FileSpreadsheet, tone: 'brand' },
+  { id: 'csv', label: 'CSV or Excel file', blurb: 'Our template, another review app\'s export, or your own sheet', icon: FileSpreadsheet, tone: 'brand' },
   { id: 'manual', label: 'Type them in', blurb: 'A handful of reviews, entered by hand', icon: Table, tone: 'indigo' },
   { id: 'aliexpress', label: 'AliExpress', blurb: 'Paste a listing URL you dropship', icon: Link2, tone: 'amber' },
   { id: 'etsy', label: 'Etsy', blurb: 'Connect your shop, syncs weekly', icon: Store, tone: 'rose' },
@@ -39,6 +58,11 @@ const SOURCES: Array<{
 
 export default function BulkUploadPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [productsTotal, setProductsTotal] = useState(0);
+  const [productsTruncated, setProductsTruncated] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [syncing, setSyncing] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -58,19 +82,73 @@ export default function BulkUploadPage() {
   const [etsyShop, setEtsyShop] = useState('');
   const [etsyBusy, setEtsyBusy] = useState(false);
 
+  // The whole catalogue, not a page of it. This used to ask for `limit=250`, which the
+  // products route caps at — so a store with 1,683 products could attach reviews to the
+  // first 250 and no others, with nothing on screen saying so.
+  const loadProducts = useCallback(
+    () =>
+      apiFetch<{ products: Product[]; total: number; truncated?: boolean }>('/api/products?picker=1')
+        .then((d) => {
+          setProducts(d.products || []);
+          setProductsTotal(d.total ?? d.products?.length ?? 0);
+          setProductsTruncated(Boolean(d.truncated));
+        })
+        .catch(() => setProducts([])),
+    []
+  );
+
   useEffect(() => {
-    apiFetch<{ products: Product[] }>('/api/products?limit=250')
-      .then(d => setProducts(d.products || []))
-      .catch(() => setProducts([]));
+    loadProducts();
     apiFetch<{ connected: boolean; shopId: string | null; lastSyncAt: string | null }>('/api/etsy/connect')
       .then(setEtsy)
       .catch(() => setEtsy(null));
-  }, []);
+  }, [loadProducts]);
+
+  /** Pull anything new or renamed from Shopify, then refresh the picker. */
+  const syncProducts = async () => {
+    setSyncing(true);
+    try {
+      const data = await apiFetch<{ synced: number; updated?: number; total: number; truncated?: boolean }>(
+        '/api/products/sync', { method: 'POST' }
+      );
+      const updated = data.updated ?? 0;
+      if (data.synced === 0 && updated === 0) {
+        toast.info(`Already up to date — ${data.total} product${data.total === 1 ? '' : 's'} synced.`);
+      } else {
+        const parts: string[] = [];
+        if (data.synced) parts.push(`${data.synced} new product${data.synced === 1 ? '' : 's'}`);
+        if (updated) parts.push(`${updated} renamed or updated`);
+        toast.success(`Synced ${parts.join(' and ')} from Shopify.`);
+      }
+      if (data.truncated) {
+        toast.info('This sync covered the first 5,000 products. The rest arrive as they are updated in Shopify.');
+      }
+      await loadProducts();
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not sync products'));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const pickerMatches = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    const hits = q
+      ? products.filter(p => p.title.toLowerCase().includes(q) || (p.handle ?? '').toLowerCase().includes(q))
+      : products;
+    return { visible: hits.slice(0, PICKER_VISIBLE), hidden: Math.max(0, hits.length - PICKER_VISIBLE) };
+  }, [products, pickerQuery]);
+  const selectedProductTitle = products.find(p => p.id === selectedProduct)?.title;
 
   const acceptFile = (f: File | undefined) => {
     if (!f) return;
-    if (!f.name.toLowerCase().endsWith('.csv')) {
-      toast.error('Please upload a CSV file');
+    const name = f.name.toLowerCase();
+    if (name.endsWith('.xls')) {
+      toast.error('That is the old .xls format — save it as .xlsx or .csv first.');
+      return;
+    }
+    if (!name.endsWith('.csv') && !name.endsWith('.xlsx')) {
+      toast.error('Please upload a .csv or .xlsx file');
       return;
     }
     setFile(f);
@@ -79,7 +157,7 @@ export default function BulkUploadPage() {
 
   const handleUpload = async () => {
     if (source === 'csv' && !file) {
-      toast.error('Please select a CSV file');
+      toast.error('Please choose a .csv or .xlsx file');
       return;
     }
 
@@ -134,7 +212,18 @@ export default function BulkUploadPage() {
     }
   };
 
-  const handleDownloadTemplate = () => window.open('/api/bulk-upload', '_blank');
+  // The Excel template carries this store's catalogue (the product dropdown), so it needs
+  // to know who is asking. A download opens in a new tab, which cannot send the session
+  // token — so ask for a short-lived signed link first. The plain CSV needs no identity
+  // and stays as the fallback.
+  const handleDownloadTemplate = async () => {
+    try {
+      const { url } = await apiFetch<{ url: string }>('/api/bulk-upload/template-link');
+      window.open(url, '_blank');
+    } catch {
+      window.open('/api/bulk-upload', '_blank');
+    }
+  };
 
   const addRow = () => setManualRows([...manualRows, { reviewerName: '', rating: '5', title: '', body: '' }]);
   const removeRow = (index: number) => setManualRows(manualRows.filter((_, i) => i !== index));
@@ -297,19 +386,58 @@ export default function BulkUploadPage() {
           }
         />
         <div className="px-5 pb-5">
-          <Select value={selectedProduct} onValueChange={setSelectedProduct}>
-            <SelectTrigger className="h-10 rounded-xl text-[13px]">
-              <SelectValue placeholder="Choose a product…" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">No specific product</SelectItem>
-              {products.map(p => (
-                <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Popover open={pickerOpen} onOpenChange={(o) => { setPickerOpen(o); if (!o) setPickerQuery(''); }}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={pickerOpen}
+                  className="ring-focus flex h-10 min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 text-left text-[13px] hover:bg-ink-50/60 dark:hover:bg-white/[0.03]"
+                >
+                  <span className={cn('truncate', !productChosen && 'text-ink-400')}>
+                    {productChosen ? selectedProductTitle ?? 'Chosen product' : selectedProduct === '__none__' ? 'No specific product' : 'Choose a product…'}
+                  </span>
+                  <ChevronsUpDown className="size-4 shrink-0 text-ink-400" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+                {/* Filtering is done here, not by cmdk, so a 5,000-product catalogue renders
+                    200 rows and a search, rather than 5,000 rows and a scrollbar. */}
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="Search by product title or handle…" value={pickerQuery} onValueChange={setPickerQuery} />
+                  <CommandList>
+                    <CommandEmpty>
+                      {products.length === 0 ? 'No products synced yet — use Sync products.' : 'No product matches that.'}
+                    </CommandEmpty>
+                    {!pickerQuery && (
+                      <CommandItem value="__none__" onSelect={() => { setSelectedProduct('__none__'); setPickerOpen(false); }}>
+                        <Check className={cn('mr-2 size-4', selectedProduct === '__none__' ? 'opacity-100' : 'opacity-0')} />
+                        No specific product
+                      </CommandItem>
+                    )}
+                    {pickerMatches.visible.map(p => (
+                      <CommandItem key={p.id} value={p.id} onSelect={() => { setSelectedProduct(p.id); setPickerOpen(false); }}>
+                        <Check className={cn('mr-2 size-4 shrink-0', selectedProduct === p.id ? 'opacity-100' : 'opacity-0')} />
+                        <span className="truncate">{p.title}</span>
+                      </CommandItem>
+                    ))}
+                    {pickerMatches.hidden > 0 && (
+                      <p className="px-3 py-2 text-[11.5px] text-ink-400">
+                        {pickerMatches.hidden} more — keep typing to narrow it down.
+                      </p>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            <ActionButton size="sm" variant="outline" icon={RefreshCw} onClick={syncProducts} disabled={syncing} className="shrink-0">
+              {syncing ? 'Syncing…' : 'Sync new product titles'}
+            </ActionButton>
+          </div>
           <p className="mt-2 text-[11.5px] text-ink-400">
-            {products.length} product{products.length === 1 ? '' : 's'} synced from Shopify.
+            {productsTotal || products.length} product{(productsTotal || products.length) === 1 ? '' : 's'} synced from Shopify
+            {productsTruncated ? ' (the first 5,000 are listed)' : ''}. Added or renamed something in Shopify? Sync, and the dropdown and the template pick it up.
           </p>
         </div>
       </Panel>
@@ -318,13 +446,13 @@ export default function BulkUploadPage() {
       {source === 'csv' && (
         <Panel className="animate-rise">
           <PanelHeader
-            title="Upload a CSV"
-            description="One row per review. Up to 10MB."
+            title="Upload a CSV or Excel file"
+            description="One row per review. Up to 10MB. The Excel template has your products in a dropdown."
             icon={FileSpreadsheet}
             tone="brand"
             action={
               <ActionButton size="sm" variant="outline" icon={Download} onClick={handleDownloadTemplate}>
-                Template
+                Excel template
               </ActionButton>
             }
           />
@@ -350,13 +478,13 @@ export default function BulkUploadPage() {
                     : 'border-ink-300 hover:border-brand-400 hover:bg-ink-50/60 dark:border-white/12 dark:hover:bg-white/[0.03]'
               )}
             >
-              <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={(e) => acceptFile(e.target.files?.[0])} />
+              <input ref={fileInputRef} type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={(e) => acceptFile(e.target.files?.[0])} />
               <Tile icon={file ? CheckCircle2 : Upload} tone={file ? 'brand' : 'ink'} size="xl" className="mx-auto" />
               <p className="mt-4 text-[14px] font-semibold text-ink-900 dark:text-white">
-                {file ? file.name : 'Drop your CSV here, or click to browse'}
+                {file ? file.name : 'Drop your CSV or Excel file here, or click to browse'}
               </p>
               <p className="mt-1 text-[12px] text-ink-500">
-                {file ? `${(file.size / 1024).toFixed(1)} KB · ready to import` : 'Accepts .csv up to 10MB'}
+                {file ? `${(file.size / 1024).toFixed(1)} KB · ready to import` : 'Accepts .csv or .xlsx up to 10MB'}
               </p>
               {file && (
                 <button
@@ -371,21 +499,21 @@ export default function BulkUploadPage() {
             <div className="mt-4 overflow-hidden rounded-xl border border-border">
               <div className="flex items-center gap-2 border-b border-border bg-ink-50/70 px-3 py-2 dark:bg-white/[0.03]">
                 <Info className="size-3.5 text-ink-400" />
-                <p className="text-[11.5px] font-semibold text-ink-600 dark:text-ink-300">Expected columns</p>
+                <p className="text-[11.5px] font-semibold text-ink-600 dark:text-ink-300">Template columns — exports from other review apps are recognised too</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-[11px]">
                   <thead>
                     <tr className="border-b border-border">
-                      {['reviewerName', 'rating', 'title', 'body', 'reviewDate', 'reviewerEmail', 'verifiedPurchase', 'source'].map(h => (
+                      {TEMPLATE_PREVIEW.map(([h]) => (
                         <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-semibold text-ink-500">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     <tr className="text-ink-500">
-                      {['John Smith', '5', 'Amazing!', 'Best product ever…', '2026-01-15', 'john@email.com', 'true', 'direct'].map((v, i) => (
-                        <td key={i} className="whitespace-nowrap px-3 py-2">{v}</td>
+                      {TEMPLATE_PREVIEW.map(([h, v]) => (
+                        <td key={h} className="whitespace-nowrap px-3 py-2">{v}</td>
                       ))}
                     </tr>
                   </tbody>

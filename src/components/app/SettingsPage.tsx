@@ -307,7 +307,7 @@ const TIMING_LABELS: Record<string, string> = {
   reminderGapDays: 'Days between sends',
 };
 
-export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?: (page: PageId) => void; storeDomain?: string }) {
+export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { onNavigate?: (page: PageId) => void; storeDomain?: string; initialTab?: string }) {
   const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
@@ -336,10 +336,10 @@ export default function SettingsPage({ onNavigate, storeDomain }: { onNavigate?:
    * paid for is the first thing they see.
    */
   const [tab, setTab] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'general';
+    if (typeof window === 'undefined') return initialTab ?? 'general';
     return new URLSearchParams(window.location.search).get('upgraded') === '1'
       ? 'subscription'
-      : 'general';
+      : initialTab ?? 'general';
   });
   const [justUpgraded, setJustUpgraded] = useState(() => {
     if (typeof window === 'undefined') return false;

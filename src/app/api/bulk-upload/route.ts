@@ -12,6 +12,9 @@ import {
   buildMatchIndex,
   mapRows,
 } from '@/lib/import';
+import { isXlsx, parseXlsx, sheetToTable, XlsxError, type XlsxSheet } from '@/lib/xlsx';
+import { buildImportTemplate } from '@/lib/import-template';
+import { verifyDownloadToken } from '@/lib/download-token';
 
 /**
  * CSV import, with automatic column detection and product matching.
@@ -21,7 +24,35 @@ import {
  * ninety common column names onto our fields, so "Reviewer Name", "author" and
  * "customer_name" all land in the same place.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // The Excel template, built from this store's catalogue so the product column is a
+  // dropdown of real titles. Authenticated by a signed link (a download opens in a new
+  // tab, which cannot carry the session-token header) or, failing that, by the header.
+  if (request.nextUrl.searchParams.get('format') === 'xlsx') {
+    let storeId = verifyDownloadToken(request.nextUrl.searchParams.get('t'), 'import-template');
+    if (!storeId) {
+      try {
+        storeId = (await withAuth(request)).storeId;
+      } catch {
+        return unauthorizedResponse();
+      }
+    }
+    const products = await db.product.findMany({
+      where: { storeId },
+      select: { title: true, handle: true },
+      orderBy: { title: 'asc' },
+      take: 5000,
+    });
+    const workbook = buildImportTemplate(products);
+    return new NextResponse(new Uint8Array(workbook), {
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="marka-reviews-import-template.xlsx"',
+        'Cache-Control': 'private, no-store',
+      },
+    });
+  }
+
   const csvTemplate = `reviewerName,rating,title,body,reviewDate,reviewerEmail,reviewerLocation,productHandle,images
 John Smith,5,Amazing product,"This is the best product I have ever purchased!",2026-01-15,john@example.com,New York,my-product-handle,https://example.com/photo.jpg
 Jane Doe,4,Great value,"Good quality for the price. Would buy again.",2026-02-20,jane@example.com,Los Angeles,my-product-handle,`;
@@ -82,8 +113,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const text = await file.text();
-    const { headers, rows } = parseCSV(text);
+    // CSV or Excel. The extension is a hint; the first four bytes decide, so a workbook
+    // saved as "reviews.csv" by mistake still opens as what it is.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const fileName = (file.name || '').toLowerCase();
+    let headers: string[];
+    let rows: ReturnType<typeof parseCSV>['rows'];
+    if (fileName.endsWith('.xlsx') || isXlsx(bytes)) {
+      let sheets: XlsxSheet[];
+      try {
+        sheets = parseXlsx(bytes, { maxRows: MAX_CSV_ROWS + 2 });
+      } catch (err) {
+        return NextResponse.json(
+          { error: err instanceof XlsxError ? err.message : 'That Excel file could not be read. Save it as .xlsx and try again.' },
+          { status: 400 }
+        );
+      }
+      // The sheet called Reviews, else the first sheet that is not the product list.
+      const sheet =
+        sheets.find((s) => /review/i.test(s.name)) ??
+        sheets.find((s) => !/product/i.test(s.name) && s.rows.length > 0) ??
+        sheets[0];
+      if (!sheet) return NextResponse.json({ error: 'That workbook has no sheets.' }, { status: 400 });
+      ({ headers, rows } = sheetToTable(sheet));
+    } else if (fileName.endsWith('.xls')) {
+      return NextResponse.json(
+        { error: 'That is the old .xls format. Open it in Excel and save as .xlsx (or .csv), then upload again.' },
+        { status: 400 }
+      );
+    } else {
+      ({ headers, rows } = parseCSV(Buffer.from(bytes).toString('utf8')));
+    }
 
     if (rows.length > MAX_CSV_ROWS) {
       return NextResponse.json(
@@ -96,7 +156,7 @@ export async function POST(request: NextRequest) {
 
     if (!headers.length || !rows.length) {
       return NextResponse.json(
-        { error: 'That file needs a header row and at least one review row.' },
+        { error: 'That file needs a header row and at least one review row. In the Excel template, reviews go on the "Reviews" sheet.' },
         { status: 400 }
       );
     }

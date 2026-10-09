@@ -41,6 +41,8 @@ export interface SyncResult {
   alreadyPresent: number;
   fetched: number;
   truncated: boolean;
+  /** Existing products whose title, handle or image changed in Shopify. */
+  updated: number;
 }
 
 export async function syncProducts(
@@ -52,7 +54,7 @@ export async function syncProducts(
   const products = await fetchShopifyProducts(shop, accessToken, MAX_PRODUCTS, onUnauthorized);
 
   if (products.length === 0) {
-    return { created: 0, alreadyPresent: 0, fetched: 0, truncated: false };
+    return { created: 0, updated: 0, alreadyPresent: 0, fetched: 0, truncated: false };
   }
 
   // One query for what we already hold, rather than one per product. The previous version
@@ -61,10 +63,9 @@ export async function syncProducts(
   // fallback that invented products.
   const existing = await db.product.findMany({
     where: { storeId, shopifyId: { in: products.map((p) => String(p.id)) } },
-    select: { shopifyId: true },
+    select: { id: true, shopifyId: true, title: true, handle: true, image: true },
   });
-  const known = new Set(existing.map((e) => e.shopifyId));
-
+  const known = new Map(existing.map((e) => [e.shopifyId, e]));
   const fresh = products.filter((p) => !known.has(String(p.id)));
 
   if (fresh.length > 0) {
@@ -81,14 +82,34 @@ export async function syncProducts(
         productType: p.product_type || null,
         tags: p.tags || null,
       })),
-      // A concurrent webhook may have created the same product between the read above and
-      // this write. Skipping is correct: the row exists either way.
       skipDuplicates: true,
     });
   }
 
+  // A product already here keeps up with Shopify too. This used to add new products and
+  // leave the rest alone, so a renamed product kept its old title in every dropdown and
+  // every review page forever — the sync button said "already synced" while showing a
+  // name the merchant had changed weeks ago. Only the three fields a merchant sees are
+  // compared, and only rows that differ are written.
+  const changed = products.filter((p) => {
+    const k = known.get(String(p.id));
+    if (!k) return false;
+    return k.title !== p.title || (k.handle ?? '') !== (p.handle ?? '') || (k.image ?? null) !== (p.image?.src || null);
+  });
+  for (let i = 0; i < changed.length; i += 25) {
+    await Promise.all(
+      changed.slice(i, i + 25).map((p) =>
+        db.product.update({
+          where: { id: known.get(String(p.id))!.id },
+          data: { title: p.title, handle: p.handle, image: p.image?.src || null },
+        })
+      )
+    );
+  }
+
   return {
     created: fresh.length,
+    updated: changed.length,
     alreadyPresent: products.length - fresh.length,
     fetched: products.length,
     truncated: products.length >= MAX_PRODUCTS,

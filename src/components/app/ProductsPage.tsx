@@ -163,13 +163,17 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const data = await apiFetch<{ synced: number; total: number; truncated?: boolean }>(
+      const data = await apiFetch<{ synced: number; updated?: number; total: number; truncated?: boolean }>(
         '/api/products/sync', { method: 'POST' }
       );
-      if (data.synced === 0) {
+      const updated = data.updated ?? 0;
+      if (data.synced === 0 && updated === 0) {
         toast.info(`No new products found. ${data.total} already synced.`);
       } else {
-        toast.success(`Synced ${data.synced} new product${data.synced === 1 ? '' : 's'} from Shopify`);
+        const parts: string[] = [];
+        if (data.synced) parts.push(`${data.synced} new product${data.synced === 1 ? '' : 's'}`);
+        if (updated) parts.push(`${updated} renamed or updated`);
+        toast.success(`Synced ${parts.join(' and ')} from Shopify`);
       }
       // Say so rather than leaving a large catalogue silently half-imported. The rest
       // arrives as Shopify sends product webhooks.

@@ -30,6 +30,13 @@
  * Verified Purchase badge would be a misrepresentation under FTC 16 CFR 465.
  */
 
+/**
+ * The author on the import template's example row. A row with this name is the template's
+ * own illustration, not a review, and the importer drops it so a merchant who leaves it
+ * in does not publish "Example reviewer" on a product page.
+ */
+export const EXAMPLE_REVIEWER = 'Example reviewer (delete this row)';
+
 export interface ParsedRow {
   [column: string]: string;
 }
@@ -186,7 +193,7 @@ export function detectSource(headers: string[]): string | null {
 function truthy(v: string | undefined): boolean {
   if (!v) return false;
   const s = v.trim().toLowerCase();
-  return s === 'true' || s === '1' || s === 'yes' || s === 'y' || s === 'published' || s === 'active';
+  return s === 'true' || s === '1' || s === 'yes' || s === 'y' || s === 'published' || s === 'active' || s === 'approved' || s === 'live';
 }
 
 /**
@@ -329,6 +336,8 @@ export function mapRows(
 
     const name = (map.reviewerName ? row[map.reviewerName] : '').trim();
     const body = (map.body ? row[map.body] : '').trim();
+
+    if (name === EXAMPLE_REVIEWER) return; // the template's example row
 
     if (!name && !body) {
       errors.push({ row: rowNum, reason: 'Empty row' });

@@ -58,7 +58,8 @@ const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string
   products: { title: 'Products', desc: 'Products synced from your Shopify catalogue', parent: 'Store' },
   widgets: { title: 'Widgets', desc: 'Design how reviews appear on your storefront', parent: 'Store' },
   incentives: { title: 'Incentives', desc: 'Reward reviewers with a discount — never tied to what they say', parent: 'Store' },
-  settings: { title: 'Settings', desc: 'Moderation rules, email timing, plan and billing', parent: 'Store' },
+  settings: { title: 'Settings', desc: 'Moderation rules, email timing and integrations', parent: 'Store' },
+  plan: { title: 'Plan & billing', desc: 'What you are on, what it includes and what you pay', parent: 'Store' },
 };
 
 const PAGE_IDS = Object.keys(PAGE_TITLES) as PageId[];
@@ -157,9 +158,9 @@ export default function Home() {
           // feature; the next screen should say what they got and where it lives.
           // Declines resolve to the free plan and get none of this.
           if (confirmed?.activated) {
-            params.set('page', 'settings');
+            params.set('page', 'plan');
             params.set('upgraded', '1');
-            setCurrentPage('settings');
+            setCurrentPage('plan');
           }
 
           const rest = params.toString();
@@ -336,7 +337,8 @@ export default function Home() {
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage storeDomain={storeDomain} />;
       case 'incentives': return <IncentivesPage />;
-      case 'settings': return <SettingsPage onNavigate={navigate} storeDomain={storeDomain} />;
+      case 'settings': return <SettingsPage key="settings" onNavigate={navigate} storeDomain={storeDomain} />;
+      case 'plan': return <SettingsPage key="plan" onNavigate={navigate} storeDomain={storeDomain} initialTab="subscription" />;
       default: return <DashboardPage onNavigate={navigate} storeName={storeName} />;
     }
   };

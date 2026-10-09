@@ -58,6 +58,22 @@ export async function GET(request: NextRequest) {
     const { storeId } = await withAuth(request);
     const searchParams = request.nextUrl.searchParams;
 
+    // The whole catalogue, three fields, for a dropdown. The paged list below caps at 250
+    // a page, which the Import page used as "the product list" — so a store with 1,683
+    // products could assign reviews to the first 250 of them and no others.
+    if (searchParams.get('picker') === '1') {
+      const [products, total] = await Promise.all([
+        db.product.findMany({
+          where: { storeId },
+          select: { id: true, title: true, handle: true },
+          orderBy: { title: 'asc' },
+          take: 5000,
+        }),
+        db.product.count({ where: { storeId } }),
+      ]);
+      return NextResponse.json({ products, total, truncated: total > products.length });
+    }
+
     const where: Prisma.ProductWhereInput = { storeId };
 
     const search = searchParams.get('search');

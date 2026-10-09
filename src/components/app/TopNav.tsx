@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import {
   LayoutDashboard, FileSpreadsheet, Settings, ShoppingBag, Palette,
-  MessageSquare, HelpCircle, Gift, Sparkles, Zap, ArrowUpRight, type LucideIcon,
+  MessageSquare, HelpCircle, Gift, Sparkles, Zap, ArrowUpRight, CreditCard, type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Meter, ActionButton, MarkaLockup } from './ui-kit';
@@ -39,6 +39,7 @@ export type PageId =
   | 'questions'
   | 'widgets'
   | 'settings'
+  | 'plan'
   | 'products'
   | 'incentives';
 
@@ -96,6 +97,9 @@ export default function TopNav({
       { id: 'widgets',     label: 'Widgets',     short: 'Widgets',   icon: Palette },
       { id: 'incentives',  label: 'Incentives',  short: 'Offers',    icon: Gift },
       { id: 'settings',    label: 'Settings',    short: 'Settings',  icon: Settings },
+      // Its own entry, after Settings, because "where do I pay / what am I on" was the
+      // question merchants could not answer from a tab inside Settings.
+      { id: 'plan',        label: 'Plan',        short: 'Plan',      icon: CreditCard },
     ],
     [pendingCount]
   );
@@ -121,7 +125,7 @@ export default function TopNav({
               the first thing worth losing, because the fraction beside it says the same
               thing in less room. */}
           <button
-            onClick={() => onPageChange('settings')}
+            onClick={() => onPageChange('plan')}
             className="ring-focus surface lift hidden items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left md:flex"
             title="Plan and usage"
           >
@@ -159,7 +163,7 @@ export default function TopNav({
           </button>
 
           {planKey === 'free' && (
-            <ActionButton variant="primary" size="sm" icon={Zap} onClick={() => onPageChange('settings')}>
+            <ActionButton variant="primary" size="sm" icon={Zap} onClick={() => onPageChange('plan')}>
               {/* There is no "Pro" plan; the button says what it does at every width. */}
               Upgrade
             </ActionButton>
