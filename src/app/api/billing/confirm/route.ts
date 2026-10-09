@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/auth';
+import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { resolveActiveSubscription } from '@/lib/shopify';
-import { db } from '@/lib/db';
-import { entitledPlan } from '@/lib/plans';
+import { applyResolvedSubscription } from '@/lib/plan-reconcile';
 
 /**
  * Landing point after the merchant approves (or declines) a subscription in Shopify.
  *
- * Two things changed here, both of them bugs rather than refactors:
+ * Three things changed here, all of them bugs rather than refactors:
  *
  * 1. SECURITY — the plan used to come from `?plan=` in the query string, which the browser
  *    controls. Anyone could visit /api/billing/confirm?charge_id=1&plan=enterprise and be
@@ -19,37 +18,75 @@ import { entitledPlan } from '@/lib/plans';
  *    apps must be GraphQL-only). With appSubscriptionCreate, merchant approval activates
  *    the subscription; we just read back what Shopify says is active.
  *
+ * 3. RESILIENCE — reading the subscription involves a second query for the shop's billing
+ *    class, and resolveActiveSubscription deliberately refuses to decide when that query
+ *    fails (guessing wrong writes a merchant down to Free). One blip there used to 500 this
+ *    route; the client swallowed the 500 and the merchant who had just paid landed on a
+ *    dashboard still saying Free, with nothing to say why, until the webhook or the hourly
+ *    reconcile caught up. Now: one retry, and then an honest "pending" rather than an error.
+ *
  * If the merchant declined, there is no active subscription and this correctly resolves to
  * the free plan rather than silently upgrading them.
  */
+
+/**
+ * Pause before the one retry. Long enough for a transient to clear, short enough that the
+ * merchant is still looking at the spinner rather than a stale page.
+ */
+const RETRY_AFTER_MS = 1_500;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * withAuth's own rejection, and nothing else. A 401 from Shopify's API must not become a
+ * 401 of ours — apiFetch turns that into "your session has expired, reload", which is
+ * untrue and unhelpful. See the same helper in ../route.ts.
+ */
+function isAuthFailure(error: unknown): boolean {
+  return error instanceof Error && error.name === 'UnauthorizedError';
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { shop, accessToken, storeId, onUnauthorized } = await withAuth(request);
 
-    const { plan, test } = await resolveActiveSubscription(shop, accessToken, onUnauthorized);
-
-    // Never below a complimentary plan an operator gave this store.
-    await db.store.update({
-      where: { id: storeId },
-      data: { plan: await entitledPlan(storeId, plan) },
-    });
-
-    // The trial is consumed here, on entitlement, not when the charge was created. A
-    // merchant who opened the approval screen and closed it keeps their trial.
-    // A test subscription (development store, or the billing test flag) is not a trial.
-    if (plan !== 'free' && !test) {
-      const { markTrialConsumed } = await import('@/lib/trial');
-      await markTrialConsumed(storeId);
+    let resolved: { plan: string; test: boolean } | null = null;
+    try {
+      resolved = await resolveActiveSubscription(shop, accessToken, onUnauthorized);
+    } catch (first) {
+      console.warn(`[billing/confirm] could not read ${shop}'s subscription; retrying in ${RETRY_AFTER_MS}ms:`, first);
+      await sleep(RETRY_AFTER_MS);
+      try {
+        resolved = await resolveActiveSubscription(shop, accessToken, onUnauthorized);
+      } catch (second) {
+        console.error(
+          `[billing/confirm] still could not read ${shop}'s subscription; leaving the plan to the webhook or the next reconcile:`,
+          second
+        );
+      }
     }
+
+    if (!resolved) {
+      // 200, not 500. The merchant has just paid, and this lets the client say "payment
+      // received — your plan updates within a minute", which is true: app_subscriptions/update
+      // is on its way and the hourly reconcile is behind it. Nothing is written, so a declined
+      // charge is never mistaken for an approved one.
+      return NextResponse.json({ success: false, activated: false, pending: true });
+    }
+
+    // Writes the entitlement (never below a complimentary plan an operator gave), stamps the
+    // reconcile marker, and consumes the one-per-store trial when this is a paid, non-test
+    // subscription. The trial is consumed here, on entitlement, not when the charge was
+    // created — a merchant who opened the approval screen and closed it keeps theirs.
+    await applyResolvedSubscription(storeId, shop, resolved);
 
     return NextResponse.json({
       success: true,
-      plan,
-      activated: plan !== 'free',
+      plan: resolved.plan,
+      activated: resolved.plan !== 'free',
     });
   } catch (error: unknown) {
+    if (isAuthFailure(error)) return unauthorizedResponse();
     console.error('[billing/confirm] failed:', error);
-    const status = (error as Error & { status?: number }).status || 500;
-    return NextResponse.json({ error: 'Could not confirm your subscription.' }, { status });
+    return NextResponse.json({ error: 'Could not confirm your subscription.' }, { status: 500 });
   }
 }

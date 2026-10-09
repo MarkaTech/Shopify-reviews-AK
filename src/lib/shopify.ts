@@ -428,12 +428,26 @@ export interface GraphQLUserError {
   message: string;
 }
 
-class ShopifyGraphQLError extends Error {
+export class ShopifyGraphQLError extends Error {
+  /**
+   * Shopify's HTTP status when the transport failed, 502 for a failure reported in the
+   * body. Diagnostic only: a route must never forward it as its own status. A 401 here
+   * means the OFFLINE token was refused, and surfacing it as a 401 of ours made apiFetch
+   * tell the merchant their session had expired and to reload — which changes nothing.
+   */
   status: number;
-  constructor(message: string, status = 502) {
+  /**
+   * The mutation's own `userErrors`, when that is what failed. Kept as data rather than
+   * flattened into the message so a caller can tell a merchant WHY a charge was refused
+   * (development store, frozen shop, managed pricing) instead of "try again" — see
+   * describeSubscriptionFailure.
+   */
+  userErrors: GraphQLUserError[];
+  constructor(message: string, status = 502, userErrors: GraphQLUserError[] = []) {
     super(message);
     this.name = 'ShopifyGraphQLError';
     this.status = status;
+    this.userErrors = userErrors;
   }
 }
 
@@ -557,7 +571,9 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 function assertNoUserErrors(errors: GraphQLUserError[] | undefined, context: string): void {
   if (errors?.length) {
     throw new ShopifyGraphQLError(
-      `${context}: ${errors.map((e) => `${(e.field ?? []).join('.')} ${e.message}`.trim()).join('; ')}`
+      `${context}: ${errors.map((e) => `${(e.field ?? []).join('.')} ${e.message}`.trim()).join('; ')}`,
+      502,
+      errors
     );
   }
 }
@@ -824,7 +840,13 @@ const SUBSCRIPTION_CREATE = `
  *   - There is no separate "activate" call. Merchant approval activates the subscription;
  *     Shopify then redirects to returnUrl and fires APP_SUBSCRIPTIONS_UPDATE.
  *   - Shopify retires any existing subscription for this app when a new one is approved,
- *     so upgrades and downgrades need no explicit cancellation.
+ *     so upgrades and downgrades need no explicit cancellation. `replacementBehavior` is
+ *     left at its default (STANDARD) on purpose: the old subscription is replaced when the
+ *     merchant APPROVES the new one, never before, so an abandoned approval screen costs
+ *     them nothing.
+ *
+ * Throws ShopifyGraphQLError with the mutation's userErrors attached when Shopify refuses
+ * the subscription; the route classifies those for the merchant.
  */
 export async function createRecurringCharge(
   shop: string,
@@ -930,6 +952,93 @@ export async function createRecurringCharge(
   return result.confirmationUrl;
 }
 
+/* ── Why a subscription could not be created ─────────────────────────────────────────── */
+
+export type SubscriptionFailureKind =
+  /** Shopify refused the Billing API because the app is on Shopify App Pricing. */
+  | 'managed-pricing'
+  /** A live charge against a development or Partner store, which only takes test charges. */
+  | 'development-store'
+  /** Frozen, paused, closed, locked — a shop Shopify will not bill right now. */
+  | 'shop-ineligible'
+  /** A charge is already waiting for the merchant's approval. */
+  | 'pending-charge'
+  /** The offline token was refused: the merchant has to reopen the app to renew it. */
+  | 'reauth'
+  /** Shopify answered with an error this does not recognise. */
+  | 'shopify'
+  /** Not a Shopify error at all. */
+  | 'unknown';
+
+export interface SubscriptionFailure {
+  kind: SubscriptionFailureKind;
+  /** Written for the merchant. Never Shopify's raw text. */
+  message: string;
+  /** 502 when Shopify answered with an error, 500 otherwise. Never Shopify's own status. */
+  status: 502 | 500;
+}
+
+/**
+ * Shopify's wording for each cause, as it appears in appSubscriptionCreate userErrors and
+ * top-level GraphQL errors. Matched loosely on purpose — these strings are not a stable
+ * API, and a message that drifts should fall through to the generic sentence rather than
+ * be misread as a different cause.
+ */
+const MANAGED_PRICING_RE = /managed pricing|app pricing|pricing plan/i;
+const DEVELOPMENT_STORE_RE = /development store|partners?\s+area|test (?:charge|mode|subscription)/i;
+const SHOP_INELIGIBLE_RE =
+  /frozen|paused|closed|locked|dormant|inactive|not eligible|ineligible|cannot be charged|can'?t be charged|not allowed|does not (?:allow|support)|staff account/i;
+const PENDING_CHARGE_RE = /pending/i;
+
+const FAILURE_MESSAGES: Record<SubscriptionFailureKind, string> = {
+  'managed-pricing':
+    'This app takes payment through the plan page in your Shopify admin. Choose your plan there.',
+  'development-store':
+    'This is a development store, and Shopify only allows test charges on it. A paid plan needs a store on a paid Shopify plan.',
+  'shop-ineligible':
+    "Shopify will not accept app charges for this store right now. Check your store's status and plan under Settings > Plan in your Shopify admin, then try again.",
+  'pending-charge':
+    'A previous plan change is still waiting for approval in Shopify. Approve or decline it in your Shopify admin, then try again.',
+  reauth:
+    "Shopify no longer accepts this store's app authorisation. Reopen the app from your Shopify admin, which renews it, then try again.",
+  shopify:
+    'Shopify could not set up this plan change. Please try again in a minute, or contact support and quote the reference.',
+  unknown:
+    'Could not update your plan. Please try again, or contact support and quote the reference.',
+};
+
+function classifySubscriptionFailure(status: number, text: string): SubscriptionFailureKind {
+  // Transport-level first: these are unambiguous, and their bodies are free text that could
+  // match anything below. 401 is the offline token refused; 402 and 423 are what the Admin
+  // API answers for a frozen and a locked shop respectively.
+  if (status === 401) return 'reauth';
+  if (status === 402 || status === 423) return 'shop-ineligible';
+  if (MANAGED_PRICING_RE.test(text)) return 'managed-pricing';
+  if (DEVELOPMENT_STORE_RE.test(text)) return 'development-store';
+  if (SHOP_INELIGIBLE_RE.test(text)) return 'shop-ineligible';
+  if (PENDING_CHARGE_RE.test(text)) return 'pending-charge';
+  return 'shopify';
+}
+
+/**
+ * Classify a failed subscription create or cancel for the merchant.
+ *
+ * Every billing failure used to come back as one sentence, with the HTTP status Shopify
+ * had used. The reason — a live charge against a development store, a frozen shop,
+ * Shopify's own "this app uses managed pricing" — existed only in the Azure log, so a
+ * merchant who could not pay was told to try again or contact support, and support had
+ * nothing to go on either. This keeps the full error for the log (the caller logs it) and
+ * returns what the merchant can act on. Pure, so the mapping is testable without Shopify.
+ */
+export function describeSubscriptionFailure(error: unknown): SubscriptionFailure {
+  if (!(error instanceof ShopifyGraphQLError)) {
+    return { kind: 'unknown', message: FAILURE_MESSAGES.unknown, status: 500 };
+  }
+  const text = [...error.userErrors.map((e) => e.message), error.message].join('\n');
+  const kind = classifySubscriptionFailure(error.status, text);
+  return { kind, message: FAILURE_MESSAGES[kind], status: 502 };
+}
+
 const ACTIVE_SUBSCRIPTIONS = `
   query CurrentSubscriptions {
     currentAppInstallation {
@@ -947,8 +1056,8 @@ export interface ActiveSubscription {
 }
 
 const CANCEL_SUBSCRIPTION = `
-  mutation CancelAppSubscription($id: ID!) {
-    appSubscriptionCancel(id: $id) {
+  mutation CancelAppSubscription($id: ID!, $prorate: Boolean) {
+    appSubscriptionCancel(id: $id, prorate: $prorate) {
       appSubscription { id status }
       userErrors { field message }
     }
@@ -981,7 +1090,18 @@ const CANCEL_SUBSCRIPTION = `
 export async function cancelActiveSubscriptions(
   shop: string,
   accessToken: string,
-  onUnauthorized?: () => Promise<string | null>
+  onUnauthorized?: () => Promise<string | null>,
+  /**
+   * Credit the merchant for the unused part of the current 30-day cycle.
+   *
+   * Shopify's default is no credit: the subscription ends now and the merchant keeps
+   * paying for days they no longer get. That is right when THEY cancel (it is what every
+   * subscription does) and wrong when WE take the charge away from under a merchant who
+   * did nothing — an operator giving a store the plan free on day 2 of a cycle had them
+   * paying for 28 days of a plan that was now free. The credit comes out of the Partner
+   * payout, so only the complimentary grant asks for it.
+   */
+  prorate = false
 ): Promise<number> {
   const subs = await fetchActiveSubscriptions(shop, accessToken, onUnauthorized);
   if (!subs.length) return 0;
@@ -991,18 +1111,20 @@ export async function cancelActiveSubscriptions(
     const data = await callShopifyGraphQL<{
       appSubscriptionCancel: {
         appSubscription: { id: string; status: string } | null;
-        userErrors: Array<{ field: string[]; message: string }>;
+        userErrors: GraphQLUserError[];
       };
-    }>(shop, accessToken, CANCEL_SUBSCRIPTION, { id: sub.id }, onUnauthorized);
+    }>(shop, accessToken, CANCEL_SUBSCRIPTION, { id: sub.id, prorate }, onUnauthorized);
 
     const errors = data.appSubscriptionCancel?.userErrors ?? [];
     if (errors.length) {
       // Loud and fatal. A partial cancel is exactly the state that produced the original
       // bug — local plan says free, Shopify says active, reconciliation reverts. Better
       // the merchant sees an error and the plan stays paid than sees success and keeps
-      // being billed.
-      throw new Error(
-        `Could not cancel subscription ${sub.id}: ${errors.map((e) => e.message).join('; ')}`
+      // being billed. Typed, with the userErrors attached, so the route can say why.
+      throw new ShopifyGraphQLError(
+        `appSubscriptionCancel ${sub.id}: ${errors.map((e) => e.message).join('; ')}`,
+        502,
+        errors
       );
     }
     cancelled++;
@@ -1046,6 +1168,19 @@ export async function fetchActiveSubscriptions(
  */
 export function billingTestMode(): boolean {
   return (process.env.SHOPIFY_BILLING_TEST ?? 'false').toLowerCase() === 'true';
+}
+
+/**
+ * Is this app on Shopify App Pricing (managed pricing)?
+ *
+ * When it is, Shopify hosts the plan page and refuses appSubscriptionCreate outright, so
+ * the billing route sends the merchant to that page instead of trying. The flag is the
+ * explicit answer; a Billing API rejection that names managed pricing is the implicit one,
+ * and the route honours both. Off by default: this app was built on the Billing API, and
+ * the opt-in has not been confirmed by its owner.
+ */
+export function managedPricingEnabled(): boolean {
+  return (process.env.SHOPIFY_MANAGED_PRICING ?? 'false').trim().toLowerCase() === 'true';
 }
 
 const SHOP_PLAN_QUERY = `

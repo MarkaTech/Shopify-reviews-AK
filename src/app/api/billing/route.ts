@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/auth';
-import { createRecurringCharge, cancelActiveSubscriptions, SHOPIFY_APP_URL } from '@/lib/shopify';
+import { withAuth, unauthorizedResponse } from '@/lib/auth';
+import {
+  createRecurringCharge,
+  cancelActiveSubscriptions,
+  describeSubscriptionFailure,
+  managedPricingEnabled,
+  SHOPIFY_APP_URL,
+} from '@/lib/shopify';
 import { adminUrl } from '@/lib/admin-links';
-import { shopifyClientId } from '@/lib/client-id';
+import { shopifyClientId, shopifyAppHandle } from '@/lib/client-id';
 
 /**
  * Where Shopify sends the merchant after they approve or decline the charge.
@@ -31,15 +37,58 @@ function embeddedReturnUrl(shop: string): string {
   return embedded || `${SHOPIFY_APP_URL}/?shop=${shop}&billing=success`;
 }
 
+/**
+ * Shopify's hosted plan page for this app, inside the merchant's admin.
+ *
+ * New public apps are on Shopify App Pricing by default, and once an app is opted in the
+ * Billing API is closed to it: "you can't create new recurring application charges using
+ * the Billing API". The merchant picks a plan on a page Shopify hosts at
+ * /charges/<app handle>/pricing_plans instead, and Shopify then fires
+ * app_subscriptions/update, which the webhook handler already turns into an entitlement.
+ *
+ * Whether THIS app is opted in has not been confirmed, and merchants are reporting that
+ * they cannot pay, so both doors are open: SHOPIFY_MANAGED_PRICING=true sends every
+ * upgrade to the hosted page without trying the API, and an API rejection that names
+ * managed pricing falls back to the same page. Either way the client receives
+ * `pricingPageUrl` and opens it with App Bridge. The handle, unlike the client ID, has no
+ * substitute on this path — see shopifyAppHandle().
+ */
+function pricingPageUrl(shop: string): string | null {
+  return adminUrl(shop, `/charges/${shopifyAppHandle()}/pricing_plans`);
+}
+
+/**
+ * withAuth's own rejection, and nothing else.
+ *
+ * The response status used to be copied off whatever was thrown, so a 401 from Shopify's
+ * Admin API — the OFFLINE token refused — reached the browser as a 401 of ours, and
+ * apiFetch told the merchant their session had expired and to reload. Reloading changes
+ * nothing; their session was fine. Only the session check may answer 401 here.
+ */
+function isAuthFailure(error: unknown): boolean {
+  return error instanceof Error && error.name === 'UnauthorizedError';
+}
+
 export async function POST(request: NextRequest) {
+  // Hoisted out of the try so the failure log can say which shop and plan it was for.
+  let shop = '';
+  let plan = '';
+  // A short reference, in the log line and in the merchant's message. "It says ref
+  // mg3k2x1" is enough for support to find the full Shopify error in the Azure log; the
+  // generic sentence on its own was not, which is how "merchants cannot pay" arrived with
+  // no way to tell which merchant hit which cause.
+  const ref = Date.now().toString(36);
+
   try {
-    const { shop, accessToken, storeId, onUnauthorized } = await withAuth(request);
+    const auth = await withAuth(request);
+    shop = auth.shop;
+    const { accessToken, storeId, onUnauthorized } = auth;
 
     // `returnUrl` is deliberately no longer read from the body. It was never sent by the
     // only caller, and an attacker-supplied return URL on a billing flow is a redirect
     // gadget carrying the merchant straight out of the admin after a payment.
-    const body = await request.json() as { plan: string };
-    const { plan } = body;
+    const body = await request.json() as { plan?: unknown };
+    plan = typeof body.plan === 'string' ? body.plan : '';
 
     if (!plan) {
       return NextResponse.json({ error: 'Plan is required' }, { status: 400 });
@@ -83,6 +132,9 @@ export async function POST(request: NextRequest) {
       // stored plan is untouched, which leaves the merchant on the tier they are still
       // paying for. The alternative ordering fails toward "free locally, billed at
       // Shopify" — the exact broken state this replaces.
+      //
+      // Cancellation stays on the Billing API under Shopify App Pricing too: that opt-in
+      // closes subscription CREATION, not appSubscriptionCancel.
       const cancelled = await cancelActiveSubscriptions(shop, accessToken, onUnauthorized);
 
       const { db } = await import('@/lib/db');
@@ -93,6 +145,17 @@ export async function POST(request: NextRequest) {
 
       console.log(`[billing] ${shop} downgraded to free (${cancelled} subscription(s) cancelled)`);
       return NextResponse.json({ success: true, plan: 'free', activated: true, cancelled });
+    }
+
+    // Shopify App Pricing, by configuration: the Billing API is not tried at all.
+    if (managedPricingEnabled()) {
+      const page = pricingPageUrl(shop);
+      if (!page) throw new Error('SHOPIFY_MANAGED_PRICING is on but no admin URL could be built');
+      console.info(
+        `[billing] ${shop} -> ${plan}: Shopify App Pricing is on (SHOPIFY_MANAGED_PRICING); ` +
+          'sending the merchant to the hosted plan page'
+      );
+      return NextResponse.json({ pricingPageUrl: page, plan });
     }
 
     const chargeReturnUrl = embeddedReturnUrl(shop);
@@ -112,19 +175,36 @@ export async function POST(request: NextRequest) {
       trialDays
     );
 
+    console.info(`[billing] ${shop} -> ${plan}: subscription created through the Billing API, awaiting approval`);
     return NextResponse.json({
       confirmationUrl,
       plan,
     });
   } catch (error: unknown) {
-    // Logged in full, returned generic. Every other route in the app does this; these two
-    // billing routes echoed `error.message` verbatim, which leaks Shopify userErrors and
-    // GraphQL internals to the browser for no benefit to the merchant.
-    console.error('[billing] charge/cancel failed:', error);
-    const status = (error as Error & { status?: number }).status || 500;
-    return NextResponse.json(
-      { error: 'Could not update your plan. Please try again, or contact support if it keeps failing.' },
-      { status }
-    );
+    if (isAuthFailure(error)) return unauthorizedResponse();
+
+    // Logged in full, returned classified. Shopify's userErrors and GraphQL internals never
+    // reach the browser verbatim; what the merchant sees is one of a handful of sentences
+    // that say what THEY can do about it, plus the reference that finds this log line.
+    // The status is ours — 502 when Shopify answered with an error, 500 otherwise — and
+    // never Shopify's own.
+    console.error(`[billing] charge/cancel failed for ${shop || 'unknown shop'} (plan '${plan}', ref ${ref}):`, error);
+
+    const failure = describeSubscriptionFailure(error);
+
+    // Shopify refused the Billing API because the app is on Shopify App Pricing. Not an
+    // error for the merchant, just the other door: the same response as the opt-in path.
+    if (failure.kind === 'managed-pricing' && shop && plan && plan !== 'free') {
+      const page = pricingPageUrl(shop);
+      if (page) {
+        console.info(
+          `[billing] ${shop} -> ${plan}: the Billing API refused the charge because the app uses ` +
+            `Shopify App Pricing; sending the merchant to the hosted plan page (ref ${ref})`
+        );
+        return NextResponse.json({ pricingPageUrl: page, plan });
+      }
+    }
+
+    return NextResponse.json({ error: `${failure.message} (ref ${ref})` }, { status: failure.status });
   }
 }

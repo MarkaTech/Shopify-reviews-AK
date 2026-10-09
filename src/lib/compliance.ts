@@ -492,6 +492,14 @@ async function handleShopRedact(_data: Record<string, unknown>, shop: string) {
   await db.importJob.deleteMany({ where: { storeId } });
   await db.widgetConfig.deleteMany({ where: { storeId } });
   await db.storeSetting.deleteMany({ where: { storeId } });
+  // Deliberately NOT deleted: TrialLedger and ComplimentaryLedger. Both are keyed by the
+  // shop domain rather than by storeId, so nothing here reaches them, and neither holds
+  // personal data — a domain, a date, and (for the second) a plan name. They exist
+  // precisely to outlive this erasure: the trial ledger so that uninstall, 48 hours,
+  // reinstall does not mint a second free trial; the complimentary ledger so that a
+  // merchant an operator gave a plan to does not come back on Free with no record that the
+  // gift ever existed. The StoreSetting copy of each goes with everything else above and is
+  // re-created from the ledger on the next read (trial.ts, plans.ts getComplimentary).
   await db.analyticsEvent.deleteMany({ where: { storeId } });
   await db.store.delete({ where: { id: storeId } });
 

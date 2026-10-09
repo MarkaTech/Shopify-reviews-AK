@@ -27,3 +27,19 @@
 export function shopifyClientId(): string {
   return process.env.SHOPIFY_API_KEY || process.env.NEXT_PUBLIC_SHOPIFY_API_KEY || '';
 }
+
+/**
+ * The app's handle in the Shopify admin — the `handle = "..."` line of shopify.app.toml.
+ *
+ * Needed for exactly one URL: the plan page Shopify hosts for an app on Shopify App Pricing
+ * (managed pricing), `https://admin.shopify.com/store/<store>/charges/<handle>/pricing_plans`.
+ * The client ID cannot stand in for the handle on that path the way it does on `/apps/<id>`.
+ *
+ * An environment variable with the toml value as its default, rather than reading the toml
+ * at runtime: the file is not shipped in the standalone build. The default is the handle the
+ * app was published under, and the variable exists so a renamed handle can be followed
+ * without a code change.
+ */
+export function shopifyAppHandle(): string {
+  return process.env.SHOPIFY_APP_HANDLE?.trim() || 'reviewmaster-reviews';
+}

@@ -630,3 +630,22 @@ model TrialLedger {
   shopifyDomain String   @id
   usedAt        DateTime
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A complimentary plan per SHOP, surviving shop/redact.
+//
+// The gift an operator gives from the portal lives in StoreSetting
+// ('admin.complimentaryPlan'), which shop/redact deletes with the Store row 48 hours after
+// an uninstall. A gifted merchant who reinstalled after that came back on Free, with no
+// trace in the portal that a gift had ever existed. Same reasoning as TrialLedger: a shop
+// domain, a plan name and two dates are not customer personal data, so this one fact can
+// outlive the erasure. getComplimentary() consults it only when the StoreSetting row is
+// missing altogether (an ended gift leaves an empty row behind, and stays ended), and
+// re-creates the row from it.
+// ─────────────────────────────────────────────────────────────────────────────
+model ComplimentaryLedger {
+  shopifyDomain String    @id
+  plan          String
+  grantedAt     DateTime
+  endedAt       DateTime?
+}

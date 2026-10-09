@@ -18,6 +18,7 @@ import { db } from './db';
 import { encryptToken } from './crypto';
 import { markWebhooksRegistered } from './webhook-health';
 import { syncProductsInBackground } from './product-sync';
+import { clearPlanReconciled } from './plan-reconcile';
 import {
   exchangeSessionTokenForAccessToken,
   fetchShopifyShop,
@@ -65,6 +66,14 @@ export async function provisionStore(shop: string, tokens: ShopifyTokenSet) {
     update: storeFields,
     create: storeFields,
   });
+
+  // Forget when the plan was last checked, so the first dashboard load after this asks
+  // Shopify straight away. Every path through here is one where the old answer is suspect:
+  // a reinstall (Shopify cancelled the subscription at uninstall), a re-authorisation after
+  // the token lapsed (the hourly check could not run and may have stamped the marker while
+  // failing), or a first install (nothing to forget). Awaited — it is one small delete, and
+  // the reconcile that follows reads the marker on the very next request.
+  await clearPlanReconciled(store.id);
 
   registerWebhooks(shop, accessToken)
     .then(

@@ -114,6 +114,15 @@ async function relinkDetached(storeId: string, shopifyId: string, productId: str
 
 const webhookHandlers: Record<string, WebhookHandler> = {
   'app-uninstalled': async (_data, storeId) => {
+    // Shopify cancels the app's subscription at uninstall, so whatever paid tier the row
+    // holds is no longer paid for. Written down now rather than left for the reconcile: a
+    // merchant who reinstalled within the hour came back with the Growth/Scale chip, gated
+    // features and an attribution-free widget they had stopped paying for, then silently
+    // dropped to Free when the marker aged out. Never below a complimentary plan an
+    // operator gave — that one is not Shopify's to cancel.
+    const { entitledPlan } = await import('@/lib/plans');
+    const plan = await entitledPlan(storeId, 'free');
+
     // Deactivate store but keep data for potential re-install
     await db.store.update({
       where: { id: storeId },
@@ -125,6 +134,7 @@ const webhookHandlers: Record<string, WebhookHandler> = {
         refreshToken: null,
         tokenExpiresAt: null,
         refreshTokenExpiresAt: null,
+        plan,
       },
     });
 
@@ -133,7 +143,12 @@ const webhookHandlers: Record<string, WebhookHandler> = {
     // again instead of trusting a marker left by the previous install.
     await clearWebhookRegistration(storeId);
 
-    console.log(`Store ${storeId} uninstalled the app`);
+    // Same for the plan marker: the first dashboard load after a reinstall should ask
+    // Shopify straight away, not trust an answer from before the uninstall.
+    const { clearPlanReconciled } = await import('@/lib/plan-reconcile');
+    await clearPlanReconciled(storeId);
+
+    console.log(`Store ${storeId} uninstalled the app (plan now '${plan}')`);
   },
 
   'products-create': async (data, storeId) => {

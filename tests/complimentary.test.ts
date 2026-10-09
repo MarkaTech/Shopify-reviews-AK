@@ -11,6 +11,7 @@ import {
   serialiseComplimentary,
   higherPlan,
   planPaidAbove,
+  complimentaryFromLedger,
   COMPLIMENTARY_PLANS,
 } from '../src/lib/plans';
 
@@ -75,6 +76,41 @@ test('giving a plan free cancels charges for it or less, and keeps a higher one'
   // Paying for more than the gift: that charge, and that plan, stay.
   assert.strictEqual(planPaidAbove(['scale'], 'growth'), 'scale');
   assert.strictEqual(planPaidAbove(['pro'], 'growth'), 'scale');
+});
+
+test('granting asks of the one plan Shopify entitles the store to, test-aware', () => {
+  // The grant resolves ONE plan through resolveActiveSubscription — which reports 'free'
+  // for a test subscription on a live store — and asks whether that is above the gift.
+  assert.strictEqual(planPaidAbove(['free'], 'growth'), null); // test subscription on a live store: cancelled
+  assert.strictEqual(planPaidAbove(['growth'], 'growth'), null);
+  assert.strictEqual(planPaidAbove(['scale'], 'growth'), 'scale');
+  assert.strictEqual(planPaidAbove(['scale'], 'scale'), null);
+});
+
+console.log('\nComplimentary ledger (survives shop/redact)');
+
+test('an open ledger row restores the gift', () => {
+  const row = { plan: 'scale', grantedAt: new Date('2026-10-08T12:00:00Z'), endedAt: null };
+  assert.deepStrictEqual(complimentaryFromLedger(row), { plan: 'scale', grantedAt: '2026-10-08T12:00:00.000Z' });
+});
+
+test('an ended ledger row restores nothing', () => {
+  const row = { plan: 'scale', grantedAt: new Date('2026-10-08T12:00:00Z'), endedAt: new Date('2026-10-09T12:00:00Z') };
+  assert.strictEqual(complimentaryFromLedger(row), null);
+});
+
+test('a ledger row naming an unknown or free plan restores nothing', () => {
+  assert.strictEqual(complimentaryFromLedger({ plan: 'enterprise', grantedAt: new Date(), endedAt: null }), null);
+  assert.strictEqual(complimentaryFromLedger({ plan: 'free', grantedAt: new Date(), endedAt: null }), null);
+  assert.strictEqual(complimentaryFromLedger(null), null);
+  assert.strictEqual(complimentaryFromLedger(undefined), null);
+});
+
+test('a restored gift serialises exactly as a fresh grant would', () => {
+  const row = { plan: 'growth', grantedAt: new Date('2026-10-08T12:00:00Z'), endedAt: null };
+  const comp = complimentaryFromLedger(row);
+  assert.ok(comp);
+  assert.deepStrictEqual(parseComplimentary(serialiseComplimentary(comp.plan, new Date(comp.grantedAt))), comp);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

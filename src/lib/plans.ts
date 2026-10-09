@@ -255,9 +255,13 @@ export async function getStorePlan(storeId: string): Promise<PlanId> {
  * plan but billing can never drop it below. Without that, the hourly reconcile would find
  * no subscription and quietly move a complimentary store back to Free.
  *
- * Kept in StoreSetting, so there is no migration. An empty value means none: ending a
- * complimentary plan writes an empty value rather than deleting the row, because the
- * operator portal does not delete.
+ * Kept in StoreSetting, which is what every reader consults. An empty value means none:
+ * ending a complimentary plan writes an empty value rather than deleting the row, because
+ * the operator portal does not delete. A second copy keyed by shop domain lives in
+ * ComplimentaryLedger, because shop/redact deletes every StoreSetting row 48 hours after an
+ * uninstall, and a gifted merchant who reinstalled after that came back on Free with no
+ * trace that a gift had existed. The ledger is read only when the StoreSetting row is
+ * missing altogether — see getComplimentary — and the row is then re-created from it.
  */
 export const COMPLIMENTARY_KEY = 'admin.complimentaryPlan';
 
@@ -292,7 +296,79 @@ export async function getComplimentary(storeId: string): Promise<Complimentary |
     where: { storeId_key: { storeId, key: COMPLIMENTARY_KEY } },
     select: { value: true },
   });
-  return parseComplimentary(row?.value);
+  // A row that exists is the answer, even when empty: an ended gift stays ended. Only a
+  // MISSING row — what shop/redact leaves behind, and what a reinstalled store has — is
+  // worth asking the ledger about.
+  if (row) return parseComplimentary(row.value);
+  return restoreComplimentaryFromLedger(storeId);
+}
+
+/** What the ledger holds for a shop. Dates are Date objects, as Prisma returns them. */
+export interface ComplimentaryLedgerRow {
+  plan: string;
+  grantedAt: Date;
+  endedAt: Date | null;
+}
+
+/** Pure: the gift a ledger row describes, or null when it has ended or names no known plan. */
+export function complimentaryFromLedger(row: ComplimentaryLedgerRow | null | undefined): Complimentary | null {
+  if (!row || row.endedAt) return null;
+  if (!(COMPLIMENTARY_PLANS as string[]).includes(row.plan)) return null;
+  return { plan: row.plan as PlanId, grantedAt: row.grantedAt.toISOString() };
+}
+
+/**
+ * Re-create the StoreSetting from the ledger after shop/redact erased it.
+ *
+ * Best-effort: a store that was never given anything costs two lookups here on the rare
+ * paths that call entitledPlan (reconcile, webhook, confirm), and a ledger that cannot be
+ * read grants nothing rather than failing the caller.
+ */
+async function restoreComplimentaryFromLedger(storeId: string): Promise<Complimentary | null> {
+  try {
+    const store = await db.store.findUnique({ where: { id: storeId }, select: { shopifyDomain: true } });
+    if (!store?.shopifyDomain) return null;
+    const ledger = await db.complimentaryLedger.findUnique({ where: { shopifyDomain: store.shopifyDomain } });
+    const comp = complimentaryFromLedger(ledger);
+    if (!comp) return null;
+    await db.storeSetting.upsert({
+      where: { storeId_key: { storeId, key: COMPLIMENTARY_KEY } },
+      create: { storeId, key: COMPLIMENTARY_KEY, value: serialiseComplimentary(comp.plan, new Date(comp.grantedAt)) },
+      // Lost a race with a concurrent restore or an operator's write: theirs stands.
+      update: {},
+    });
+    console.info(`[plans] restored complimentary '${comp.plan}' for ${store.shopifyDomain} from the ledger`);
+    return comp;
+  } catch (err) {
+    console.error('[plans] could not consult the complimentary ledger for store', storeId, err);
+    return null;
+  }
+}
+
+/**
+ * Record a gift in the ledger. A later grant replaces an earlier one. Never throws: the
+ * StoreSetting is the record the app runs on, and the operator's grant must not fail
+ * because its backup copy did — it is logged loudly instead.
+ */
+export async function recordComplimentaryGrant(shopifyDomain: string, plan: PlanId, grantedAt = new Date()): Promise<void> {
+  try {
+    await db.complimentaryLedger.upsert({
+      where: { shopifyDomain },
+      create: { shopifyDomain, plan, grantedAt, endedAt: null },
+      update: { plan, grantedAt, endedAt: null },
+    });
+  } catch (err) {
+    console.error(`[plans] could not record the complimentary plan for ${shopifyDomain} in the ledger`, err);
+  }
+}
+
+/** Mark the gift ended in the ledger, so a reinstall after redact does not bring it back. */
+export async function recordComplimentaryEnd(shopifyDomain: string, endedAt = new Date()): Promise<void> {
+  try {
+    await db.complimentaryLedger.updateMany({ where: { shopifyDomain, endedAt: null }, data: { endedAt } });
+  } catch (err) {
+    console.error(`[plans] could not record the end of the complimentary plan for ${shopifyDomain} in the ledger`, err);
+  }
 }
 
 /** The higher of two plans, in price order. */

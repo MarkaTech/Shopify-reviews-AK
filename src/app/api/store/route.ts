@@ -1,8 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { withAuth, unauthorizedResponse } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { resolveActivePlan } from '@/lib/shopify';
-import { normalisePlan, entitledPlan } from '@/lib/plans';
+import { reconcileStorePlan, PLAN_RECONCILED_KEY } from '@/lib/plan-reconcile';
 
 /**
  * How often to re-derive the plan from Shopify. Cheap enough to do often, expensive
@@ -10,7 +9,6 @@ import { normalisePlan, entitledPlan } from '@/lib/plans';
  * generate an Admin API call per navigation for a value that changes a few times a year.
  */
 const RECONCILE_EVERY_MS = 60 * 60 * 1000;
-const LAST_RECONCILED_KEY = 'plan.reconciledAt';
 
 /**
  * Re-derive `store.plan` from what Shopify actually reports, and correct it if it drifted.
@@ -26,6 +24,8 @@ const LAST_RECONCILED_KEY = 'plan.reconciledAt';
  *
  * There was no path that would ever correct any of those. Shopify is the authority on
  * what a merchant is paying for, so this asks it, on a schedule, and writes the answer.
+ * The asking and writing live in src/lib/plan-reconcile.ts, shared with the hourly cron
+ * and the operator portal; this wrapper only adds the once-an-hour throttle.
  *
  * Runs in `after()` so it never delays the response, and every failure is swallowed: a
  * Shopify API blip must not stop a merchant opening their own dashboard. The worst case
@@ -41,30 +41,13 @@ async function reconcilePlan(
 ): Promise<void> {
   try {
     const marker = await db.storeSetting.findUnique({
-      where: { storeId_key: { storeId, key: LAST_RECONCILED_KEY } },
+      where: { storeId_key: { storeId, key: PLAN_RECONCILED_KEY } },
       select: { value: true },
     });
     const last = marker?.value ? Date.parse(marker.value) : 0;
     if (Number.isFinite(last) && Date.now() - last < RECONCILE_EVERY_MS) return;
 
-    // What Shopify bills for, lifted to any complimentary plan an operator gave.
-    const actual = await entitledPlan(storeId, await resolveActivePlan(shop, accessToken, onUnauthorized));
-
-    const now = new Date().toISOString();
-    await db.storeSetting.upsert({
-      where: { storeId_key: { storeId, key: LAST_RECONCILED_KEY } },
-      create: { storeId, key: LAST_RECONCILED_KEY, value: now },
-      update: { value: now },
-    });
-
-    if (normalisePlan(actual) !== normalisePlan(currentPlan)) {
-      // Worth a log line either way. Drift downward means we were giving away a paid
-      // tier; drift upward means a merchant was paying for something they could not use.
-      console.warn(
-        `[plan] ${shop} drifted: stored='${currentPlan}' actual='${actual}' — correcting`
-      );
-      await db.store.update({ where: { id: storeId }, data: { plan: actual } });
-    }
+    await reconcileStorePlan(storeId, shop, accessToken, onUnauthorized, currentPlan);
   } catch (err) {
     console.error('[plan] reconciliation failed for', shop, err);
   }

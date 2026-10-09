@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sweepDueRequests } from '@/lib/request-sender';
 import { reconcileSomeStores } from '@/lib/webhook-health';
+import { reconcileSomePlans } from '@/lib/plan-reconcile';
 import { recordJobRun } from '@/lib/job-run';
 
 /**
@@ -45,7 +46,21 @@ export async function POST(request: NextRequest) {
         return null;
       });
 
-    return NextResponse.json({ ok: true, ...counts, webhooks: repaired });
+    // And a slice of stores' PLANS, for the same reason and in the same shape.
+    //
+    // This is the "hourly billing check" the operator portal always described. Before it
+    // existed, the plan was only re-read when the merchant opened their dashboard, so a
+    // store whose complimentary plan was ended — or whose subscription was cancelled while a
+    // webhook was dropped — kept sending under the wrong plan's quota from THIS sweep until
+    // the merchant next logged in. The sweep is the one consumer of the plan that runs
+    // without the merchant, so the correction has to run without them too.
+    const plans = await recordJobRun('plans:reconcile', () => reconcileSomePlans(10))
+      .catch((err) => {
+        console.error('[cron/review-requests] plan reconciliation failed:', err);
+        return null;
+      });
+
+    return NextResponse.json({ ok: true, ...counts, webhooks: repaired, plans });
   } catch (error) {
     console.error('[cron/review-requests] failed:', error);
     return NextResponse.json({ error: 'Sweep failed' }, { status: 500 });
