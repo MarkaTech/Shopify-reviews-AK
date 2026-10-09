@@ -1,19 +1,25 @@
 /**
  * Offline tests for complimentary plans: a paid plan an operator gives a store at no
- * charge from the operator portal. Pure parts only. Run with:
+ * charge from the operator portal. Pure parts, the ledger backfill migration's pattern, and
+ * ending a gift against a stubbed Prisma client; nothing here reaches a database. Run with:
  *
- *   npx tsx tests/complimentary.test.ts
+ *   npx --yes bun@latest run tests/complimentary.test.ts
  */
 
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   parseComplimentary,
   serialiseComplimentary,
   higherPlan,
   planPaidAbove,
   complimentaryFromLedger,
+  endComplimentary,
+  COMPLIMENTARY_KEY,
   COMPLIMENTARY_PLANS,
 } from '../src/lib/plans';
+import { db } from '../src/lib/db';
 
 let passed = 0;
 let failed = 0;
@@ -113,5 +119,132 @@ test('a restored gift serialises exactly as a fresh grant would', () => {
   assert.deepStrictEqual(parseComplimentary(serialiseComplimentary(comp.plan, new Date(comp.grantedAt))), comp);
 });
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-if (failed > 0) process.exit(1);
+console.log('\nLedger backfill (gifts given before the ledger existed)');
+
+// The backfill migration matches the stored value by pattern instead of a ::jsonb cast, so
+// a malformed value cannot fail the deploy. That only works while the pattern matches what
+// serialiseComplimentary writes; JS and Postgres regexes agree on a pattern this plain.
+const backfillSql = readFileSync(
+  join(__dirname, '../prisma/migrations/20261010120000_complimentary_ledger_backfill/migration.sql'),
+  'utf8'
+);
+const planPattern = (() => {
+  const m = backfillSql.match(/ss\."value" ~ '([^']+)'/);
+  assert.ok(m, 'backfill migration has no value pattern');
+  return new RegExp(m[1]);
+})();
+
+test('the backfill copies every live gift the portal can have written', () => {
+  for (const plan of COMPLIMENTARY_PLANS) {
+    const value = serialiseComplimentary(plan, new Date('2026-10-09T08:30:00Z'));
+    const m = value.match(planPattern);
+    assert.ok(m, `pattern misses ${value}`);
+    // substring(... from pattern) returns the first group: the plan written to the ledger.
+    assert.strictEqual(m[1], plan);
+  }
+});
+
+test('the backfill skips ended, free and malformed values', () => {
+  assert.ok(!planPattern.test(''));
+  assert.ok(!planPattern.test(JSON.stringify({ plan: 'free', grantedAt: '2026-10-09T08:30:00.000Z' })));
+  assert.ok(!planPattern.test('scale'));
+});
+
+test('the backfill keys on the setting the app reads, and leaves existing ledger rows alone', () => {
+  assert.ok(backfillSql.includes(`ss."key" = '${COMPLIMENTARY_KEY}'`));
+  assert.ok(/ON CONFLICT \("shopifyDomain"\) DO NOTHING/.test(backfillSql));
+  assert.ok(/"shopifyDomain" IS NOT NULL/.test(backfillSql));
+});
+
+/* ── Ending a gift: both writes or neither ───────────────────────────────────
+   Run against a stubbed client. Every stub is checked to be in place BEFORE
+   endComplimentary is called, so a stub that did not take fails the test instead
+   of reaching a real database. */
+
+type Op = { op: string; args: unknown; then: (resolve: (v: unknown) => void) => void };
+const executed: string[] = [];
+let transactions: Op[][] = [];
+let transactionFails = false;
+const makeOp = (op: string, args: unknown): Op => ({
+  op,
+  args,
+  // Awaited on its own, outside a transaction.
+  then: (resolve) => {
+    executed.push(op);
+    resolve(op);
+  },
+});
+const stubs: Record<string, unknown> = {
+  $transaction: async (ops: Op[]) => {
+    if (transactionFails) throw new Error('connection dropped');
+    transactions.push(ops);
+    return ops.map((o) => o.op);
+  },
+  storeSetting: { upsert: (args: unknown) => makeOp('setting', args) },
+  complimentaryLedger: { updateMany: (args: unknown) => makeOp('ledger', args) },
+};
+const client = db as unknown as Record<string, unknown>;
+
+async function withStubbedDb(fn: () => Promise<void>) {
+  const originals: Record<string, unknown> = {};
+  for (const k of Object.keys(stubs)) {
+    originals[k] = client[k];
+    client[k] = stubs[k];
+  }
+  executed.length = 0;
+  transactions = [];
+  transactionFails = false;
+  try {
+    for (const k of Object.keys(stubs)) assert.strictEqual(client[k], stubs[k], `could not stub db.${k}`);
+    await fn();
+  } finally {
+    for (const k of Object.keys(stubs)) client[k] = originals[k];
+  }
+}
+
+const asyncTests: Array<[string, () => Promise<void>]> = [
+  ['ending a gift writes the empty setting and closes the ledger in one transaction', async () => {
+    const endedAt = new Date('2026-10-10T09:00:00Z');
+    await endComplimentary('store_1', 'x.myshopify.com', endedAt);
+    assert.strictEqual(transactions.length, 1);
+    assert.deepStrictEqual(transactions[0].map((o) => o.op), ['setting', 'ledger']);
+    assert.deepStrictEqual(transactions[0][0].args, {
+      where: { storeId_key: { storeId: 'store_1', key: COMPLIMENTARY_KEY } },
+      create: { storeId: 'store_1', key: COMPLIMENTARY_KEY, value: '' },
+      update: { value: '' },
+    });
+    assert.deepStrictEqual(transactions[0][1].args, {
+      where: { shopifyDomain: 'x.myshopify.com', endedAt: null },
+      data: { endedAt },
+    });
+    // Nothing ran outside the transaction.
+    assert.deepStrictEqual(executed, []);
+  }],
+  ['a failed end throws, so the portal reports it instead of "Ended"', async () => {
+    transactionFails = true;
+    await assert.rejects(endComplimentary('store_1', 'x.myshopify.com'), /connection dropped/);
+    assert.deepStrictEqual(executed, []);
+  }],
+  ['a store with no domain has only its setting ended (no ledger row to close)', async () => {
+    await endComplimentary('store_2', null);
+    assert.strictEqual(transactions.length, 0);
+    assert.deepStrictEqual(executed, ['setting']);
+  }],
+];
+
+(async () => {
+  console.log('\nEnding a complimentary plan');
+  for (const [name, fn] of asyncTests) {
+    try {
+      await withStubbedDb(fn);
+      passed++;
+      console.log(`  ok  ${name}`);
+    } catch (err) {
+      failed++;
+      console.log(`  FAIL  ${name}`);
+      console.log(`        ${(err as Error).message}`);
+    }
+  }
+  console.log(`\n${passed} passed, ${failed} failed\n`);
+  if (failed > 0) process.exit(1);
+})();

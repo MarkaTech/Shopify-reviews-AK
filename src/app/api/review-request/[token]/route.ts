@@ -5,7 +5,7 @@ import { assertReviewCapacity, planLimitResponse, getStorePlan, PLANS } from '@/
 import { validateFiles, uploadToShopify, MediaError, type ValidatedFile } from '@/lib/media';
 import { getFreshAccessToken, tokenRefresherFor, TOKEN_SELECT } from '@/lib/shopify-token';
 import { getSubmissionRules, getRatingLook } from '@/lib/storefront-config';
-import { describeActiveIncentive } from '@/lib/incentives';
+import { describeActiveIncentive, getOfferedIncentive, disclosureForOffer } from '@/lib/incentives';
 import { notifyNewReview } from '@/lib/notifications';
 import { syncReviewToShop, isSyndicationEnabled } from '@/lib/syndication';
 
@@ -202,6 +202,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // when the reviews are written. Both are the same merchant's rules.
     const rules = await getSubmissionRules(storeId);
 
+    // The offer the GET put above the forms, resolved the same way (same row, same plan
+    // gate). Every review written under it records the disclosure as it is created — see
+    // disclosureForOffer for why that cannot wait for the one review the reward lands on.
+    const offered = await getOfferedIncentive(storeId);
+
     const validatedByKey = new Map<string, ValidatedFile[]>();
     if (mediaByKey.size) {
       const allFiles = [...mediaByKey.values()].flat();
@@ -242,6 +247,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const createdIds: Array<{ key: string; id: string }> = [];
     for (const r of submitted) {
       const productOk = r.productId && allowedProductIds.has(r.productId);
+      // The key must match what the form named the media parts. The form sends it
+      // explicitly; older JSON submissions have no media, so the fallback never matters.
+      const key = r.key ?? r.productId ?? `item-${submitted.indexOf(r)}`;
+      // Per review, because a media-only offer covers only the reviews that carry media.
+      // Judged from the validated uploads: the row's own media fields are filled later.
+      const disclosure = disclosureForOffer(offered, (validatedByKey.get(key)?.length ?? 0) > 0);
       const review = await db.review.create({
         data: {
           storeId,
@@ -266,13 +277,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           // against a real paid order, which are the most trustworthy ones the product
           // produces. The safer path was the one being held.
           isPublished: rules.autoPublish,
+          // Disclosed from birth, so no surface (the widget, the Google feed, the Shop
+          // syndication that refuses incentivised reviews) ever sees one of these unmarked,
+          // whichever review in the order the single reward later lands on.
+          isIncentivized: disclosure.isIncentivized,
+          incentiveType: disclosure.incentiveType,
           reviewDate: new Date(),
         },
         select: { id: true },
       });
-      // The key must match what the form named the media parts. The form sends it
-      // explicitly; older JSON submissions have no media, so the fallback never matters.
-      createdIds.push({ key: r.key ?? r.productId ?? `item-${submitted.indexOf(r)}`, id: review.id });
+      createdIds.push({ key, id: review.id });
     }
 
     // Single-use: consume the token so the link cannot be replayed.

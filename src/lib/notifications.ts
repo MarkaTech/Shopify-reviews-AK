@@ -187,6 +187,20 @@ async function recipientFor(storeId: string, settings: NotificationSettings): Pr
 }
 
 /**
+ * Pure: the subject line of the merchant's new-review alert.
+ *
+ * Follows the publish state as the body does. It said "awaiting approval" for every
+ * non-negative review, so on a store with auto-publish on the subject contradicted the body
+ * ("It is already live on your storefront") and sent the merchant to an empty moderation
+ * queue — for every verified-buyer review once the review-request page began alerting too.
+ * A negative review reads the same either way: it needs a reply whether or not it is live.
+ */
+export function newReviewSubject(rating: number, isNegative: boolean, isPublished: boolean): string {
+  if (isNegative) return `${rating}-star review needs your attention`;
+  return isPublished ? `New ${rating}-star review published` : `New ${rating}-star review awaiting approval`;
+}
+
+/**
  * Called after a review is saved. Decides whether anything should be sent, and sends it.
  *
  * Returns a result rather than throwing so the caller can log it without a try/catch, and
@@ -212,9 +226,7 @@ export async function notifyNewReview(
       select: { name: true, shopifyDomain: true },
     });
 
-    const subject = isNegative
-      ? `${review.rating}-star review needs your attention`
-      : `New ${review.rating}-star review awaiting approval`;
+    const subject = newReviewSubject(review.rating, isNegative, review.isPublished);
 
     const productLine = review.productTitle
       ? `<p style="margin:0 0 4px;font-size:13px;color:#5A6675">on <strong>${esc(review.productTitle)}</strong></p>`

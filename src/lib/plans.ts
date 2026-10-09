@@ -362,13 +362,34 @@ export async function recordComplimentaryGrant(shopifyDomain: string, plan: Plan
   }
 }
 
-/** Mark the gift ended in the ledger, so a reinstall after redact does not bring it back. */
-export async function recordComplimentaryEnd(shopifyDomain: string, endedAt = new Date()): Promise<void> {
-  try {
-    await db.complimentaryLedger.updateMany({ where: { shopifyDomain, endedAt: null }, data: { endedAt } });
-  } catch (err) {
-    console.error(`[plans] could not record the end of the complimentary plan for ${shopifyDomain} in the ledger`, err);
+/**
+ * End a gift: the StoreSetting written empty and the ledger row closed, in one transaction.
+ * THROWS when either write fails, and then neither has happened.
+ *
+ * Not never-throw like the grant, because the two failures err in opposite directions. A
+ * grant whose ledger copy is missing can only restore less after shop/redact. An end whose
+ * ledger write is lost leaves an open row behind a StoreSetting that redact later deletes,
+ * and the reinstalled store gets the gift back, free and with no end date, while the
+ * operator was told it had ended. Together or not at all, so the operator either sees it
+ * ended or sees an error and presses End again.
+ */
+export async function endComplimentary(storeId: string, shopifyDomain: string | null, endedAt = new Date()): Promise<void> {
+  // Written empty rather than deleted: the portal does not delete, and an existing empty
+  // row is what tells getComplimentary not to consult the ledger.
+  const clearSetting = db.storeSetting.upsert({
+    where: { storeId_key: { storeId, key: COMPLIMENTARY_KEY } },
+    create: { storeId, key: COMPLIMENTARY_KEY, value: '' },
+    update: { value: '' },
+  });
+  // No domain, no ledger row to close: nothing could ever be restored for this store.
+  if (!shopifyDomain) {
+    await clearSetting;
+    return;
   }
+  await db.$transaction([
+    clearSetting,
+    db.complimentaryLedger.updateMany({ where: { shopifyDomain, endedAt: null }, data: { endedAt } }),
+  ]);
 }
 
 /** The higher of two plans, in price order. */

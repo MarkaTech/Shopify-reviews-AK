@@ -397,6 +397,55 @@ export async function describeActiveIncentive(storeId: string): Promise<{
   };
 }
 
+/** What a review written under an offer has to know about it to disclose it. */
+export interface OfferedIncentive {
+  rewardType: string;
+  requiresMedia: boolean;
+}
+
+/**
+ * The incentive a shopper is being offered right now, or null when there is none.
+ *
+ * The same row describeActiveIncentive shows and grantIncentive pays from, behind the same
+ * plan gate, so a review is recorded as written under the offer the page actually made.
+ */
+export async function getOfferedIncentive(storeId: string): Promise<OfferedIncentive | null> {
+  const { getStorePlan, PLANS } = await import('./plans');
+  if (!PLANS[await getStorePlan(storeId)].incentives) return null;
+  return db.incentive.findFirst({
+    where: { storeId, isActive: true },
+    orderBy: { createdAt: 'desc' },
+    select: { rewardType: true, requiresMedia: true },
+  });
+}
+
+/**
+ * Pure: the disclosure a new review carries when it was written under `offered`.
+ *
+ * Disclosure follows the OFFER, not the payout. A buyer told "leave a review and get 10%
+ * off" writes every review on the page in response to it, but only one of them is paid (one
+ * reward per order on the review-request page, one live code per customer in
+ * grantIncentive), and only the paid one used to be marked. The others went to the
+ * storefront, the Google feed and the Shop app as ordinary reviews: an undisclosed material
+ * connection under 16 CFR 255.5. So every review written under the offer is marked when it
+ * is created, whichever one the reward later lands on.
+ *
+ * A media-only offer was never open to a text-only review, so that one is not marked. A
+ * review marked here whose grant is later skipped (daily ceiling, a live code, a failed
+ * upload) stays marked: over-disclosing is the safe direction, under-disclosing is not.
+ */
+export function disclosureForOffer(
+  offered: OfferedIncentive | null,
+  hasMedia: boolean
+): { isIncentivized: boolean; incentiveType: string | null } {
+  if (!offered || (offered.requiresMedia && !hasMedia)) {
+    return { isIncentivized: false, incentiveType: null };
+  }
+  // The same value grantIncentive writes, so a marked review reads the same whether it was
+  // marked here or by the grant.
+  return { isIncentivized: true, incentiveType: offered.rewardType };
+}
+
 /**
  * Mint the reward for a review that is now published, and email it to the reviewer.
  *
