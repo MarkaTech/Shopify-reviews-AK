@@ -42,6 +42,18 @@ const TEMPLATE_PREVIEW: Array<[string, string]> = [
 const PICKER_VISIBLE = 200;
 
 /**
+ * The Excel template's signed link is fetched ahead of the click and kept fresh. Its token
+ * expires five minutes after it is issued (src/lib/download-token.ts), so it is fetched
+ * again every four, and one older than four and a half is not used: the download request
+ * still has to reach the server before the token runs out.
+ */
+const TEMPLATE_LINK_REFRESH_MS = 4 * 60 * 1000;
+const TEMPLATE_LINK_MAX_AGE_MS = 4.5 * 60 * 1000;
+
+/** The plain CSV template. It needs no identity, so it never needs a signed link. */
+const CSV_TEMPLATE_URL = '/api/bulk-upload';
+
+/**
  * What the server would do with a file, before it does it. The shape of the route's
  * dry-run response (src/app/api/bulk-upload/route.ts).
  */
@@ -52,6 +64,12 @@ interface Preview {
   failed: number;
   matched: number;
   unmatched: number;
+  /**
+   * Of the importable rows, how many go live and how many arrive hidden because their
+   * status column says so. Optional: a server from before these existed omits them.
+   */
+  published?: number;
+  hidden?: number;
   errors: Array<{ row: number; reason: string }>;
   sample: Array<{ reviewerName: string; rating: number; title: string | null; body: string; matchedBy: string | null }>;
 }
@@ -143,6 +161,34 @@ export default function BulkUploadPage() {
       .then(setEtsy)
       .catch(() => setEtsy(null));
   }, [loadProducts]);
+
+  // The Excel template's signed link, with when it arrived. A ref, not state: nothing on
+  // screen shows it, and the click handler only needs the latest one.
+  const templateLink = useRef<{ url: string; at: number } | null>(null);
+  const refreshTemplateLink = useCallback(() => {
+    apiFetch<{ url: string }>('/api/bulk-upload/template-link')
+      .then(({ url }) => {
+        templateLink.current = { url, at: Date.now() };
+      })
+      // Nothing to show: without a link the button falls back to the CSV template.
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    refreshTemplateLink();
+    const timer = window.setInterval(refreshTemplateLink, TEMPLATE_LINK_REFRESH_MS);
+    // Hidden tabs have their timers throttled, and a sleeping laptop stops them, so a
+    // merchant coming back to this page can be holding an expired link. Fetch a new one
+    // the moment the page is visible again.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshTemplateLink();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshTemplateLink]);
 
   /** Pull anything new or renamed from Shopify, then refresh the picker. */
   const syncProducts = async () => {
@@ -316,14 +362,34 @@ export default function BulkUploadPage() {
 
   // The Excel template carries this store's catalogue (the product dropdown), so it needs
   // to know who is asking. A download opens in a new tab, which cannot send the session
-  // token — so ask for a short-lived signed link first. The plain CSV needs no identity
-  // and stays as the fallback.
-  const handleDownloadTemplate = async () => {
-    try {
-      const { url } = await apiFetch<{ url: string }>('/api/bulk-upload/template-link');
-      window.open(url, '_blank');
-    } catch {
-      window.open('/api/bulk-upload', '_blank');
+  // token — so it opens a short-lived signed link, fetched before the click (above).
+  //
+  // Synchronous on purpose. This used to await the link and then open it, and a browser
+  // only lets a page open a tab while the click's activation lasts: Safari does not carry
+  // it across an awaited fetch at all (see src/lib/admin-links.ts), so the button could do
+  // nothing and say nothing. Opening inside the click, with a link already in hand, never
+  // waits. Without a fresh one it opens the plain CSV template, which needs no identity.
+  const handleDownloadTemplate = () => {
+    const link = templateLink.current;
+    const fresh = link && Date.now() - link.at < TEMPLATE_LINK_MAX_AGE_MS ? link.url : null;
+    const url = fresh ?? CSV_TEMPLATE_URL;
+    // No 'noopener': with it, window.open returns null even when the tab opens, and the
+    // check below could not tell a blocked download from a successful one.
+    const opened = window.open(url, '_blank');
+    if (!fresh) {
+      // So the next click has one. The CSV is still the right download for this click.
+      refreshTemplateLink();
+      toast.info('This is the plain CSV template. The Excel one, with your products in a dropdown, was not ready — try again in a moment.');
+    }
+    // Null is what a blocked tab looks like. Shopify's mobile and POS apps hand new tabs
+    // to the system browser and return null on purpose, so null there is not a block —
+    // and the wording stays true even if some other host does the same.
+    if (!opened && !/Shopify (Mobile|POS)/i.test(navigator.userAgent)) {
+      toast.info('If the template did not download, your browser blocked the new tab.', {
+        // A click on the toast is a new user gesture, which the browser allows to open a tab.
+        action: { label: 'Download', onClick: () => window.open(url, '_blank') },
+        duration: 10000,
+      });
     }
   };
 
@@ -650,6 +716,27 @@ export default function BulkUploadPage() {
                         </div>
                       ))}
                     </div>
+                    {/* Whether the imported reviews go live. A status column can bring rows in
+                        hidden, and "Will import 200" said nothing about that — a sheet marked
+                        pending imported as 200 reviews no shopper could see. */}
+                    {preview.importable > 0 && preview.published !== undefined && preview.hidden !== undefined && (
+                      <p
+                        className={cn(
+                          'border-t border-border px-4 py-2.5 text-[12px] leading-relaxed',
+                          preview.hidden > 0
+                            ? 'bg-amber-50/70 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200'
+                            : 'text-ink-600 dark:text-ink-300'
+                        )}
+                      >
+                        {preview.hidden === 0
+                          ? `All ${preview.published.toLocaleString()} will be published on your storefront.`
+                          : `${
+                              preview.published === 0
+                                ? `All ${preview.hidden.toLocaleString()} will be imported hidden`
+                                : `${preview.published.toLocaleString()} will be published and ${preview.hidden.toLocaleString()} imported hidden`
+                            }, because their status column says pending, rejected or something else that is not approved. Leave status blank to publish. Hidden reviews can be published later from All reviews.`}
+                      </p>
+                    )}
                     {preview.sample.length > 0 && (
                       <div className="overflow-x-auto border-t border-border">
                         <table className="w-full text-[11.5px]">

@@ -12,7 +12,7 @@ import {
   buildMatchIndex,
   mapRows,
 } from '@/lib/import';
-import { isXlsx, parseXlsx, sheetToTable, XlsxError, type XlsxSheet } from '@/lib/xlsx';
+import { isXlsx, parseXlsx, sheetToTable, XlsxError } from '@/lib/xlsx';
 import { buildImportTemplate } from '@/lib/import-template';
 import { verifyDownloadToken } from '@/lib/download-token';
 
@@ -121,22 +121,22 @@ export async function POST(request: NextRequest) {
     let headers: string[];
     let rows: ReturnType<typeof parseCSV>['rows'];
     if (isWorkbook) {
-      let sheets: XlsxSheet[];
       try {
-        sheets = parseXlsx(bytes, { maxRows: MAX_CSV_ROWS + 2 });
+        // Only the sheet being imported is read: the one called Reviews, else the first
+        // that is not the product list (see parseXlsx). This route used to parse every
+        // sheet and choose afterwards, so one upload could make it read the same large
+        // part once per tab pointing at it. The parse runs before the plan gate, for any
+        // installed store, so the library bounds it; an XlsxError is the file's fault
+        // and says what to do.
+        const [sheet] = parseXlsx(bytes, { maxRows: MAX_CSV_ROWS + 2, sheet: 'reviews' });
+        if (!sheet) return NextResponse.json({ error: 'That workbook has no sheets.' }, { status: 400 });
+        ({ headers, rows } = sheetToTable(sheet));
       } catch (err) {
         return NextResponse.json(
           { error: err instanceof XlsxError ? err.message : 'That Excel file could not be read. Save it as .xlsx and try again.' },
           { status: 400 }
         );
       }
-      // The sheet called Reviews, else the first sheet that is not the product list.
-      const sheet =
-        sheets.find((s) => /review/i.test(s.name)) ??
-        sheets.find((s) => !/product/i.test(s.name) && s.rows.length > 0) ??
-        sheets[0];
-      if (!sheet) return NextResponse.json({ error: 'That workbook has no sheets.' }, { status: 400 });
-      ({ headers, rows } = sheetToTable(sheet));
     } else if (fileName.endsWith('.xls')) {
       return NextResponse.json(
         { error: 'That is the old .xls format. Open it in Excel and save as .xlsx (or .csv), then upload again.' },
@@ -198,6 +198,9 @@ export async function POST(request: NextRequest) {
 
     const matched = reviews.filter((r) => r.productId).length;
     const unmatched = reviews.length - matched;
+    // A status column can import rows hidden (pending, rejected). The preview says how
+    // many, so a file that would put nothing on the storefront is caught before Import.
+    const published = reviews.filter((r) => r.isPublished).length;
 
     // A dry run shows what WOULD happen before committing. Migrating reviews is not
     // easily undone, and "1,847 reviews, 1,802 matched to products" is exactly the
@@ -213,6 +216,8 @@ export async function POST(request: NextRequest) {
         failed: errors.length,
         matched,
         unmatched,
+        published,
+        hidden: reviews.length - published,
         errors: errors.slice(0, 20),
         sample: reviews.slice(0, 3).map((r) => ({
           reviewerName: r.reviewerName,

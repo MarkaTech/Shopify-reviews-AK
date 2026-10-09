@@ -97,6 +97,25 @@ test('an ambiguous row is skipped with a reason that names the fix', () => {
   assert.strictEqual(reviews[0].matchedBy, 'handle');
 });
 
+test('a blank status is not given: the import default applies, not "unpublished"', () => {
+  // The Excel template always has a status column and every row but the example starts
+  // blank. Reading blank as false imported whole sheets hidden.
+  const columns = detectColumns(['product_handle', 'rating', 'author', 'content', 'status']);
+  assert.strictEqual(columns.isPublished, 'status');
+  const index = buildMatchIndex(catalogue);
+  const row = (status: string) => ({ product_handle: 'silver-coin', rating: '5', author: 'Asha', content: 'Lovely', status });
+  const statuses = ['', '   ', 'approved', 'Published', 'pending', 'rejected', 'false'];
+  const published = (opts: { autoPublish?: boolean }) =>
+    mapRows(statuses.map(row), columns, index, { defaultSource: 'csv', ...opts }).reviews.map((r) => r.isPublished);
+  assert.deepStrictEqual(published({}), [true, true, true, true, false, false, false]);
+  // A caller that imports hidden by default still gets hidden for a blank, and the file
+  // can still publish a row explicitly.
+  assert.deepStrictEqual(published({ autoPublish: false }), [false, false, true, true, false, false, false]);
+  // No status column at all: the default, as before.
+  const noStatus = detectColumns(['product_handle', 'rating', 'author', 'content']);
+  assert.strictEqual(mapRows([row('pending')], noStatus, index, {}).reviews[0].isPublished, true);
+});
+
 console.log('parseCSV');
 
 test('a doubled quote inside a quoted field reads back as one quote', () => {

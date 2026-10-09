@@ -83,6 +83,11 @@ export function templateProductRows(products: TemplateProduct[]): Array<[string,
     });
 }
 
+/** A spreadsheet expression for `cell`'s text with VLOOKUP's wildcards escaped. */
+function escapeWildcards(cell: string): string {
+  return `SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(${cell},"~","~~"),"*","~*"),"?","~?")`;
+}
+
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -92,7 +97,15 @@ export function buildImportTemplate(products: TemplateProduct[], today = new Dat
   // The dropdown's source range. At least one row, so the formula is valid for a store
   // with no products yet (the list is simply empty until they sync).
   const lastProductRow = Math.max(2, catalogue.length + 1);
-  const handleFormula = (row: number) => ({ formula: `IFERROR(VLOOKUP(A${row},Products!$A:$B,2,FALSE),"")` });
+  // VLOOKUP's exact match still treats * and ? in the looked-up text as wildcards (and ~
+  // as their escape) in Excel, Sheets, LibreOffice and Numbers. "Frame (12*12 inch)" would
+  // also match an earlier "Frame (12 x 12 inch)" and fill in that product's handle, which
+  // the importer trusts over the title — the review would land on the wrong product with
+  // no warning. Escape all three first, ~ before the others so their escapes are not
+  // escaped again.
+  const handleFormula = (row: number) => ({
+    formula: `IFERROR(VLOOKUP(${escapeWildcards(`A${row}`)},Products!$A:$B,2,FALSE),"")`,
+  });
 
   const example: XlsxCell[] = [...TEMPLATE_EXAMPLE];
   example[0] = catalogue[0]?.[0] ?? '';

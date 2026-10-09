@@ -16,6 +16,14 @@
  * 8 October 2026. Everything comes back as strings, the shape the CSV parser produces,
  * so the importer does not care which it was given.
  *
+ * Reading is also bounded, because any installed store can upload a file and the parse
+ * runs synchronously on the one Node process that serves every merchant's storefront.
+ * The XML is walked forward once with indexOf, never with a lazy regex (which rescans to
+ * the end of the part for every unclosed tag); the zip is indexed without inflating, and
+ * only the parts a read needs are inflated, under a per-part and a per-file byte budget;
+ * and a sheet's width and cell count are capped. A crafted file gets an XlsxError in
+ * milliseconds instead of holding the event loop for hours or exhausting the heap.
+ *
  * Writing emits inline strings, one bold header style, column widths, a frozen header
  * row, formulas (recalculated on open) and list data validations — enough for a template
  * with a product dropdown. Excel, Google Sheets, Numbers and LibreOffice all open it.
@@ -31,6 +39,48 @@ export class XlsxError extends Error {}
 /** Inflated size cap per zip part — a 10 MB upload that inflates past this is a zip bomb. */
 const MAX_PART_BYTES = 64 * 1024 * 1024;
 
+/**
+ * Inflated size cap across every part one parse reads. The per-part cap alone did not
+ * bound a file: several entries pointing at one ~60 KB deflate stream each inflated to
+ * 64 MB, and a 62 KB upload held 750 MB. An import reads five parts (workbook, its
+ * relationships, shared strings, styles, one worksheet), which for 50,000 real reviews
+ * come to well under half of this.
+ */
+const MAX_TOTAL_BYTES = 96 * 1024 * 1024;
+
+/**
+ * Zip entries a workbook may have. A real one has a dozen, a few hundred with many sheets
+ * and images. The zip format allows 65,535, and the central directory is walked in full.
+ */
+const MAX_ENTRIES = 1000;
+
+/** Columns in Excel's widest sheet (A to XFD). A reference past XFD is not a spreadsheet's. */
+const MAX_COLUMN = 16_384;
+
+/**
+ * Cells kept per row. The importer maps about a dozen fields and other review apps'
+ * exports run to 40 or so columns; 256 (column IV, the whole of an Excel 2003 sheet) is
+ * far past either. A cell further right is dropped rather than padded up to: one cell at
+ * column AAAAAA made every row twelve million cells wide.
+ */
+const MAX_COLS = 256;
+
+/**
+ * Cells one sheet may produce, blanks a row is padded with included. 50,000 rows of the
+ * twelve-column template are 600,000. Without this, 50,000 one-cell rows each placed at
+ * the last allowed column would still be a 12.8-million-slot table.
+ */
+const MAX_CELLS = 4_000_000;
+
+/**
+ * Cell formats and number formats read from the styles part. Excel's own limit is about
+ * 64,000 cell formats per workbook; a styles part listing millions is not from Excel.
+ */
+const MAX_STYLES = 65_536;
+
+const TOO_BIG = 'This .xlsx file holds more than an import can read at once. Split the reviews across smaller files and upload them one at a time.';
+const DAMAGED = 'This .xlsx file is damaged.';
+
 // ── Zip reading ──────────────────────────────────────────────────────────────────────
 
 const SIG_LOCAL = 0x04034b50;
@@ -42,7 +92,27 @@ export function isXlsx(bytes: Uint8Array): boolean {
   return bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
 }
 
-function readZip(buf: Buffer): Map<string, Buffer> {
+interface ZipEntry {
+  method: number;
+  /** Where this entry's compressed bytes start in the file, and how many there are. */
+  start: number;
+  size: number;
+}
+
+interface ZipReader {
+  has(name: string): boolean;
+  /** One part as text, inflated now and charged to the file's byte budget. */
+  read(name: string): string | undefined;
+}
+
+/**
+ * Index a zip's central directory without inflating anything.
+ *
+ * The old reader inflated every entry up front and kept them all, so the cost of a file
+ * was set by its entry count, not by what the import used. Now a part is inflated only
+ * when asked for, and every inflate is charged to one running budget.
+ */
+function openZip(buf: Buffer): ZipReader {
   // The end-of-central-directory record is at the tail, followed only by an optional
   // comment of up to 64 KB. Scan back for its signature.
   let eocd = -1;
@@ -57,15 +127,18 @@ function readZip(buf: Buffer): Map<string, Buffer> {
   const count = buf.readUInt16LE(eocd + 10);
   const cdOffset = buf.readUInt32LE(eocd + 16);
   if (cdOffset === 0xffffffff) throw new XlsxError('ZIP64 workbooks are not supported.');
+  if (count > MAX_ENTRIES) {
+    throw new XlsxError('This .xlsx file has far more parts than a spreadsheet does. Open it in Excel or Google Sheets, save it again as .xlsx, and upload that.');
+  }
 
-  const entries = new Map<string, Buffer>();
+  const entries = new Map<string, ZipEntry>();
+  const localOffsets = new Set<number>();
   let p = cdOffset;
   for (let i = 0; i < count; i++) {
-    if (p + 46 > buf.length || buf.readUInt32LE(p) !== SIG_CENTRAL) {
-      throw new XlsxError('This .xlsx file is damaged.');
-    }
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== SIG_CENTRAL) throw new XlsxError(DAMAGED);
     const method = buf.readUInt16LE(p + 10);
     const csize = buf.readUInt32LE(p + 20);
+    const usize = buf.readUInt32LE(p + 24);
     const nameLen = buf.readUInt16LE(p + 28);
     const extraLen = buf.readUInt16LE(p + 30);
     const commentLen = buf.readUInt16LE(p + 32);
@@ -73,33 +146,134 @@ function readZip(buf: Buffer): Map<string, Buffer> {
     const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
     p += 46 + nameLen + extraLen + commentLen;
 
+    // Every entry has its own local header. Two sharing one is how a small file is made
+    // to inflate the same stream over and over; no zip tool writes that.
+    if (localOffsets.has(localOffset)) throw new XlsxError(DAMAGED);
+    localOffsets.add(localOffset);
+
     if (name.endsWith('/')) continue; // directory entry
+    // The declared size can lie, which is why inflating is capped too. When it does not
+    // lie, an oversized part is refused here, before any work is spent on it.
+    if (usize > MAX_PART_BYTES) throw new XlsxError(TOO_BIG);
     if (localOffset + 30 > buf.length || buf.readUInt32LE(localOffset) !== SIG_LOCAL) {
-      throw new XlsxError('This .xlsx file is damaged.');
+      throw new XlsxError(DAMAGED);
     }
     const localNameLen = buf.readUInt16LE(localOffset + 26);
     const localExtraLen = buf.readUInt16LE(localOffset + 28);
     const start = localOffset + 30 + localNameLen + localExtraLen;
-    const raw = buf.subarray(start, start + csize);
-
-    let data: Buffer;
-    if (method === 0) {
-      data = Buffer.from(raw);
-    } else if (method === 8) {
-      try {
-        data = zlib.inflateRawSync(raw, { maxOutputLength: MAX_PART_BYTES });
-      } catch {
-        throw new XlsxError('This .xlsx file could not be decompressed.');
-      }
-    } else {
-      throw new XlsxError('This .xlsx file uses an unsupported compression.');
-    }
-    entries.set(name.replace(/^\/+/, ''), data);
+    if (start + csize > buf.length) throw new XlsxError(DAMAGED);
+    entries.set(name.replace(/^\/+/, ''), { method, start, size: csize });
   }
-  return entries;
+
+  let budget = MAX_TOTAL_BYTES;
+  return {
+    has: (name) => entries.has(name),
+    read(name) {
+      const entry = entries.get(name);
+      if (!entry) return undefined;
+      const raw = buf.subarray(entry.start, entry.start + entry.size);
+      const limit = Math.min(MAX_PART_BYTES, budget);
+      let data: Buffer;
+      if (entry.method === 0) {
+        if (raw.length > limit) throw new XlsxError(TOO_BIG);
+        data = raw;
+      } else if (entry.method === 8) {
+        if (limit < 1) throw new XlsxError(TOO_BIG);
+        try {
+          data = zlib.inflateRawSync(raw, { maxOutputLength: limit });
+        } catch (err) {
+          throw new XlsxError(
+            (err as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE' ? TOO_BIG : 'This .xlsx file could not be decompressed.'
+          );
+        }
+      } else {
+        throw new XlsxError('This .xlsx file uses an unsupported compression.');
+      }
+      budget -= data.length;
+      return data.toString('utf8');
+    },
+  };
 }
 
-// ── XML helpers ──────────────────────────────────────────────────────────────────────
+// ── XML scanning ─────────────────────────────────────────────────────────────────────
+//
+// Every walk over a part moves forward only, and stops at the first tag it cannot
+// close. The lazy regexes these replaced (/<row\b([^>]*)>([\s\S]*?)<\/row>/g and the like)
+// rescanned to the end of the part for each opening tag that had no closing tag: a sheet
+// of nothing but `<row>` took 8 s at 400 KB and quadrupled with every doubling, and it
+// compresses several hundred to one, so a 96 KB upload would have held the event loop
+// for about two days. Each part is now one pass, however it is malformed. The regexes
+// that remain run on attribute values and cell text, where every match is local.
+
+/**
+ * The index of the next `<tag` at or after `from` that really is that element, not a
+ * longer name with the same start (`<c` is not `<cols>`, `<row` is not `<rowBreaks>`).
+ */
+function findTag(xml: string, tag: string, from: number): number {
+  const open = '<' + tag;
+  let i = xml.indexOf(open, from);
+  while (i >= 0) {
+    const c = xml.charCodeAt(i + open.length);
+    // The name ends at '>', '/' or whitespace.
+    if (c === 62 || c === 47 || c === 32 || c === 9 || c === 10 || c === 13) return i;
+    i = xml.indexOf(open, i + open.length);
+  }
+  return -1;
+}
+
+/**
+ * Calls `fn(attrs, inner)` for each `<tag …>inner</tag>` in order; a self-closing
+ * `<tag …/>` arrives with inner ''. Stops when `fn` returns false, or at the first element
+ * with no `>` or no closing tag — everything after an unclosed element is inside it.
+ */
+function eachElement(xml: string, tag: string, fn: (attrs: string, inner: string) => boolean | void): void {
+  const close = `</${tag}>`;
+  const nameEnd = tag.length + 1;
+  let pos = 0;
+  for (;;) {
+    const open = findTag(xml, tag, pos);
+    if (open < 0) return;
+    const gt = xml.indexOf('>', open);
+    if (gt < 0) return;
+    let keepGoing: boolean | void;
+    if (xml.charCodeAt(gt - 1) === 47 /* / */) {
+      pos = gt + 1;
+      keepGoing = fn(xml.slice(open + nameEnd, gt - 1), '');
+    } else {
+      const end = xml.indexOf(close, gt + 1);
+      if (end < 0) return;
+      pos = end + close.length;
+      keepGoing = fn(xml.slice(open + nameEnd, gt), xml.slice(gt + 1, end));
+    }
+    if (keepGoing === false) return;
+  }
+}
+
+/**
+ * Calls `fn(attrs)` for each `<tag …>` opening tag in order, for elements read by their
+ * attributes alone. Stops when `fn` returns false or at a tag with no `>`.
+ */
+function eachTag(xml: string, tag: string, fn: (attrs: string) => boolean | void): void {
+  const nameEnd = tag.length + 1;
+  let pos = 0;
+  for (;;) {
+    const open = findTag(xml, tag, pos);
+    if (open < 0) return;
+    const gt = xml.indexOf('>', open);
+    if (gt < 0) return;
+    pos = gt + 1;
+    if (fn(xml.slice(open + nameEnd, xml.charCodeAt(gt - 1) === 47 ? gt - 1 : gt)) === false) return;
+  }
+}
+
+/** The text between the first `<tag>` and the `</tag>` after it, or '' (for `<v>`, which has no attributes). */
+function firstInner(xml: string, tag: string): string {
+  const open = xml.indexOf(`<${tag}>`);
+  if (open < 0) return '';
+  const start = open + tag.length + 2;
+  const end = xml.indexOf(`</${tag}>`, start);
+  return end < 0 ? '' : xml.slice(start, end);
+}
 
 function decodeXml(s: string): string {
   if (s.indexOf('&') < 0) return s;
@@ -110,31 +284,73 @@ function decodeXml(s: string): string {
     if (e === 'quot') return '"';
     if (e === 'apos') return "'";
     const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-    return Number.isFinite(code) ? String.fromCodePoint(code) : '';
+    // fromCodePoint throws past U+10FFFF, and "&#99999999;" is one keystroke away.
+    return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : '';
   });
 }
 
+/**
+ * One attribute's value from a tag's attribute text. indexOf, not a regex built per call:
+ * this runs three times for every cell of a 50,000-row sheet.
+ */
 function attr(attrs: string, name: string): string | undefined {
-  const m = new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(attrs);
-  return m ? decodeXml(m[1]) : undefined;
+  const needle = `${name}="`;
+  let i = attrs.indexOf(needle);
+  while (i >= 0) {
+    // A whole attribute name, not the tail of a longer one (`r=` inside `ref=`).
+    const before = i === 0 ? 32 : attrs.charCodeAt(i - 1);
+    if (before === 32 || before === 9 || before === 10 || before === 13) {
+      const start = i + needle.length;
+      const end = attrs.indexOf('"', start);
+      return end < 0 ? undefined : decodeXml(attrs.slice(start, end));
+    }
+    i = attrs.indexOf(needle, i + needle.length);
+  }
+  return undefined;
 }
 
 /** The text of every `<t>` in a run of rich text, phonetic guides dropped. */
 function textOf(inner: string): string {
-  const cleaned = inner.includes('<rPh') ? inner.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '') : inner;
+  if (!inner) return '';
+  let text = inner;
+  if (inner.includes('<rPh')) {
+    // Phonetic guides (furigana over Japanese text) carry a <t> of their own that is a
+    // reading aid, not part of the cell's text.
+    let kept = '';
+    let pos = 0;
+    for (;;) {
+      const open = findTag(inner, 'rPh', pos);
+      if (open < 0) break;
+      const gt = inner.indexOf('>', open);
+      if (gt < 0) break;
+      let next = gt + 1; // after a self-closing <rPh/>
+      if (inner.charCodeAt(gt - 1) !== 47) {
+        const end = inner.indexOf('</rPh>', gt);
+        if (end < 0) break;
+        next = end + 6;
+      }
+      kept += inner.slice(pos, open);
+      pos = next;
+    }
+    text = kept + inner.slice(pos);
+  }
   const parts: string[] = [];
-  const re = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(cleaned))) parts.push(decodeXml(m[1]));
+  eachElement(text, 't', (_, t) => {
+    parts.push(decodeXml(t));
+  });
   return parts.join('');
 }
 
 function parseSharedStrings(xml: string | undefined): string[] {
   if (!xml) return [];
   const out: string[] = [];
-  const re = /<si\b[^>]*>([\s\S]*?)<\/si>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml))) out.push(textOf(m[1]));
+  // A self-closing <si/> is an empty string, and it still takes its index.
+  eachElement(xml, 'si', (_, inner) => {
+    // A sheet can use at most MAX_CELLS of them, so a table longer than that is not
+    // something an import can need.
+    if (out.length >= MAX_CELLS) throw new XlsxError(TOO_BIG);
+    out.push(textOf(inner));
+  });
   return out;
 }
 
@@ -149,7 +365,9 @@ const BUILTIN_DATE_FORMATS = new Set([
 function isDateFormat(code: string): boolean {
   // Strip quoted literals, bracketed locale/colour codes and escaped characters, then
   // look for a date or time token. "General", "0.00" and '#,##0 "USD"' have none.
-  const bare = code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '');
+  // The bracket pattern stops at the next '[' as well as ']', so a code of nothing but
+  // '[' is one pass rather than one pass per bracket.
+  const bare = code.replace(/"[^"]*"/g, '').replace(/\[[^[\]]*\]/g, '').replace(/\\./g, '');
   return /[ymdhs]/i.test(bare) && !/[#0?]/.test(bare.replace(/[ymdhs:\-/ .,]/gi, ''));
 }
 
@@ -159,23 +377,36 @@ function parseDateStyles(xml: string | undefined): Set<number> {
   if (!xml) return dates;
 
   const custom = new Map<number, string>();
-  const nf = /<numFmt\b([^>]*)\/?>/g;
-  let m: RegExpExecArray | null;
-  while ((m = nf.exec(xml))) {
-    const id = Number(attr(m[1], 'numFmtId'));
-    const code = attr(m[1], 'formatCode');
+  eachTag(xml, 'numFmt', (a) => {
+    const id = Number(attr(a, 'numFmtId'));
+    const code = attr(a, 'formatCode');
     if (Number.isFinite(id) && code !== undefined) custom.set(id, code);
-  }
+    return custom.size < MAX_STYLES;
+  });
 
-  const xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml)?.[1] ?? '';
-  const xf = /<xf\b([^>]*)\/?>/g;
+  // Only <cellXfs>: <cellStyleXfs> holds <xf> elements too, and a cell's s="" does not
+  // index those.
+  let xfs = '';
+  eachElement(xml, 'cellXfs', (_, inner) => {
+    xfs = inner;
+    return false;
+  });
+  // Decided once per format, not once per style that uses it.
+  const verdicts = new Map<number, boolean>();
   let index = 0;
-  while ((m = xf.exec(xfs))) {
-    const id = Number(attr(m[1], 'numFmtId') ?? 0);
-    const code = custom.get(id);
-    if (BUILTIN_DATE_FORMATS.has(id) || (code !== undefined && isDateFormat(code))) dates.add(index);
+  eachTag(xfs, 'xf', (a) => {
+    const id = Number(attr(a, 'numFmtId') ?? 0);
+    let isDate = verdicts.get(id);
+    if (isDate === undefined) {
+      const code = custom.get(id);
+      isDate = BUILTIN_DATE_FORMATS.has(id) || (code !== undefined && isDateFormat(code));
+      verdicts.set(id, isDate);
+    }
+    if (isDate) dates.add(index);
     index++;
-  }
+    // Styles past the cap read as not-a-date: their numbers come through as numbers.
+    return index < MAX_STYLES;
+  });
   return dates;
 }
 
@@ -195,12 +426,18 @@ function serialToIso(n: number, date1904: boolean): string | null {
 
 // ── Worksheets ───────────────────────────────────────────────────────────────────────
 
+/**
+ * Zero-based column of an A1 reference, -1 when it has no letters. Past XFD it returns
+ * MAX_COLUMN rather than keep multiplying: "AAAAAAAAAAAA1" is not a column, and a ref of
+ * a thousand letters would otherwise come out as Infinity.
+ */
 function columnIndex(ref: string): number {
   let n = 0;
   for (let i = 0; i < ref.length; i++) {
     const c = ref.charCodeAt(i);
     if (c < 65 || c > 90) break;
     n = n * 26 + (c - 64);
+    if (n > MAX_COLUMN) return MAX_COLUMN;
   }
   return n - 1;
 }
@@ -211,6 +448,24 @@ export interface XlsxSheet {
   rows: string[][];
 }
 
+function cellValue(a: string, inner: string, shared: string[], dateStyles: Set<number>, date1904: boolean): string {
+  // A value lives in a child (<v> or <is>), so a cell with none is blank whatever its
+  // type says. Excel writes one of these for every styled empty cell.
+  if (!inner) return '';
+  const t = attr(a, 't');
+  if (t === 'inlineStr') return textOf(inner);
+  const v = firstInner(inner, 'v');
+  if (t === 's') return v === '' ? '' : shared[Number(v)] ?? '';
+  if (t === 'b') return v === '1' ? 'true' : 'false';
+  if (t === 'e') return '';
+  if (t === 'str') return decodeXml(v);
+  if (v === '') return '';
+  // A number. Dates are numbers wearing a date format; large ids may arrive in exponent
+  // notation, which Number() normalises back to digits.
+  const s = Number(attr(a, 's') ?? 0);
+  return (dateStyles.has(s) && serialToIso(Number(v), date1904)) || (/e/i.test(v) ? String(Number(v)) : v);
+}
+
 function parseSheet(
   xml: string,
   shared: string[],
@@ -219,89 +474,115 @@ function parseSheet(
   maxRows: number
 ): string[][] {
   const rows: string[][] = [];
-  const rowRe = /<row\b([^>]*)>([\s\S]*?)<\/row>/g;
-  const cellRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
-  let rm: RegExpExecArray | null;
+  let cellCount = 0;
 
-  while ((rm = rowRe.exec(xml))) {
+  eachElement(xml, 'row', (_, rowXml) => {
     const cells: string[] = [];
     let col = 0;
-    let cm: RegExpExecArray | null;
-    cellRe.lastIndex = 0;
-    while ((cm = cellRe.exec(rm[2]))) {
-      const a = cm[1];
-      const inner = cm[2] ?? '';
+    eachElement(rowXml, 'c', (a, inner) => {
       const ref = attr(a, 'r');
       if (ref) col = Math.max(col, columnIndex(ref));
-      const t = attr(a, 't');
-      let value = '';
-      if (t === 'inlineStr') {
-        value = textOf(inner);
-      } else {
-        const v = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? '';
-        if (t === 's') value = shared[Number(v)] ?? '';
-        else if (t === 'b') value = v === '1' ? 'true' : 'false';
-        else if (t === 'e') value = '';
-        else if (t === 'str') value = decodeXml(v);
-        else if (v !== '') {
-          // A number. Dates are numbers wearing a date format; large ids may arrive in
-          // exponent notation, which Number() normalises back to digits.
-          const s = Number(attr(a, 's') ?? 0);
-          value = (dateStyles.has(s) && serialToIso(Number(v), date1904)) || (/e/i.test(v) ? String(Number(v)) : v);
-        }
+      // Cells come in column order, so once one is past the cap the rest of the row is too.
+      if (col >= MAX_COLS) return false;
+      const value = cellValue(a, inner, shared, dateStyles, date1904);
+      // Only a value is stored, with blanks padded up to it. A row therefore never ends
+      // in a blank, and a row of styled empty cells costs nothing.
+      if (value !== '') {
+        while (cells.length < col) cells.push('');
+        cells[col] = value;
       }
-      while (cells.length < col) cells.push('');
-      cells[col] = value;
       col++;
+    });
+    if (!cells.length) return;
+    cellCount += cells.length;
+    if (cellCount > MAX_CELLS) {
+      throw new XlsxError('This sheet has more cells than an import can read. Delete the columns you do not need, or split the rows across smaller files.');
     }
-    while (cells.length && cells[cells.length - 1] === '') cells.pop();
-    if (cells.some((c) => c !== '')) {
-      rows.push(cells);
-      if (rows.length >= maxRows) break;
-    }
-  }
+    rows.push(cells);
+    if (rows.length >= maxRows) return false;
+  });
   return rows;
 }
 
-/**
- * Every sheet in the workbook, in tab order, as rows of strings.
- *
- * `maxRows` bounds the work per sheet; the importer has its own row ceiling and nothing
- * is gained by parsing past it.
- */
-export function parseXlsx(input: Uint8Array | ArrayBuffer, opts: { maxRows?: number } = {}): XlsxSheet[] {
+export interface ParseXlsxOptions {
+  /**
+   * Stop each sheet after this many non-empty rows. The importer has its own row ceiling
+   * and nothing is gained by parsing past it.
+   */
+  maxRows?: number;
+  /**
+   * 'all' (the default): every sheet, in tab order.
+   *
+   * 'reviews': only the sheet an import reads, chosen before any worksheet is inflated —
+   * the one whose name says Review, else the first not named for products that has rows,
+   * else the first. The template's Reviews sheet sits next to a Products sheet of up to
+   * 5,000 rows, and a crafted workbook can point any number of tabs at one large part;
+   * neither is read when it is not the one being imported.
+   */
+  sheet?: 'all' | 'reviews';
+}
+
+/** Sheets as rows of strings: every sheet, or with `sheet: 'reviews'` at most the one an import reads. */
+export function parseXlsx(input: Uint8Array | ArrayBuffer, opts: ParseXlsxOptions = {}): XlsxSheet[] {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input instanceof ArrayBuffer ? new Uint8Array(input) : input);
-  const parts = readZip(buf);
-  const workbook = parts.get('xl/workbook.xml')?.toString('utf8');
+  const zip = openZip(buf);
+  const workbook = zip.read('xl/workbook.xml');
   if (!workbook) throw new XlsxError('This file has no workbook — it is not an Excel .xlsx file.');
 
-  const date1904 = /<workbookPr\b[^>]*date1904="(1|true)"/.test(workbook);
-  const shared = parseSharedStrings(parts.get('xl/sharedStrings.xml')?.toString('utf8'));
-  const dateStyles = parseDateStyles(parts.get('xl/styles.xml')?.toString('utf8'));
+  let date1904: boolean | undefined;
+  eachTag(workbook, 'workbookPr', (a) => {
+    if (date1904 !== undefined) return;
+    const v = attr(a, 'date1904');
+    date1904 = v === '1' || v === 'true';
+  });
 
   // Sheet tab → relationship id → worksheet part.
   const rels = new Map<string, string>();
-  const relsXml = parts.get('xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '';
-  const relRe = /<Relationship\b([^>]*)\/?>/g;
-  let m: RegExpExecArray | null;
-  while ((m = relRe.exec(relsXml))) {
-    const id = attr(m[1], 'Id');
-    const target = attr(m[1], 'Target');
+  eachTag(zip.read('xl/_rels/workbook.xml.rels') ?? '', 'Relationship', (a) => {
+    const id = attr(a, 'Id');
+    const target = attr(a, 'Target');
     if (id && target) rels.set(id, target.startsWith('/') ? target.slice(1) : `xl/${target}`);
+  });
+
+  const tabs: Array<{ name: string; path: string }> = [];
+  let fallback = 1;
+  eachTag(workbook, 'sheet', (a) => {
+    const name = attr(a, 'name') ?? `Sheet${fallback}`;
+    const rid = attr(a, 'r:id');
+    const path = (rid && rels.get(rid)) || `xl/worksheets/sheet${fallback}.xml`;
+    fallback++;
+    // A tab whose part is missing is not a sheet anyone can see.
+    if (zip.has(path)) tabs.push({ name, path });
+  });
+
+  const shared = parseSharedStrings(zip.read('xl/sharedStrings.xml'));
+  const dateStyles = parseDateStyles(zip.read('xl/styles.xml'));
+  const maxRows = opts.maxRows ?? 1_000_000;
+
+  // Each worksheet part is read at most once, however many tabs point at it.
+  const done = new Set<string>();
+  const parse = (tab: { name: string; path: string }): XlsxSheet => {
+    done.add(tab.path);
+    return { name: tab.name, rows: parseSheet(zip.read(tab.path) ?? '', shared, dateStyles, date1904 === true, maxRows) };
+  };
+
+  if (opts.sheet === 'reviews') {
+    const named = tabs.find((t) => /review/i.test(t.name));
+    if (named) return [parse(named)];
+    for (const tab of tabs) {
+      if (/product/i.test(tab.name) || done.has(tab.path)) continue;
+      const sheet = parse(tab);
+      if (sheet.rows.length) return [sheet];
+    }
+    if (!tabs.length) return [];
+    // Every candidate was empty. The first tab, then — already known to be empty if it
+    // was one of them.
+    return [done.has(tabs[0].path) ? { name: tabs[0].name, rows: [] } : parse(tabs[0])];
   }
 
   const sheets: XlsxSheet[] = [];
-  const sheetRe = /<sheet\b([^>]*)\/?>/g;
-  const maxRows = opts.maxRows ?? 1_000_000;
-  let fallback = 1;
-  while ((m = sheetRe.exec(workbook))) {
-    const name = attr(m[1], 'name') ?? `Sheet${fallback}`;
-    const rid = attr(m[1], 'r:id');
-    const path = (rid && rels.get(rid)) || `xl/worksheets/sheet${fallback}.xml`;
-    fallback++;
-    const xml = parts.get(path)?.toString('utf8');
-    if (!xml) continue;
-    sheets.push({ name, rows: parseSheet(xml, shared, dateStyles, date1904, maxRows) });
+  for (const tab of tabs) {
+    if (!done.has(tab.path)) sheets.push(parse(tab));
   }
   return sheets;
 }
@@ -313,7 +594,12 @@ export function parseXlsx(input: Uint8Array | ArrayBuffer, opts: { maxRows?: num
  */
 export function sheetToTable(sheet: XlsxSheet): { headers: string[]; rows: Array<Record<string, string>> } {
   if (!sheet.rows.length) return { headers: [], rows: [] };
-  const headers = sheet.rows[0].map((h, i) => h.trim() || `column_${i + 1}`);
+  const headers = sheet.rows[0].slice(0, MAX_COLS).map((h, i) => h.trim() || `column_${i + 1}`);
+  // Every row becomes an object with a key per header, however short the row itself is,
+  // so the header's width multiplies the row count here.
+  if (headers.length * (sheet.rows.length - 1) > MAX_CELLS) {
+    throw new XlsxError('This sheet has more cells than an import can read. Delete the columns you do not need, or split the rows across smaller files.');
+  }
   const rows = sheet.rows.slice(1).map((r) => {
     const row: Record<string, string> = {};
     headers.forEach((h, i) => {

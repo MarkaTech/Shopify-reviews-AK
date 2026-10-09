@@ -410,6 +410,12 @@ export function mapRows(
       return;
     }
 
+    // A blank status is "not given", not "unpublished". The Excel template always has a
+    // status column, its dropdown allows blank, and every row but the example starts
+    // blank — so reading blank as false imported a merchant's whole sheet hidden, with
+    // nothing on the storefront and no ratings recomputed.
+    const status = map.isPublished ? (row[map.isPublished] ?? '').trim() : '';
+
     reviews.push({
       reviewerName: name || 'Anonymous',
       reviewerEmail: (map.reviewerEmail ? row[map.reviewerEmail] : '').trim() || null,
@@ -423,8 +429,8 @@ export function mapRows(
       videoUrl: (map.videoUrl ? row[map.videoUrl] : '').trim() || null,
       reply: (map.reply ? row[map.reply] : '').trim() || null,
       // Default to published for imports — a merchant migrating 500 existing reviews does
-      // not want to hand-approve all of them — unless the file explicitly says otherwise.
-      isPublished: map.isPublished ? truthy(row[map.isPublished]) : opts.autoPublish !== false,
+      // not want to hand-approve all of them — unless the row explicitly says otherwise.
+      isPublished: status ? truthy(status) : opts.autoPublish !== false,
       source: (map.source ? row[map.source] : '').trim().toLowerCase() || opts.defaultSource || 'csv',
       productId,
       matchedBy,

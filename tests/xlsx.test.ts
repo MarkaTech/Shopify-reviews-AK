@@ -11,6 +11,7 @@
  */
 
 import assert from 'node:assert';
+import zlib from 'node:zlib';
 import { buildXlsx, buildZip, parseXlsx, sheetToTable, isXlsx, XlsxError } from '../src/lib/xlsx';
 import { buildImportTemplate, templateProductRows, TEMPLATE_COLUMNS } from '../src/lib/import-template';
 import { detectColumns, mapRows, buildMatchIndex, EXAMPLE_REVIEWER } from '../src/lib/import';
@@ -88,6 +89,245 @@ test('honours maxRows', () => {
   assert.strictEqual(parseXlsx(buf, { maxRows: 2 })[0].rows.length, 2);
 });
 
+// ── Hostile files ──
+//
+// Any installed store can upload a workbook, and the parse runs synchronously on the
+// process that serves every merchant's storefront. These are shaped like the files that
+// used to freeze it (quadratic regex scans) or exhaust its memory (zip fan-out, far-right
+// column references). Each must come back quickly, as rows or as an XlsxError.
+
+/** A one-sheet workbook ("Reviews" → xl/worksheets/sheet1.xml) from raw XML parts. */
+function rawWorkbook(parts: Record<string, string | Buffer>): Buffer {
+  const files: Record<string, string | Buffer> = {
+    'xl/workbook.xml': '<workbook xmlns:r="r"><sheets><sheet name="Reviews" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    ...parts,
+  };
+  return buildZip(Object.entries(files).map(([name, data]) => ({ name, data: Buffer.isBuffer(data) ? data : Buffer.from(data) })));
+}
+
+/** Byte offset of each central-directory entry, to forge the fields a hostile zip would. */
+function centralEntries(zip: Buffer): number[] {
+  const eocd = zip.length - 22;
+  assert.strictEqual(zip.readUInt32LE(eocd), 0x06054b50);
+  const offsets: number[] = [];
+  let p = zip.readUInt32LE(eocd + 16);
+  for (let i = 0; i < zip.readUInt16LE(eocd + 10); i++) {
+    offsets.push(p);
+    p += 46 + zip.readUInt16LE(p + 28) + zip.readUInt16LE(p + 30) + zip.readUInt16LE(p + 32);
+  }
+  return offsets;
+}
+
+/**
+ * A zip of streams that are already deflated, each declaring an uncompressed size of
+ * 1 KB whatever it really inflates to — so only the reader's inflate caps can stop it.
+ */
+function zipOfDeflated(parts: Array<[string, Buffer]>): Buffer {
+  const out: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [n, comp] of parts) {
+    const name = Buffer.from(n);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(comp.length, 18);
+    local.writeUInt16LE(name.length, 26);
+    const cd = Buffer.alloc(46);
+    cd.writeUInt32LE(0x02014b50, 0);
+    cd.writeUInt16LE(8, 10);
+    cd.writeUInt32LE(comp.length, 20);
+    cd.writeUInt32LE(1024, 24);
+    cd.writeUInt16LE(name.length, 28);
+    cd.writeUInt32LE(offset, 42);
+    out.push(local, name, comp);
+    central.push(cd, name);
+    offset += 30 + name.length + comp.length;
+  }
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(parts.length, 8);
+  eocd.writeUInt16LE(parts.length, 10);
+  eocd.writeUInt32LE(central.reduce((n, b) => n + b.length, 0), 12);
+  eocd.writeUInt32LE(offset, 16);
+  return Buffer.concat([...out, ...central, eocd]);
+}
+
+function timed<T>(fn: () => T): { value?: T; error?: unknown; ms: number } {
+  const start = performance.now();
+  try {
+    const value = fn();
+    return { value, ms: performance.now() - start };
+  } catch (error) {
+    return { error, ms: performance.now() - start };
+  }
+}
+
+test('unclosed tags in every part are read in one pass, not one pass per tag', () => {
+  // Each of these took minutes to hours with the lazy regexes, which rescanned the rest
+  // of the part once for every one of the 200,000 unclosed tags.
+  const n = 200_000;
+  const cell = '<row><c t="inlineStr"><is><t>ok</t></is></c></row>';
+  const cases: Array<[string, Record<string, string>]> = [
+    ['<row>', { 'xl/worksheets/sheet1.xml': cell + '<row>'.repeat(n) }],
+    ['<c> in a row', { 'xl/worksheets/sheet1.xml': cell + '<row>' + '<c>'.repeat(n) + '</row>' }],
+    ['<v> in a cell', { 'xl/worksheets/sheet1.xml': cell + '<row><c>' + '<v>'.repeat(n) + '</c></row>' }],
+    ['<t> in a cell', { 'xl/worksheets/sheet1.xml': cell + '<row><c t="inlineStr">' + '<t>'.repeat(n) + '</c></row>' }],
+    ['<rPh> in a cell', { 'xl/worksheets/sheet1.xml': cell + '<row><c t="inlineStr">' + '<rPh>'.repeat(n) + '<t>x</t></c></row>' }],
+    ['<si>', { 'xl/sharedStrings.xml': '<sst>' + '<si>'.repeat(n), 'xl/worksheets/sheet1.xml': cell }],
+    ['<t> in a shared string', { 'xl/sharedStrings.xml': '<sst><si>' + '<t>'.repeat(n) + '</si></sst>', 'xl/worksheets/sheet1.xml': cell }],
+    ['<numFmt', { 'xl/styles.xml': '<styleSheet>' + '<numFmt '.repeat(n), 'xl/worksheets/sheet1.xml': cell }],
+    ['<cellXfs>', { 'xl/styles.xml': '<styleSheet>' + '<cellXfs>'.repeat(n), 'xl/worksheets/sheet1.xml': cell }],
+    ['<xf', { 'xl/styles.xml': '<styleSheet><cellXfs>' + '<xf '.repeat(n) + '</cellXfs>', 'xl/worksheets/sheet1.xml': cell }],
+    ['[ in a number format', { 'xl/styles.xml': `<styleSheet><numFmts><numFmt numFmtId="164" formatCode="${'['.repeat(n)}"/></numFmts><cellXfs><xf numFmtId="164"/></cellXfs></styleSheet>`, 'xl/worksheets/sheet1.xml': cell }],
+    ['<Relationship', { 'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/>' + '<Relationship '.repeat(n), 'xl/worksheets/sheet1.xml': cell }],
+    ['<sheet', { 'xl/workbook.xml': '<workbook xmlns:r="r"><sheets><sheet name="Reviews" r:id="rId1"/>' + '<sheet '.repeat(n), 'xl/worksheets/sheet1.xml': cell }],
+  ];
+  for (const [label, parts] of cases) {
+    const buf = rawWorkbook(parts);
+    const { value, error, ms } = timed(() => parseXlsx(buf, { sheet: 'reviews' }));
+    assert.ok(!error, `${label}: ${String(error)}`);
+    assert.ok(ms < 1000, `${label}: ${ms.toFixed(0)} ms`);
+    // The well-formed row ahead of the junk still reads.
+    assert.deepStrictEqual(value![0].rows[0], ['ok'], label);
+  }
+});
+
+test('a self-closing <si/> keeps its index, and a cell with no value is blank', () => {
+  const buf = rawWorkbook({
+    'xl/sharedStrings.xml': '<sst><si><t>zero</t></si><si/><si><t/><t>two</t></si></sst>',
+    'xl/worksheets/sheet1.xml': '<row><c t="s"><v>0</v></c><c t="s"><v>1</v></c><c t="s"><v>2</v></c><c t="s"/><c t="b"/></row>',
+  });
+  assert.deepStrictEqual(parseXlsx(buf)[0].rows, [['zero', '', 'two']]);
+});
+
+test('a zip with more entries than a workbook has is refused before anything is inflated', () => {
+  const files = Array.from({ length: 1001 }, (_, i) => ({ name: `xl/media/f${i}.bin`, data: Buffer.from('x') }));
+  files.push({ name: 'xl/workbook.xml', data: Buffer.from('<workbook/>') });
+  const zip = buildZip(files);
+  const { error, ms } = timed(() => parseXlsx(zip));
+  assert.ok(error instanceof XlsxError, String(error));
+  assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
+});
+
+test('entries sharing one local header are refused', () => {
+  // The fan-out bomb: many directory entries pointing at one deflate stream, each one
+  // inflated and kept in full.
+  // Here the worksheet's entry is made an exact copy of the workbook's (same local
+  // header, same sizes), which the old reader inflated twice without complaint.
+  const zip = rawWorkbook({ 'xl/worksheets/sheet1.xml': '<row><c><v>1</v></c></row>', 'xl/sharedStrings.xml': '<sst/>' });
+  const [workbook, , sheet] = centralEntries(zip);
+  for (const field of [16, 20, 24, 42]) zip.writeUInt32LE(zip.readUInt32LE(workbook + field), sheet + field); // crc, sizes, offset
+  assert.throws(() => parseXlsx(zip), XlsxError);
+});
+
+test('a part declaring more than the per-part cap is refused without inflating it', () => {
+  const zip = rawWorkbook({ 'xl/worksheets/sheet1.xml': '<row><c><v>1</v></c></row>' });
+  const [, , sheet] = centralEntries(zip);
+  zip.writeUInt32LE(65 * 1024 * 1024, sheet + 24);
+  assert.throws(() => parseXlsx(zip), /more than an import can read/);
+});
+
+test('the inflated bytes of one file are capped in total, not only per part', () => {
+  // Two parts of 50 MB each: under the 64 MB part cap, over the 96 MB file budget, and
+  // both declaring 1 KB.
+  const big = zlib.deflateRawSync(Buffer.alloc(50 * 1024 * 1024, 0x20));
+  const zip = zipOfDeflated([
+    ['xl/workbook.xml', zlib.deflateRawSync(Buffer.from('<workbook xmlns:r="r"><sheets><sheet name="Reviews" r:id="rId1"/></sheets></workbook>'))],
+    ['xl/_rels/workbook.xml.rels', zlib.deflateRawSync(Buffer.from('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'))],
+    ['xl/sharedStrings.xml', big],
+    ['xl/worksheets/sheet1.xml', big],
+  ]);
+  assert.ok(zip.length < 200 * 1024, 'about 100 KB on the wire');
+  const { error, ms } = timed(() => parseXlsx(zip, { sheet: 'reviews' }));
+  assert.ok(error instanceof XlsxError, String(error));
+  assert.match((error as Error).message, /more than an import can read/);
+  assert.ok(ms < 2000, `${ms.toFixed(0)} ms`);
+});
+
+test('a far-right column reference is dropped, never padded up to', () => {
+  // AAAAAA1 once made a header twelve million cells wide; a thousand letters is past any
+  // number. The real cells in the same rows still read.
+  let xml = '<row><c r="A1" t="inlineStr"><is><t>author</t></is></c><c r="AAAAAA1" t="inlineStr"><is><t>far</t></is></c></row>';
+  for (let r = 2; r <= 2001; r++) xml += `<row><c r="A${r}"><v>${r}</v></c><c r="XFD${r}"><v>9</v></c></row>`;
+  xml += `<row><c r="${'Z'.repeat(1000)}2002"><v>1</v></c></row>`;
+  xml += '<row><c r="IV2003"><v>256</v></c><c r="IW2003"><v>257</v></c></row>';
+  const buf = rawWorkbook({ 'xl/worksheets/sheet1.xml': xml });
+  const { value, error, ms } = timed(() => parseXlsx(buf, { sheet: 'reviews' }));
+  assert.ok(!error, String(error));
+  assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
+  const rows = value![0].rows;
+  assert.deepStrictEqual(rows[0], ['author']);
+  assert.deepStrictEqual(rows[1], ['2']);
+  assert.strictEqual(rows.length, 2002, 'the thousand-letter row has nothing left and is dropped');
+  // Column IV, the 256th, is the last one kept.
+  assert.strictEqual(rows[2001].length, 256);
+  assert.strictEqual(rows[2001][255], '256');
+  assert.deepStrictEqual(sheetToTable(value![0]).headers, ['author']);
+});
+
+test('a sheet with more cells than an import can read is refused', () => {
+  // 16,000 rows each padded out to column IV: 4.1 million cells from a 600 KB sheet.
+  const buf = rawWorkbook({ 'xl/worksheets/sheet1.xml': '<row><c r="IV1"><v>1</v></c></row>'.repeat(16_000) });
+  const { error, ms } = timed(() => parseXlsx(buf));
+  assert.ok(error instanceof XlsxError, String(error));
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+  // And the table, where every row gets a key per header however short the row is.
+  const header = Array.from({ length: 256 }, (_, i) => `h${i}`);
+  assert.throws(() => sheetToTable({ name: 'x', rows: [header, ...Array.from({ length: 16_000 }, () => ['1'])] }), XlsxError);
+});
+
+console.log('choosing the sheet to import');
+
+/** A workbook of named tabs, each pointing at the part given (several may share one). */
+function tabbedWorkbook(tabs: Array<[string, string]>, parts: Record<string, string | Buffer>): Buffer {
+  const targets = [...new Set(tabs.map(([, target]) => target))];
+  return rawWorkbook({
+    'xl/workbook.xml':
+      '<workbook xmlns:r="r"><sheets>' +
+      tabs.map(([name, target], i) => `<sheet name="${name}" sheetId="${i + 1}" r:id="rId${targets.indexOf(target) + 1}"/>`).join('') +
+      '</sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':
+      '<Relationships>' + targets.map((t, i) => `<Relationship Id="rId${i + 1}" Target="${t}"/>`).join('') + '</Relationships>',
+    ...parts,
+  });
+}
+
+const oneCell = (v: string) => `<row><c t="inlineStr"><is><t>${v}</t></is></c></row>`;
+
+test('the Reviews sheet wins wherever it is, and no other sheet is inflated', () => {
+  const buf = tabbedWorkbook([['Products', 'worksheets/p.xml'], ['My Reviews', 'worksheets/r.xml']], {
+    'xl/worksheets/r.xml': oneCell('review'),
+    'xl/worksheets/p.xml': 'placeholder',
+  });
+  // Break the Products part's deflate stream in place: inflating it now throws.
+  const at = buf.indexOf('xl/worksheets/p.xml') + 'xl/worksheets/p.xml'.length;
+  buf.fill(0xff, at, at + 4);
+  assert.throws(() => parseXlsx(buf), XlsxError, 'reading every sheet does inflate it');
+  assert.deepStrictEqual(parseXlsx(buf, { sheet: 'reviews' }), [{ name: 'My Reviews', rows: [['review']] }]);
+});
+
+test('without a Reviews sheet: the first non-product sheet with rows, else the first', () => {
+  const parts = { 'xl/worksheets/empty.xml': '<sheetData/>', 'xl/worksheets/data.xml': oneCell('data'), 'xl/worksheets/p.xml': oneCell('product') };
+  const a = tabbedWorkbook([['Products', 'worksheets/p.xml'], ['Notes', 'worksheets/empty.xml'], ['Sheet1', 'worksheets/data.xml']], parts);
+  assert.deepStrictEqual(parseXlsx(a, { sheet: 'reviews' }), [{ name: 'Sheet1', rows: [['data']] }]);
+  const b = tabbedWorkbook([['Products', 'worksheets/p.xml'], ['Notes', 'worksheets/empty.xml']], parts);
+  assert.deepStrictEqual(parseXlsx(b, { sheet: 'reviews' }), [{ name: 'Products', rows: [['product']] }]);
+  const c = tabbedWorkbook([['Notes', 'worksheets/empty.xml'], ['Products', 'worksheets/p.xml']], parts);
+  assert.deepStrictEqual(parseXlsx(c, { sheet: 'reviews' }), [{ name: 'Notes', rows: [] }]);
+  assert.deepStrictEqual(parseXlsx(rawWorkbook({ 'xl/workbook.xml': '<workbook><sheets/></workbook>' }), { sheet: 'reviews' }), []);
+});
+
+test('many tabs pointing at one part read it once', () => {
+  const tabs = Array.from({ length: 5000 }, (_, i): [string, string] => [`Tab ${i}`, 'worksheets/s.xml']);
+  const buf = tabbedWorkbook(tabs, { 'xl/worksheets/s.xml': '<row><c><v>1</v></c></row>'.repeat(20_000) });
+  const { value, error, ms } = timed(() => parseXlsx(buf));
+  assert.ok(!error, String(error));
+  assert.strictEqual(value!.length, 1);
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+});
+
 console.log('xlsx writer');
 
 test('round-trips every cell kind and escapes XML', () => {
@@ -161,7 +401,33 @@ test('builds a two-sheet template with the catalogue in a dropdown', () => {
   assert.ok(raw.length > 0);
 });
 
-test('the template imports: headers map, the example row is dropped, approved publishes', () => {
+/** One part of a zip, inflated, to look at the XML the writer produced. */
+function zipPart(zip: Buffer, name: string): string {
+  for (const p of centralEntries(zip)) {
+    if (zip.toString('utf8', p + 46, p + 46 + zip.readUInt16LE(p + 28)) !== name) continue;
+    const local = zip.readUInt32LE(p + 42);
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    return zlib.inflateRawSync(zip.subarray(start, start + zip.readUInt32LE(p + 20))).toString('utf8');
+  }
+  throw new Error(`no ${name} in the zip`);
+}
+
+test('the handle formula escapes VLOOKUP wildcards in the picked title', () => {
+  // "12*12" as a VLOOKUP pattern also matches "12 x 12", which sorts first, so the
+  // unescaped lookup filled in the wrong product's handle.
+  const buf = buildImportTemplate([
+    { title: 'Pyrite Frame (12 x 12 inch)', handle: 'frame-spaced' },
+    { title: 'Pyrite Frame (12*12 inch)', handle: 'frame-star' },
+  ]);
+  const xml = zipPart(buf, 'xl/worksheets/sheet1.xml').replace(/&quot;/g, '"');
+  // ~ first, so the escapes added for * and ? are not escaped again.
+  const escaped = (row: number) => `SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(A${row},"~","~~"),"*","~*"),"?","~?")`;
+  assert.ok(xml.includes(`<f>IFERROR(VLOOKUP(${escaped(2)},Products!$A:$B,2,FALSE),"")</f>`), 'the example row');
+  assert.ok(xml.includes(`<f>IFERROR(VLOOKUP(${escaped(5001)},Products!$A:$B,2,FALSE),"")</f>`), 'the last row');
+  assert.ok(!/VLOOKUP\(A\d/.test(xml), 'no row looks up the raw title');
+});
+
+test('the template imports: headers map, the example row is dropped, approved or blank publishes', () => {
   const products = [{ title: 'Alpha', handle: 'alpha' }, { title: 'Beta', handle: 'beta' }];
   const buf = buildImportTemplate(products);
   const table = sheetToTable(parseXlsx(buf)[0]);
@@ -186,10 +452,14 @@ test('the template imports: headers map, the example row is dropped, approved pu
     ...table.rows,
     { product_title: 'Beta', product_handle: 'beta', rating: '4', author: 'Real One', title: '', content: 'Good', created_at: '2026-10-01', verified: 'true', status: 'approved', image_urls: '', email: '', country: 'IN' },
     { product_title: 'Alpha', product_handle: '', rating: '3', author: 'Real Two', title: '', content: 'Fine', created_at: '', verified: '', status: 'pending', image_urls: '', email: '', country: '' },
+    // Status left blank, as every template row but the example starts: not given, so the
+    // import default (published) applies. Reading blank as "not approved" imported whole
+    // sheets hidden.
+    { product_title: 'Alpha', product_handle: 'alpha', rating: '5', author: 'Real Three', title: '', content: 'Lovely', created_at: '', verified: '', status: '', image_urls: '', email: '', country: '' },
   ];
   const { reviews, errors } = mapRows(rows, map, index, { fallbackProductId: null, defaultSource: 'csv' });
   assert.deepStrictEqual(errors, []);
-  assert.strictEqual(reviews.length, 2);
+  assert.strictEqual(reviews.length, 3);
   assert.strictEqual(reviews[0].productId, 'p2');
   assert.strictEqual(reviews[0].matchedBy, 'handle');
   assert.strictEqual(reviews[0].isPublished, true);
@@ -198,6 +468,7 @@ test('the template imports: headers map, the example row is dropped, approved pu
   assert.strictEqual(reviews[1].matchedBy, 'title');
   assert.strictEqual(reviews[1].isPublished, false);
   assert.strictEqual(reviews[1].reviewDateFromFile, false);
+  assert.strictEqual(reviews[2].isPublished, true);
 });
 
 console.log('download token');
