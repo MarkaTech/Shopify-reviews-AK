@@ -152,11 +152,17 @@ export async function PUT(
         images: updated.images,
         videoUrl: updated.videoUrl,
       };
-      after(() => rewardPublishedReview(storeId, shop, accessToken, review, onUnauthorized));
-    }
-
-    // Push the change to the Shop app. Best-effort — never blocks the merchant.
-    if (await isSyndicationEnabled(storeId)) {
+      // The Shop push runs after the reward, in the same callback, so it sees the
+      // `isIncentivized` the grant stamps. Pushed first, a rewarded review reached Shop as
+      // an ordinary one — and syndication's rule is that incentivised reviews never go.
+      after(async () => {
+        await rewardPublishedReview(storeId, shop, accessToken, review, onUnauthorized);
+        if (await isSyndicationEnabled(storeId)) {
+          await syncReviewToShop(storeId, id, { shop, accessToken, onUnauthorized });
+        }
+      });
+    } else if (await isSyndicationEnabled(storeId)) {
+      // Push the change to the Shop app. Best-effort — never blocks the merchant.
       await syncReviewToShop(storeId, id, { shop, accessToken, onUnauthorized });
     }
 

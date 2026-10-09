@@ -130,7 +130,8 @@ interface Progress {
  * theirs to change), but it must lead with the fact that emails are already going out.
  */
 function requestsStep(step: StepMeta, s: RequestSummary | null): Pick<StepMeta, 'title' | 'body' | 'cta'> {
-  if (!s) return step;
+  // Called for every card, so it must leave every card but the requests one alone.
+  if (step.id !== 'requests' || !s) return step;
   if (!s.enabled) {
     return {
       title: 'Review requests are off',

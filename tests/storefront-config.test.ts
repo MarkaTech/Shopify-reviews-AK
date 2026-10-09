@@ -22,6 +22,7 @@ import {
   rebrandLegacyDefaults,
   LEGACY_DEFAULT_COLORS,
   REBRAND_DEPLOYED_AT,
+  pairCardText,
 } from '../src/lib/storefront-config';
 import { BRAND } from '../src/lib/brand';
 
@@ -249,10 +250,36 @@ test('no save date means the historical behaviour: remapped', () => {
   assert.strictEqual(colors.star, DEFAULT_CONFIG.colors.star);
 });
 
-test('the rename date itself counts as after: a row written that day is a choice', () => {
+test('the deploy instant itself counts as after: a row written then is a choice', () => {
   const colors = legacy();
   rebrandLegacyDefaults(colors, { accent: new Date(REBRAND_DEPLOYED_AT) });
   assert.strictEqual(colors.accent, LEGACY_DEFAULT_COLORS.accent);
+});
+
+test('a row written on 8 October BEFORE the deploy is still remapped', () => {
+  // The old Settings screen was live until 16:46Z that day and still offered the old
+  // green as its default; a save that morning was not a post-rename choice.
+  const colors = legacy();
+  rebrandLegacyDefaults(colors, { accent: new Date('2026-10-08T09:00:00Z') });
+  assert.strictEqual(colors.accent, DEFAULT_CONFIG.colors.accent);
+});
+
+test('a custom card background with theme text gets readable text', () => {
+  const dark = { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: null };
+  pairCardText(dark);
+  assert.strictEqual(dark.cardText, '#ffffff');
+  const light = { ...DEFAULT_CONFIG.colors, cardBg: '#fdf1de', cardText: null };
+  pairCardText(light);
+  assert.strictEqual(light.cardText, '#1f2937');
+});
+
+test('a chosen card text is never overridden, and no background means nothing to pair', () => {
+  const chosen = { ...DEFAULT_CONFIG.colors, cardBg: '#111827', cardText: '#ff0000' };
+  pairCardText(chosen);
+  assert.strictEqual(chosen.cardText, '#ff0000');
+  const none = { ...DEFAULT_CONFIG.colors, cardBg: null, cardText: null };
+  pairCardText(none);
+  assert.strictEqual(none.cardText, null);
 });
 
 test('matching is case-insensitive: a lower-case hex from an older save is still the legacy default', () => {

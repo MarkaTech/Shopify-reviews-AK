@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import type { Navigate, PageId } from './TopNav';
-import { adminUrl, navigateTop } from '@/lib/admin-links';
+import { adminUrl, navigateTop, PENDING_PLAN_KEY } from '@/lib/admin-links';
 import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton, Stars, VerifiedMark, EmptyState } from './ui-kit';
 import { BRAND, contrastRatio, FONT_FAMILY_PATTERN as FONT_FAMILY } from '@/lib/brand';
 import { describeRequests } from './RequestPerformance';
@@ -860,6 +860,14 @@ export default function SettingsPage({
       // flight, and a second click created a second pending subscription at Shopify.
       const approvalUrl = data.confirmationUrl || data.pricingPageUrl;
       if (approvalUrl) {
+        // What the merchant is buying, read back by the shell if Shopify's answer is slow
+        // to arrive, so it waits for THIS plan rather than for any paid one. Best effort:
+        // storage can be unavailable in an embedded frame, and the shell copes without it.
+        try {
+          sessionStorage.setItem(PENDING_PLAN_KEY, JSON.stringify({ from: currentPlan, to: planId }));
+        } catch {
+          /* no storage — the shell falls back to "any change of plan" */
+        }
         navigateTop(approvalUrl);
         return;
       }

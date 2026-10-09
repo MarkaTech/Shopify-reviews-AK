@@ -61,6 +61,17 @@ export async function PUT(
         const askerEmail = asked.askerEmail;
         const shopDomain = (await db.store.findUnique({ where: { id: storeId }, select: { shopifyDomain: true, name: true } }));
         after(async () => {
+          // Claim before sending, release on failure. Two answers in quick succession (a
+          // double-click, a retried PUT) both saw notifiedAt null above; the conditional
+          // update lets exactly one of them send, and a failed send gives the claim back
+          // so a later answer tries again.
+          const claimed = await db.question.updateMany({
+            where: { id, storeId, notifiedAt: null },
+            data: { notifiedAt: new Date() },
+          });
+          if (!claimed.count) return;
+          const release = () =>
+            db.question.updateMany({ where: { id, storeId }, data: { notifiedAt: null } }).catch(() => undefined);
           try {
             const { renderAnswerEmail, sendEmail } = await import('@/lib/email');
             const { unsubscribeToken } = await import('@/app/api/unsubscribe/route');
@@ -76,19 +87,17 @@ export async function PUT(
               unsubscribeUrl: appUrl ? `${appUrl}/api/unsubscribe?t=${encodeURIComponent(unsubscribeToken(askerEmail))}` : undefined,
             });
             const r = await sendEmail({ ...msg, to: askerEmail });
-            // Stamped only once the provider has accepted the message. It used to be
-            // written with the answer itself, before the send was attempted, so a
-            // not-yet-configured provider or a suppressed address left the shopper
-            // untold — and every later answer skipped the mail because the row said it
-            // had gone. A failed send now leaves notifiedAt null and the next answer
-            // tries again.
-            if (r.sent) {
-              await db.question.update({ where: { id }, data: { notifiedAt: new Date() } });
-            } else {
+            // Kept only once the provider has accepted the message. It used to be written
+            // with the answer itself and never given back, so a not-yet-configured provider
+            // or a suppressed address left the shopper untold — and every later answer
+            // skipped the mail because the row said it had gone.
+            if (!r.sent) {
               console.warn('[questions] answer notification not sent:', r.reason);
+              await release();
             }
           } catch (err) {
             console.error('[questions] answer notification failed:', err);
+            await release();
           }
         });
       }

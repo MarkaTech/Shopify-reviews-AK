@@ -48,6 +48,7 @@ import { Toaster, toast } from 'sonner';
 import { ExternalLink, ChevronRight } from 'lucide-react';
 import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
 import { MarkaLockup } from '@/components/app/ui-kit';
+import { PENDING_PLAN_KEY } from '@/lib/admin-links';
 import { apiFetch, ApiError } from '@/lib/api-client';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
@@ -102,8 +103,9 @@ interface UsageSummary {
  * retry normally lands well inside that, and a merchant who has just paid should see the
  * chip change without being told to reload.
  */
-const PLAN_POLL_ATTEMPTS = 5;
-const PLAN_POLL_INTERVAL_MS = 3000;
+// A minute in all, which is what the toast promises.
+const PLAN_POLL_ATTEMPTS = 12;
+const PLAN_POLL_INTERVAL_MS = 5000;
 
 /**
  * A server-supplied failure reason, made safe to print under the generic line.
@@ -298,13 +300,26 @@ export default function Home() {
     let cancelled = false;
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // The change the merchant went to Shopify for, written by the Plan page before it
+    // handed over. Without it, "a paid plan showed up" was the stop signal — and a store
+    // already on Growth buying Scale stopped at once on its old Growth, announced an
+    // upgrade it had not got yet, and never saw Scale arrive.
+    let expected: { from?: string; to?: string } = {};
+    try {
+      expected = JSON.parse(sessionStorage.getItem(PENDING_PLAN_KEY) || '{}');
+      sessionStorage.removeItem(PENDING_PLAN_KEY);
+    } catch {
+      /* no storage: fall back to "any paid plan" below */
+    }
+    const arrived = (plan: string | undefined) =>
+      !!plan && (expected.to ? plan === expected.to : expected.from ? plan !== expected.from : plan !== 'free');
     const tick = async () => {
       attempts++;
       try {
         const u = await apiFetch<UsageSummary>('/api/usage');
         if (cancelled) return;
         applyUsage(u);
-        if (u.plan && u.plan !== 'free') {
+        if (arrived(u.plan)) {
           setPlanPending(false);
           setUsageVersion((v) => v + 1);
           return;

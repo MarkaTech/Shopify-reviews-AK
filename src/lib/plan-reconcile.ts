@@ -28,7 +28,7 @@
  */
 
 import { db } from './db';
-import { resolveActiveSubscription } from './shopify';
+import { resolveActiveSubscription, ShopifyGraphQLError } from './shopify';
 import { entitledPlan, normalisePlan, type PlanId } from './plans';
 import { markTrialConsumed } from './trial';
 import { getFreshAccessTokenByStoreId, tokenRefresherFor, ReauthRequiredError } from './shopify-token';
@@ -172,7 +172,9 @@ export async function reconcileSomePlans(batch = 10): Promise<PlanBatchResult> {
       );
       if (r.corrected) result.corrected++;
     } catch (err) {
-      if (err instanceof ReauthRequiredError) {
+      // A dead refresh token, or a token Shopify refuses outright: either way the merchant
+      // has to open the app once. Not an error worth a stack trace every hour.
+      if (err instanceof ReauthRequiredError || (err instanceof ShopifyGraphQLError && err.status === 401)) {
         // Nothing to do until the merchant opens the app, which re-provisions the store
         // and clears the marker so their first load reconciles immediately.
         result.reauth++;

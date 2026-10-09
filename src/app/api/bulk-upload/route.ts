@@ -265,13 +265,16 @@ export async function POST(request: NextRequest) {
       .create({
         data: {
           storeId,
-          source: isWorkbook ? 'xlsx' : 'csv',
+          source: 'csv',
           status: 'processing',
           totalReviews: rows.length,
           importedReviews: 0,
           failedReviews: 0,
           config: JSON.stringify({
             detectedSource,
+            // Reviews from a workbook are source 'csv' like any other file import; the
+            // format is recorded here so support can tell them apart.
+            format: isWorkbook ? 'xlsx' : 'csv',
             fileName: file.name || null,
             columns,
             fallbackProductId,

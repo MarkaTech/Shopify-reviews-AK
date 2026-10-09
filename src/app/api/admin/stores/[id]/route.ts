@@ -125,7 +125,9 @@ export async function GET(
     note,
     // A paid plan given at no charge, if any. Shown as "Complimentary" in the portal and
     // left out of revenue.
-    complimentary: parseComplimentary(get(COMPLIMENTARY_KEY)),
+    // Through getComplimentary, not the settings dump: after shop/redact and a reinstall
+    // the gift lives only in the ledger until something asks, and this asks.
+    complimentary: await getComplimentary(id),
     integrations,
     links: handle
       ? {

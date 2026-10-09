@@ -9,11 +9,16 @@ import type { Metadata } from 'next';
  * in front of their customer. This server layout for the segment gives the tab its own
  * name and keeps the page out of search: robots.txt already disallows /r/, and the meta tag
  * covers a link a crawler reaches some other way, since each one is personal to an order.
- * Icons and Open Graph are inherited from the root layout.
+ * Description and Open Graph are neutral on purpose: inherited from the root layout they
+ * carried app marketing and the Marka icon into a buyer's link preview, including for a
+ * white-label merchant — and a static layout cannot read the plan to tell them apart.
  */
+const DESCRIPTION = 'Share your experience with your recent order.';
 export const metadata: Metadata = {
   title: 'Write a review',
+  description: DESCRIPTION,
   robots: { index: false },
+  openGraph: { title: 'Write a review', description: DESCRIPTION, images: [] },
 };
 
 export default function ReviewRequestLayout({ children }: { children: React.ReactNode }) {

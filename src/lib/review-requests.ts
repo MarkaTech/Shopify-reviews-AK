@@ -294,8 +294,12 @@ export function reviewRequestUrl(token: string, appUrl: string): string {
  * a form-completion rate that was wrongly low.
  */
 export function isPageDataFetch(headers: Headers): boolean {
-  if (headers.get('sec-fetch-mode') !== 'cors') return false;
-  if (headers.get('sec-fetch-dest') !== 'empty') return false;
   const purpose = `${headers.get('sec-purpose') || ''} ${headers.get('purpose') || ''}`.toLowerCase();
-  return !/prefetch|prerender/.test(purpose);
+  if (/prefetch|prerender/.test(purpose)) return false;
+  const mode = headers.get('sec-fetch-mode');
+  // Browsers that send Fetch Metadata are judged by it: the page's own fetch is cors/empty.
+  if (mode !== null) return mode === 'cors' && headers.get('sec-fetch-dest') === 'empty';
+  // Older Safari and Firefox send none of it. The review page marks its own request so a
+  // real open from those browsers still counts; a scanner's plain GET carries no marker.
+  return headers.get('x-review-page') === '1';
 }

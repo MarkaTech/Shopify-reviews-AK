@@ -318,6 +318,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     //
     // The reward had the same root cause as the storefront path: the grant hangs off a
     // false->true publish transition, and a row born published never has one.
+    //
+    // Declared here, RUN below in one sequential after() with the media upload and the
+    // Shop syndication. See "One chain" further down for why the order matters.
+    let settlePublished: (() => Promise<void>) | null = null;
     if (rules.autoPublish && store.shopifyDomain) {
       const shop = store.shopifyDomain;
       const publishedProductIds = [
@@ -357,7 +361,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const customerEmail = state.request.customerEmail;
       const customerName = state.request.customerName;
 
-      after(async () => {
+      settlePublished = async () => {
         try {
           const token = await getFreshAccessToken(store);
           const ctx = { shop, accessToken: token, onUnauthorized: tokenRefresherFor(storeId) };
@@ -395,7 +399,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           // publish or a manual rebuild; a missing code is recoverable by the merchant.
           console.error('[review-request] post-publish aggregate/reward step failed:', err);
         }
-      });
+      };
     }
 
     // ── Shop app syndication, for reviews that went live immediately ──
@@ -405,10 +409,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Shop. The program's rule is "syndicate everything"; isSyndicationEnabled is the
     // plan gate, so on a store not paying for Shop sync this resolves to nothing.
     //
-    // Chained after the media upload when there is one. after() callbacks run
-    // concurrently, and a push that raced the upload would reach Shop without its photos
-    // — and with no later PUT to re-sync an auto-published review, that is the version
-    // Shop would keep.
+    // Runs last in the chain below, after the media upload and the incentive grant, so the
+    // push carries the photos and refuses a review that turned out to be incentivised.
     const syndicate = async () => {
       const shop = store.shopifyDomain;
       if (!rules.autoPublish || !shop) return;
@@ -431,46 +433,59 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // anyway. The buyer sees their thank-you in ~300ms; the photos attach in the
     // background long before the merchant looks at the queue — which matters, because the
     // photo/video incentive tier is decided from `images`/`videoUrl` at approval time.
-    if (validatedByKey.size && store.shopifyDomain) {
+    const uploadMedia = async () => {
       const shop = store.shopifyDomain;
-      after(async () => {
-        try {
-          const accessToken = await getFreshAccessToken(store);
-          for (const { key, id } of createdIds) {
-            const validated = validatedByKey.get(key);
-            if (!validated?.length) continue;
+      if (!validatedByKey.size || !shop) return;
+      try {
+        const accessToken = await getFreshAccessToken(store);
+        for (const { key, id } of createdIds) {
+          const validated = validatedByKey.get(key);
+          if (!validated?.length) continue;
 
-            const uploaded = await uploadToShopify(shop, accessToken, validated, tokenRefresherFor(storeId));
+          const uploaded = await uploadToShopify(shop, accessToken, validated, tokenRefresherFor(storeId));
 
-            const images: string[] = [];
-            let video: string | null = null;
-            const pending: string[] = [];
-            for (const m of uploaded) {
-              if (!m.url) pending.push(m.gid);
-              else if (m.kind === 'video') video = m.url;
-              else images.push(m.url);
-            }
-
-            await db.review.update({
-              where: { id },
-              data: {
-                images: images.length ? JSON.stringify(images) : null,
-                videoUrl: video,
-                pendingMedia: pending.length ? JSON.stringify(pending) : null,
-                // Kept so the files can be deleted later — on review delete or erasure.
-                mediaGids: JSON.stringify(uploaded.map((m) => m.gid)),
-              },
-            });
+          const images: string[] = [];
+          let video: string | null = null;
+          const pending: string[] = [];
+          for (const m of uploaded) {
+            if (!m.url) pending.push(m.gid);
+            else if (m.kind === 'video') video = m.url;
+            else images.push(m.url);
           }
-        } catch (err) {
-          // The review is already saved. Losing a photo is regrettable; losing someone's
-          // written review to save the photo would be worse.
-          console.error('[review-request] background media upload failed:', err);
+
+          await db.review.update({
+            where: { id },
+            data: {
+              images: images.length ? JSON.stringify(images) : null,
+              videoUrl: video,
+              pendingMedia: pending.length ? JSON.stringify(pending) : null,
+              // Kept so the files can be deleted later — on review delete or erasure.
+              mediaGids: JSON.stringify(uploaded.map((m) => m.gid)),
+            },
+          });
         }
+      } catch (err) {
+        // The review is already saved. Losing a photo is regrettable; losing someone's
+        // written review to save the photo would be worse.
+        console.error('[review-request] background media upload failed:', err);
+      }
+    };
+
+    // ── One chain: media, then aggregates and reward, then Shop ──
+    //
+    // These were three after() callbacks, and Next runs after() callbacks concurrently.
+    // Syndication therefore read the row before the incentive grant had stamped
+    // `isIncentivized` — the grant is two Shopify round trips away — and pushed a review the
+    // buyer was rewarded for to the Shop app as an ordinary one. The syndication module's
+    // hard rule is that incentivised reviews never go to Shop, and an upsert cannot be
+    // taken back by a later refusal. Run in order, each step sees what the one before it
+    // wrote: syndication gets the photos and the incentive flag.
+    if (store.shopifyDomain && (validatedByKey.size || rules.autoPublish)) {
+      after(async () => {
+        await uploadMedia();
+        if (settlePublished) await settlePublished();
         await syndicate();
       });
-    } else if (rules.autoPublish && store.shopifyDomain) {
-      after(syndicate);
     }
 
     await db.analyticsEvent.create({

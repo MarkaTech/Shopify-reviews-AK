@@ -660,6 +660,12 @@ export async function getUsage(storeId: string) {
     price: complimentary ? 0 : limits.price,
     listPrice: limits.price,
     complimentary,
+    /**
+     * The gifted plan, whatever the store is on. Differs from `plan` when the store pays
+     * for a plan above its gift — the Plan page needs it to say "you keep Growth free"
+     * rather than "your paid features stop" when that merchant stops paying.
+     */
+    complimentaryPlan: comp?.plan ?? null,
     /** Awaiting moderation. Drives the badge on the Reviews tab. */
     pendingReviews,
     // The meter. Everything else here is informational.

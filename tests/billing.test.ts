@@ -57,10 +57,16 @@ test('a refusal naming managed pricing is the hosted plan page, not an error', (
   for (const msg of [
     'This app uses managed pricing; subscriptions must be created from the pricing page',
     'Apps on Shopify App Pricing cannot create subscriptions through the Billing API',
-    'Choose a pricing plan in the Shopify admin',
   ]) {
     assert.strictEqual(describeSubscriptionFailure(refused(msg)).kind, 'managed-pricing', msg);
   }
+});
+
+test('the words "pricing plan" alone do not send the merchant to the hosted plan page', () => {
+  // A false match navigates the whole admin to /charges/<handle>/pricing_plans, which is a
+  // 404 for an app not on Shopify App Pricing. Only Shopify naming the feature counts.
+  const kind = describeSubscriptionFailure(refused('Choose a pricing plan in the Shopify admin')).kind;
+  assert.notStrictEqual(kind, 'managed-pricing');
 });
 
 test('a live charge against a development store is explained as such', () => {

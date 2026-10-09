@@ -326,11 +326,14 @@ export async function POST(request: NextRequest) {
     // 16 CFR 465.4 prohibits conditioning a reward on what a review says. One grant per
     // review is enforced by the unique on IncentiveGrant.reviewId, so this cannot
     // double-mint alongside the moderation path.
+    //
+    // Run in the chain at the bottom of this handler, before syndication — see there.
+    let reward: (() => Promise<void>) | null = null;
     if (publishNow && email) {
       const storeId = store.id;
       const reviewId = created.id;
       const reviewerName = name || null;
-      after(async () => {
+      reward = async () => {
         try {
           const token = await getFreshAccessToken(store);
           const { rewardPublishedReview } = await import('@/lib/incentives');
@@ -353,7 +356,7 @@ export async function POST(request: NextRequest) {
         } catch (err) {
           console.error('[storefront/submit] incentive reward failed:', err);
         }
-      });
+      };
     }
 
     // A published review changes the product's average, which lives in Shopify metafields
@@ -383,9 +386,8 @@ export async function POST(request: NextRequest) {
     // Same gap as the reward: syncReviewToShop hung off the merchant's PUT, and a review
     // born published has no PUT, so with syndication on an auto-published review never
     // reached Shop. isSyndicationEnabled is the plan gate; on a store not paying for Shop
-    // sync this resolves to nothing. Chained after the media upload when there is one —
-    // after() callbacks run concurrently, and a push that raced the upload would reach
-    // Shop without its photos, with no later edit to correct it.
+    // sync this resolves to nothing. Runs last in the chain below, so the push carries the
+    // photos and sees whether the review was rewarded.
     const syndicate = async () => {
       if (!publishNow || !product) return;
       const storeId = store.id;
@@ -407,43 +409,51 @@ export async function POST(request: NextRequest) {
     // the shopper sees their confirmation in ~300ms while the bytes go to Shopify in the
     // background. The review is unpublished either way, so the media is attached long
     // before anyone could see the review.
-    if (validated.length) {
+    const uploadMedia = async () => {
+      if (!validated.length) return;
       const storeId = store.id;
       const reviewId = created.id;
-      after(async () => {
-        try {
-          const token = await getFreshAccessToken(store);
-          const uploaded = await uploadToShopify(shop, token, validated, tokenRefresherFor(storeId));
+      try {
+        const token = await getFreshAccessToken(store);
+        const uploaded = await uploadToShopify(shop, token, validated, tokenRefresherFor(storeId));
 
-          const images: string[] = [];
-          let video: string | null = null;
-          const pending: string[] = [];
+        const images: string[] = [];
+        let video: string | null = null;
+        const pending: string[] = [];
 
-          for (const m of uploaded) {
-            if (!m.url) pending.push(m.gid);
-            else if (m.kind === 'video') video = m.url;
-            else images.push(m.url);
-          }
-
-          await db.review.update({
-            where: { id: reviewId },
-            data: {
-              images: images.length ? JSON.stringify(images) : null,
-              videoUrl: video,
-              pendingMedia: pending.length ? JSON.stringify(pending) : null,
-              // Kept so the files can be deleted later — on review delete or erasure.
-              mediaGids: JSON.stringify(uploaded.map((m) => m.gid)),
-            },
-          });
-        } catch (err) {
-          // The review is already saved. Losing a photo is regrettable; losing someone's
-          // written review to save the photo would be worse.
-          console.error('[storefront/submit] background media upload failed:', err);
+        for (const m of uploaded) {
+          if (!m.url) pending.push(m.gid);
+          else if (m.kind === 'video') video = m.url;
+          else images.push(m.url);
         }
+
+        await db.review.update({
+          where: { id: reviewId },
+          data: {
+            images: images.length ? JSON.stringify(images) : null,
+            videoUrl: video,
+            pendingMedia: pending.length ? JSON.stringify(pending) : null,
+            // Kept so the files can be deleted later — on review delete or erasure.
+            mediaGids: JSON.stringify(uploaded.map((m) => m.gid)),
+          },
+        });
+      } catch (err) {
+        // The review is already saved. Losing a photo is regrettable; losing someone's
+        // written review to save the photo would be worse.
+        console.error('[storefront/submit] background media upload failed:', err);
+      }
+    };
+
+    // One chain, in order: media, then the incentive grant, then Shop. These were separate
+    // after() callbacks, which Next runs concurrently — so syndication read the row before
+    // the grant stamped `isIncentivized` and pushed a rewarded review to Shop as an
+    // ordinary one, which the syndication rules forbid and a later refusal cannot undo.
+    if (validated.length || reward || (publishNow && product)) {
+      after(async () => {
+        await uploadMedia();
+        if (reward) await reward();
         await syndicate();
       });
-    } else if (publishNow && product) {
-      after(syndicate);
     }
 
     return NextResponse.json(

@@ -372,10 +372,35 @@ export const LEGACY_DEFAULT_COLORS: Partial<Record<keyof StorefrontConfig['color
  * very next read, with nothing on the screen to say why. A row's updatedAt against this
  * date is what separates the two.
  */
-export const REBRAND_DEPLOYED_AT = new Date('2026-10-08T00:00:00Z');
+//
+// The instant the renamed Settings screen went live: the af1071b deploy finished at
+// 16:46:03Z on 8 October (GitHub Actions run). Midnight that day was 17 hours early — a
+// row saved that morning on the OLD screen, which still offered the old green as its
+// default, would have been read as a post-rename choice and frozen. Erring late is the
+// safe side: a row inside the gap is remapped as it always was.
+export const REBRAND_DEPLOYED_AT = new Date('2026-10-08T16:47:00Z');
 
 /** When each colour row was last written, by field. No entry for a field with no row. */
 export type ColorSavedAt = Partial<Record<keyof StorefrontConfig['colors'], Date>>;
+
+/**
+ * A card background the merchant chose, with card text left to "follow your theme", gets a
+ * text colour that reads on that background.
+ *
+ * The stylesheet pairs its white card fallback with dark fallback text, which is right
+ * when neither colour is set. But the background CAN be set on its own — Settings and the
+ * widget designer both allow it — and then the CSS text fallback met a background it was
+ * never meant for: a dark card on a dark theme got #1f2937 text, unreadable. Publishing a
+ * text colour whenever a background is published means the CSS fallback text only ever
+ * meets the CSS fallback background.
+ */
+export function pairCardText(colors: StorefrontConfig['colors']): void {
+  const bg = colors.cardBg;
+  if (typeof bg !== 'string' || !HEX.test(bg) || colors.cardText) return;
+  const onDark = contrastRatio('#1f2937', bg) ?? 0;
+  const onLight = contrastRatio('#ffffff', bg) ?? 0;
+  colors.cardText = onDark >= onLight ? '#1f2937' : '#ffffff';
+}
 
 /**
  * Move the pre-rename defaults to the Marka ones — for values saved before the rename.
@@ -522,6 +547,7 @@ export async function getStorefrontConfig(
   }
 
   rebrandLegacyDefaults(config.colors, colorSavedAt);
+  pairCardText(config.colors);
 
   // Resolved from the plan rather than from a setting, and last, so nothing above can
   // overwrite it. The attribution is what the Free tier trades for being free — and what

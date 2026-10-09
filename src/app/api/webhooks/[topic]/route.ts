@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookHmac } from '@/lib/shopify';
 import { clearWebhookRegistration } from '@/lib/webhook-health';
 import { db } from '@/lib/db';
-import { recomputeProductRating } from '@/lib/ratings';
+import { updateProductRating, shopifyContextForStore } from '@/lib/ratings';
 import { handleComplianceTopic, ShopMismatchError } from '@/lib/compliance';
 import { recordJobRun } from '@/lib/job-run';
 import { maskEmail } from '@/lib/pii';
@@ -108,7 +108,10 @@ async function relinkDetached(storeId: string, shopifyId: string, productId: str
 
   if (reviews.count > 0) {
     console.log(`[webhook] re-attached ${reviews.count} review(s) to restored product ${shopifyId}`);
-    await recomputeProductRating(storeId, productId);
+    // To Shopify as well as locally: the metafields are what the star block, the review
+    // header and the JSON-LD read. With no usable token the context is null and this is
+    // the local recompute it used to be.
+    await updateProductRating(storeId, productId, (await shopifyContextForStore(storeId)) ?? undefined);
   }
 }
 

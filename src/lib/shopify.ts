@@ -984,7 +984,11 @@ export interface SubscriptionFailure {
  * API, and a message that drifts should fall through to the generic sentence rather than
  * be misread as a different cause.
  */
-const MANAGED_PRICING_RE = /managed pricing|app pricing|pricing plan/i;
+// Deliberately narrow. A false match sends the merchant top-level to the hosted plan page,
+// which is a 404 for an app NOT on Shopify App Pricing — so "pricing plan", which plenty of
+// unrelated errors could contain, is not enough on its own. SHOPIFY_MANAGED_PRICING is the
+// authoritative switch; this only catches Shopify saying so in as many words.
+const MANAGED_PRICING_RE = /managed pricing|app pricing/i;
 const DEVELOPMENT_STORE_RE = /development store|partners?\s+area|test (?:charge|mode|subscription)/i;
 const SHOP_INELIGIBLE_RE =
   /frozen|paused|closed|locked|dormant|inactive|not eligible|ineligible|cannot be charged|can'?t be charged|not allowed|does not (?:allow|support)|staff account/i;

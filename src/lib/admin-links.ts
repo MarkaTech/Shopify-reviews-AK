@@ -48,9 +48,18 @@ export function adminUrl(shopifyDomain: string | null | undefined, path: string)
  * the admin there is no App Bridge (`window.shopify` is undefined) and no parent to ask,
  * so a plain location change is the right thing — and the only thing — to do.
  */
+/**
+ * sessionStorage key for the plan change in flight at Shopify: `{ from, to }`, written by
+ * the Plan page just before it hands the merchant to Shopify and read by the app shell
+ * when they come back, so a slow confirmation waits for the plan they actually bought.
+ */
+export const PENDING_PLAN_KEY = 'marka.pendingPlan';
+
 export function navigateTop(url: string): void {
   if (typeof window === 'undefined') return;
-  if (window.shopify) {
+  // Both conditions: the App Bridge script is loaded on every page, so the global can
+  // exist outside the admin, where handing it the navigation does nothing at all.
+  if (window.shopify && window.self !== window.top) {
     window.open(url, '_top');
     return;
   }

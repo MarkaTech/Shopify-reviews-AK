@@ -67,7 +67,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
   const [forms, setForms] = useState<Record<string, ItemForm>>({});
 
   useEffect(() => {
-    fetch(`/api/review-request/${token}`)
+    fetch(`/api/review-request/${token}`, { headers: { 'X-Review-Page': '1' } })
       .then(async r => {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || 'This link is not valid.');
@@ -129,7 +129,7 @@ export default function ReviewRequestPage({ params }: { params: Promise<{ token:
 
   if (loading) {
     return (
-      <Shell>
+      <Shell showBadge={false}>
         {/* A static skeleton with a status line (Marka guidelines: no looping motion). */}
         <div className="space-y-4" role="status" aria-busy="true">
           <span className="sr-only">Loading your order…</span>
