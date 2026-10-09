@@ -8,6 +8,7 @@ import { getSubmissionRules } from '@/lib/storefront-config';
 import { checkSubmitRateLimit, checkSubmitFloodLimit } from '@/lib/rate-limit';
 import { notifyNewReview } from '@/lib/notifications';
 import { updateProductRating } from '@/lib/ratings';
+import { syncReviewToShop, isSyndicationEnabled } from '@/lib/syndication';
 
 /**
  * Public review submission, from the storefront widget.
@@ -377,6 +378,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ── Shop app syndication ──
+    //
+    // Same gap as the reward: syncReviewToShop hung off the merchant's PUT, and a review
+    // born published has no PUT, so with syndication on an auto-published review never
+    // reached Shop. isSyndicationEnabled is the plan gate; on a store not paying for Shop
+    // sync this resolves to nothing. Chained after the media upload when there is one —
+    // after() callbacks run concurrently, and a push that raced the upload would reach
+    // Shop without its photos, with no later edit to correct it.
+    const syndicate = async () => {
+      if (!publishNow || !product) return;
+      const storeId = store.id;
+      try {
+        if (!(await isSyndicationEnabled(storeId))) return;
+        const token = await getFreshAccessToken(store);
+        await syncReviewToShop(storeId, created.id, {
+          shop,
+          accessToken: token,
+          onUnauthorized: tokenRefresherFor(storeId),
+        });
+      } catch (err) {
+        // Best effort: the review is live on the storefront regardless.
+        console.error('[storefront/submit] Shop syndication failed:', err);
+      }
+    };
+
     // Upload AFTER the response is sent. `after()` runs once the response has flushed, so
     // the shopper sees their confirmation in ~300ms while the bytes go to Shopify in the
     // background. The review is unpublished either way, so the media is attached long
@@ -414,7 +440,10 @@ export async function POST(request: NextRequest) {
           // written review to save the photo would be worse.
           console.error('[storefront/submit] background media upload failed:', err);
         }
+        await syndicate();
       });
+    } else if (publishNow && product) {
+      after(syndicate);
     }
 
     return NextResponse.json(

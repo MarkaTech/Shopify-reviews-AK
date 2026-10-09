@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { db } from './db';
-import { recomputeProductRating } from './ratings';
+import { updateProductRating, shopifyContextForStore } from './ratings';
 import { encryptToken, decryptToken } from './crypto';
 
 /**
@@ -372,7 +372,7 @@ export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> 
     imported++;
   }
 
-  // Recompute every product this sync touched.
+  // Recompute every product this sync touched, and push the result to Shopify.
   //
   // Without it the import was invisible. Reviews were created isPublished:true and
   // nothing updated ProductRating or the Shopify metafields, so the theme's stars, the
@@ -381,11 +381,20 @@ export async function syncEtsyReviews(storeId: string): Promise<EtsySyncResult> 
   // that mutates a review must call this — and the AliExpress importer documents having
   // already been fixed for exactly this. Etsy was missed.
   //
+  // Pushed, not only recomputed. The first fix called recomputeProductRating, which
+  // filled the ProductRating row the widget reads and never wrote the reviews.rating
+  // metafields — and those are what the theme's star block, the summary header and the
+  // JSON-LD read, so the storefront still said "No reviews yet" above the Etsy reviews.
+  // A sync has no merchant request to borrow a token from, so one is resolved here, once
+  // for the whole run; when that fails the local recompute still happens and the push
+  // waits for the next publish on the product.
+  //
   // Best-effort per product: an aggregate that fails must not lose the imported reviews,
   // and the next publish or sync recomputes it anyway.
+  const shopify = touchedProducts.size ? await shopifyContextForStore(storeId) : null;
   for (const productId of touchedProducts) {
     try {
-      await recomputeProductRating(storeId, productId);
+      await updateProductRating(storeId, productId, shopify ?? undefined);
     } catch (error) {
       console.error(`[etsy] rating recompute failed for product ${productId}:`, error);
     }

@@ -36,6 +36,7 @@
 import crypto from 'node:crypto';
 import { db } from './db';
 import { callShopifyGraphQL } from './shopify';
+import { getFreshAccessToken, tokenRefresherFor, TOKEN_SELECT } from './shopify-token';
 
 /** Star histogram plus the derived average. */
 export interface RatingAggregate {
@@ -304,6 +305,45 @@ export async function updateProductRating(
   }
 
   return aggregate;
+}
+
+/** What `updateProductRating` needs to push to Shopify. */
+export interface ShopifyRatingContext {
+  shop: string;
+  accessToken: string;
+  onUnauthorized?: () => Promise<string | null>;
+}
+
+/**
+ * The Shopify context for a path with no merchant request behind it — a background
+ * sync, a webhook — or null when the store cannot be reached.
+ *
+ * Those paths used to call `recomputeProductRating` alone, which fills the ProductRating
+ * row the widget reads and never touches the `reviews.rating` metafields that the theme's
+ * star block, the summary header and the JSON-LD read. The result was a storefront
+ * saying "No reviews yet" above a list of reviews it had just imported or restored, until
+ * some unrelated publish on that product pushed the number across.
+ *
+ * Null rather than a throw when the token is unusable (uninstalled, a dead refresh token):
+ * the caller must still recompute locally, because the local aggregate has to be right
+ * even while Shopify is unreachable, and the next successful push carries it over.
+ */
+export async function shopifyContextForStore(storeId: string): Promise<ShopifyRatingContext | null> {
+  const store = await db.store.findUnique({ where: { id: storeId }, select: TOKEN_SELECT });
+  if (!store?.shopifyDomain) return null;
+  try {
+    return {
+      shop: store.shopifyDomain,
+      accessToken: await getFreshAccessToken(store),
+      onUnauthorized: tokenRefresherFor(storeId),
+    };
+  } catch (error) {
+    console.warn(
+      `[ratings] no usable Shopify token for store ${storeId}; metafields will not be pushed:`,
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
 }
 
 /**

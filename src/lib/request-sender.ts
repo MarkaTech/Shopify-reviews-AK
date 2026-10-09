@@ -179,7 +179,7 @@ export async function sendDueRequest(
     reviewUrl: link,
     unsubscribeUrl,
     isReminder,
-    showBadge: !PLANS[plan].whiteLabel,
+    showAttribution: !PLANS[plan].whiteLabel,
   });
 
   // ── Claim the row before sending ──
