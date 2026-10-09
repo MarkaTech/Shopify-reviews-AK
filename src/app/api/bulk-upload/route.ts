@@ -117,9 +117,10 @@ export async function POST(request: NextRequest) {
     // saved as "reviews.csv" by mistake still opens as what it is.
     const bytes = new Uint8Array(await file.arrayBuffer());
     const fileName = (file.name || '').toLowerCase();
+    const isWorkbook = fileName.endsWith('.xlsx') || isXlsx(bytes);
     let headers: string[];
     let rows: ReturnType<typeof parseCSV>['rows'];
-    if (fileName.endsWith('.xlsx') || isXlsx(bytes)) {
+    if (isWorkbook) {
       let sheets: XlsxSheet[];
       try {
         sheets = parseXlsx(bytes, { maxRows: MAX_CSV_ROWS + 2 });
@@ -252,15 +253,29 @@ export async function POST(request: NextRequest) {
     // The ImportJob row was created once the loop finished, so an import that timed out or
     // crashed mid-way left no trace at all — the merchant saw reviews appear with no job in
     // their history explaining where they came from, and no failure to point at.
+    //
+    // `source` is the source ID every other writer uses (csv, aliexpress, etsy), never the
+    // detected app's display name. It used to be `detectedSource || 'csv'`, which wrote
+    // "Judge.me" and "Stamped.io" into a column whose other values are lowercase ids — so
+    // the job and the reviews it created (always source 'csv') disagreed, and any grouping
+    // of import history by source split CSV imports across several labels. What was
+    // recognised is still recorded, in the job's config alongside the column mapping, where
+    // it is useful for support and harmless for grouping.
     const job = await db.importJob
       .create({
         data: {
           storeId,
-          source: detectedSource || 'csv',
+          source: isWorkbook ? 'xlsx' : 'csv',
           status: 'processing',
           totalReviews: rows.length,
           importedReviews: 0,
           failedReviews: 0,
+          config: JSON.stringify({
+            detectedSource,
+            fileName: file.name || null,
+            columns,
+            fallbackProductId,
+          }),
         },
       })
       .catch(() => null);

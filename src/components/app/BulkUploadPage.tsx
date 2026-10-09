@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Upload, Download, FileSpreadsheet, CheckCircle2, XCircle, AlertCircle,
   ShoppingBag, Plus, Trash2, Table, Store, ShieldAlert, Info, Link2,
-  ArrowRight, Sparkles, Check, ChevronsUpDown, RefreshCw,
+  ArrowRight, Sparkles, Check, ChevronsUpDown, RefreshCw, Loader2, SearchCheck,
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -41,6 +41,29 @@ const TEMPLATE_PREVIEW: Array<[string, string]> = [
 /** How many products the picker lists at once; the search narrows a large catalogue. */
 const PICKER_VISIBLE = 200;
 
+/**
+ * What the server would do with a file, before it does it. The shape of the route's
+ * dry-run response (src/app/api/bulk-upload/route.ts).
+ */
+interface Preview {
+  detectedSource: string | null;
+  total: number;
+  importable: number;
+  failed: number;
+  matched: number;
+  unmatched: number;
+  errors: Array<{ row: number; reason: string }>;
+  sample: Array<{ reviewerName: string; rating: number; title: string | null; body: string; matchedBy: string | null }>;
+}
+
+/** How a sample row found its product, in the merchant's words. */
+const MATCHED_BY: Record<string, string> = {
+  shopifyId: 'by Shopify ID',
+  handle: 'by handle',
+  title: 'by title',
+  fallback: 'the product chosen above',
+};
+
 type Source = 'csv' | 'manual' | 'aliexpress' | 'etsy';
 
 const SOURCES: Array<{
@@ -67,7 +90,24 @@ export default function BulkUploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ total: number; imported: number; failed: number; duplicates?: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{
+    total: number;
+    imported: number;
+    failed: number;
+    duplicates?: number;
+    matched?: number;
+    unmatched?: number;
+    errors: string[];
+  } | null>(null);
+  // The dry run of the chosen file. Import is only offered once this has come back: a
+  // merchant uploading 1,683 rows used to commit blind and learn afterwards how many had
+  // found a product. The server has offered this preview all along; nothing asked for it.
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  // Which dry run is current, so a slow response for the previous file (or the previous
+  // product choice) cannot overwrite the result for the current one.
+  const previewSeq = useRef(0);
   const [manualRows, setManualRows] = useState<Array<{ reviewerName: string; rating: string; title: string; body: string }>>([
     { reviewerName: '', rating: '5', title: '', body: '' }
   ]);
@@ -140,6 +180,37 @@ export default function BulkUploadPage() {
   }, [products, pickerQuery]);
   const selectedProductTitle = products.find(p => p.id === selectedProduct)?.title;
 
+  /**
+   * Ask the server what it would do with this file, and show that before offering Import.
+   *
+   * Re-run whenever the file or the fallback product changes, since the fallback changes
+   * how many rows end up with a product. A stale response is dropped by sequence number.
+   */
+  const runPreview = useCallback(async (f: File, productId: string) => {
+    const seq = ++previewSeq.current;
+    setPreviewing(true);
+    setPreview(null);
+    setPreviewError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', f);
+      formData.append('dryRun', 'true');
+      if (productId && productId !== '__none__') formData.append('productId', productId);
+      const data = await apiFetch<Preview>('/api/bulk-upload', { method: 'POST', body: formData });
+      if (seq !== previewSeq.current) return;
+      setPreview({ ...data, errors: data.errors ?? [], sample: data.sample ?? [] });
+    } catch (err) {
+      if (seq !== previewSeq.current) return;
+      setPreviewError(
+        err instanceof ApiError && err.isPlanLimit
+          ? err.userMessage
+          : errorMessage(err, 'Could not read that file. Check it opens in Excel, then try again.')
+      );
+    } finally {
+      if (seq === previewSeq.current) setPreviewing(false);
+    }
+  }, []);
+
   const acceptFile = (f: File | undefined) => {
     if (!f) return;
     const name = f.name.toLowerCase();
@@ -153,6 +224,25 @@ export default function BulkUploadPage() {
     }
     setFile(f);
     setResult(null);
+    void runPreview(f, selectedProduct);
+  };
+
+  const clearFile = () => {
+    previewSeq.current++; // abandons any dry run still in flight
+    setFile(null);
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewing(false);
+    // So the same file can be chosen again: a file input does not fire onChange for a
+    // path equal to the one it already holds.
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  /** The fallback product changed; the file's match counts change with it. */
+  const chooseProduct = (id: string) => {
+    setSelectedProduct(id);
+    setPickerOpen(false);
+    if (file && source === 'csv') void runPreview(file, id);
   };
 
   const handleUpload = async () => {
@@ -169,21 +259,33 @@ export default function BulkUploadPage() {
       if (source === 'csv' && file) {
         formData.append('file', file);
       } else {
-        // Convert manual rows to CSV
+        // Convert manual rows to CSV. Every field is quoted, so a comma is safe; a
+        // double quote inside a field has to be doubled (RFC 4180), and the name was the
+        // one field that was not — John "JJ" Smith lost his quotes on the way in.
+        const q = (s: string) => `"${s.replace(/"/g, '""')}"`;
         const csv = 'reviewerName,rating,title,body\n' + manualRows
           .filter(r => r.reviewerName && r.body)
-          .map(r => `"${r.reviewerName}","${r.rating}","${r.title.replace(/"/g, '""')}","${r.body.replace(/"/g, '""')}"`)
+          .map(r => [r.reviewerName, r.rating, r.title, r.body].map(q).join(','))
           .join('\n');
         formData.append('file', new Blob([csv], { type: 'text/csv' }), 'manual-upload.csv');
       }
       if (selectedProduct && selectedProduct !== '__none__') formData.append('productId', selectedProduct);
 
       // FormData body, so no JSON Content-Type — apiFetch only sets it for string bodies.
-      const data = await apiFetch<{ imported: number; failed: number; duplicates?: number; total: number; errors?: string[] }>(
-        '/api/bulk-upload', { method: 'POST', body: formData }
-      );
+      const data = await apiFetch<{
+        imported: number;
+        failed: number;
+        duplicates?: number;
+        matched?: number;
+        unmatched?: number;
+        total: number;
+        errors?: string[];
+      }>('/api/bulk-upload', { method: 'POST', body: formData });
       // errors is optional on the wire but required by the result state, so default it.
       setResult({ ...data, errors: data.errors ?? [] });
+      // The file has been used. Clearing it (and its preview) is what stops a second
+      // press re-importing — harmless thanks to the dedupe key, but confusing.
+      if (source === 'csv') clearFile();
 
       if (data.imported > 0) {
         toast.success(`Imported ${data.imported} review${data.imported === 1 ? '' : 's'}`);
@@ -411,15 +513,23 @@ export default function BulkUploadPage() {
                       {products.length === 0 ? 'No products synced yet — use Sync products.' : 'No product matches that.'}
                     </CommandEmpty>
                     {!pickerQuery && (
-                      <CommandItem value="__none__" onSelect={() => { setSelectedProduct('__none__'); setPickerOpen(false); }}>
+                      <CommandItem value="__none__" onSelect={() => chooseProduct('__none__')}>
                         <Check className={cn('mr-2 size-4', selectedProduct === '__none__' ? 'opacity-100' : 'opacity-0')} />
                         No specific product
                       </CommandItem>
                     )}
+                    {/* Title AND handle. Catalogues repeat titles — one store has
+                        "5 Mukhi Rudraksha Bracelet" three times over — and a merchant
+                        attaching two hundred reviews needs to see which listing it is. */}
                     {pickerMatches.visible.map(p => (
-                      <CommandItem key={p.id} value={p.id} onSelect={() => { setSelectedProduct(p.id); setPickerOpen(false); }}>
+                      <CommandItem key={p.id} value={p.id} onSelect={() => chooseProduct(p.id)}>
                         <Check className={cn('mr-2 size-4 shrink-0', selectedProduct === p.id ? 'opacity-100' : 'opacity-0')} />
-                        <span className="truncate">{p.title}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{p.title}</span>
+                          {p.handle && (
+                            <span className="block truncate text-[11px] text-ink-400">{p.handle}</span>
+                          )}
+                        </span>
                       </CommandItem>
                     ))}
                     {pickerMatches.hidden > 0 && (
@@ -484,17 +594,109 @@ export default function BulkUploadPage() {
                 {file ? file.name : 'Drop your CSV or Excel file here, or click to browse'}
               </p>
               <p className="mt-1 text-[12px] text-ink-500">
-                {file ? `${(file.size / 1024).toFixed(1)} KB · ready to import` : 'Accepts .csv or .xlsx up to 10MB'}
+                {file
+                  ? `${(file.size / 1024).toFixed(1)} KB · ${previewing ? 'checking…' : preview ? 'checked, nothing imported yet' : previewError ? 'could not be read' : ''}`
+                  : 'Accepts .csv or .xlsx up to 10MB'}
               </p>
               {file && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); setFile(null); setResult(null); }}
+                  onClick={(e) => { e.stopPropagation(); clearFile(); setResult(null); }}
                   className="ring-focus mt-3 rounded text-[12px] font-semibold text-rose-600 hover:text-rose-700"
                 >
                   Remove file
                 </button>
               )}
             </div>
+
+            {/* ── What the import would do ──
+                Shown before the Import button is enabled, so "1,683 rows, 1,640 matched
+                to a product, 43 skipped" is read before anything is written. */}
+            {file && (
+              <div className="mt-4 overflow-hidden rounded-xl border border-border">
+                {previewing ? (
+                  <div className="flex items-center gap-2 px-4 py-3 text-[12.5px] text-ink-500" role="status">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Checking the file…
+                  </div>
+                ) : previewError ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-rose-50 px-4 py-3 dark:bg-rose-500/10">
+                    <p className="text-[12.5px] leading-relaxed text-rose-800 dark:text-rose-200">{previewError}</p>
+                    <ActionButton size="sm" variant="outline" icon={RefreshCw} onClick={() => runPreview(file, selectedProduct)}>
+                      Check again
+                    </ActionButton>
+                  </div>
+                ) : preview ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-ink-50/70 px-3 py-2 dark:bg-white/[0.03]">
+                      <SearchCheck className="size-3.5 text-brand-600 dark:text-brand-400" />
+                      <p className="text-[11.5px] font-semibold text-ink-600 dark:text-ink-300">
+                        {preview.detectedSource
+                          ? `Looks like a ${preview.detectedSource} export`
+                          : 'Columns recognised'}
+                        {' — '}nothing is imported until you press Import
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-5">
+                      {[
+                        { label: 'Rows read', value: preview.total, cls: '' },
+                        { label: 'Will import', value: preview.importable, cls: 'text-brand-700 dark:text-brand-300' },
+                        { label: 'Matched to a product', value: preview.matched, cls: '' },
+                        { label: 'No product', value: preview.unmatched, cls: preview.unmatched > 0 ? 'text-amber-700 dark:text-amber-300' : '' },
+                        { label: 'Skipped', value: preview.failed, cls: preview.failed > 0 ? 'text-rose-700 dark:text-rose-300' : '' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-card px-3 py-2.5">
+                          <p className={cn('tnum text-[18px] font-bold leading-none text-ink-900 dark:text-white', s.cls)}>{s.value.toLocaleString()}</p>
+                          <p className="mt-1 text-[11px] font-medium text-ink-500">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {preview.sample.length > 0 && (
+                      <div className="overflow-x-auto border-t border-border">
+                        <table className="w-full text-[11.5px]">
+                          <thead>
+                            <tr className="border-b border-border bg-ink-50/70 dark:bg-white/[0.03]">
+                              {['Reviewer', 'Rating', 'Title', 'Review', 'Product'].map(h => (
+                                <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-semibold text-ink-500">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.sample.map((r, i) => (
+                              <tr key={i} className="border-b border-border last:border-0">
+                                <td className="max-w-[160px] truncate px-3 py-2 text-ink-800 dark:text-ink-100">{r.reviewerName}</td>
+                                <td className="tnum px-3 py-2 text-ink-600 dark:text-ink-300">{r.rating} ★</td>
+                                <td className="max-w-[160px] truncate px-3 py-2 text-ink-600 dark:text-ink-300">{r.title || '—'}</td>
+                                <td className="max-w-[320px] truncate px-3 py-2 text-ink-600 dark:text-ink-300">{r.body}</td>
+                                <td className="whitespace-nowrap px-3 py-2 text-ink-500">
+                                  {r.matchedBy ? MATCHED_BY[r.matchedBy] ?? r.matchedBy : 'none'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {preview.errors.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto border-t border-border bg-rose-50/70 px-4 py-3 dark:bg-rose-500/10">
+                        <p className="mb-1 text-[12px] font-semibold text-rose-800 dark:text-rose-200">
+                          {preview.failed} row{preview.failed === 1 ? '' : 's'} will be skipped
+                        </p>
+                        {preview.errors.map((e, i) => (
+                          <p key={i} className="text-[11.5px] leading-relaxed text-rose-700 dark:text-rose-300">
+                            • Row {e.row}: {e.reason}
+                          </p>
+                        ))}
+                        {preview.failed > preview.errors.length && (
+                          <p className="mt-1 text-[11.5px] text-rose-700/80 dark:text-rose-300/80">
+                            …and {preview.failed - preview.errors.length} more.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            )}
 
             <div className="mt-4 overflow-hidden rounded-xl border border-border">
               <div className="flex items-center gap-2 border-b border-border bg-ink-50/70 px-3 py-2 dark:bg-white/[0.03]">
@@ -521,13 +723,22 @@ export default function BulkUploadPage() {
               </div>
             </div>
 
+            {/* Enabled only once the dry run above has come back, and only when it found
+                something to import. The label carries the count, so the button itself
+                states what pressing it does. */}
             <ActionButton
               className="mt-4"
               icon={Upload}
               onClick={handleUpload}
-              disabled={uploading || !file}
+              disabled={uploading || !file || previewing || !preview || preview.importable === 0}
             >
-              {uploading ? 'Importing…' : 'Import CSV'}
+              {uploading
+                ? 'Importing…'
+                : previewing
+                  ? 'Checking file…'
+                  : preview
+                    ? `Import ${preview.importable.toLocaleString()} review${preview.importable === 1 ? '' : 's'}`
+                    : 'Import'}
             </ActionButton>
           </div>
         </Panel>
@@ -759,11 +970,16 @@ export default function BulkUploadPage() {
         <Panel className="animate-rise">
           <PanelHeader title="Import results" icon={CheckCircle2} tone="brand" />
           <div className="px-5 pb-5">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {/* Matched and unmatched were returned by the route all along and never
+                shown; "how many landed on a product page" is the number that decides
+                whether the import worked. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {[
                 { label: 'Imported', value: result.imported, icon: CheckCircle2, cls: 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' },
+                { label: 'With a product', value: result.matched ?? 0, icon: ShoppingBag, cls: 'bg-cyan-50 text-cyan-800 dark:bg-cyan-500/10 dark:text-cyan-300' },
+                { label: 'No product', value: result.unmatched ?? 0, icon: AlertCircle, cls: (result.unmatched ?? 0) > 0 ? 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-ink-100 text-ink-600 dark:bg-white/5 dark:text-ink-300' },
                 { label: 'Failed', value: result.failed, icon: XCircle, cls: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' },
-                { label: 'Rows read', value: result.total, icon: AlertCircle, cls: 'bg-ink-100 text-ink-600 dark:bg-white/5 dark:text-ink-300' },
+                { label: 'Rows read', value: result.total, icon: Table, cls: 'bg-ink-100 text-ink-600 dark:bg-white/5 dark:text-ink-300' },
               ].map(s => (
                 <div key={s.label} className={cn('rounded-xl p-4 text-center', s.cls)}>
                   <s.icon className="mx-auto size-5" />

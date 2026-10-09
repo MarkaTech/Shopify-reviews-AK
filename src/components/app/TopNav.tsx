@@ -43,6 +43,17 @@ export type PageId =
   | 'products'
   | 'incentives';
 
+/**
+ * Extra detail a navigation can carry. `tab` names a tab within the destination (the
+ * Settings page's "notifications", say), so a link that promises "Settings → Notifications"
+ * lands there rather than on the first tab and leaving the merchant to find the right one.
+ */
+export interface NavigateOptions {
+  tab?: string;
+}
+
+export type Navigate = (page: PageId, opts?: NavigateOptions) => void;
+
 interface TopNavProps {
   currentPage: PageId;
   onPageChange: (page: PageId) => void;

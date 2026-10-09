@@ -1,10 +1,77 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Send, MousePointerClick, MessageSquarePlus, Clock, CalendarClock, Repeat2 } from 'lucide-react';
+import { Send, MousePointerClick, MessageSquarePlus, Clock, CalendarClock, Repeat2, Mail } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { Panel, PanelHeader, Meter, Pill, Skeleton, EmptyState } from './ui-kit';
 import { cn } from '@/lib/utils';
+import type { Navigate } from './TopNav';
+
+/** The three request settings the status line needs; /api/request-settings returns these and more. */
+export interface RequestSummary {
+  enabled: boolean;
+  delayDays: number;
+  reminders: number;
+}
+
+/**
+ * What the review-request programme is doing right now, in the merchant's own numbers.
+ *
+ * Requests are ON from the moment of install — every fulfilled order schedules an email
+ * after the delay, then the reminders — and the app never said so plainly. The only hint
+ * ("Ask after fulfilment · Waiting 14 days") sat inside a preview card hidden below `lg`,
+ * so at tablet width or in a narrow admin frame nothing anywhere said emails were already
+ * going out. This sentence goes wherever requests are discussed: the first-run checklist,
+ * the dashboard's request panel and the Notifications tab. The merchant's own values, not
+ * the defaults, so it stays true after they change the timing.
+ *
+ * Lower-case start, because callers lead with "Review requests are ON — ".
+ */
+export function describeRequests(s: RequestSummary): string {
+  if (!s.enabled) return 'no invitation emails go out after an order is fulfilled.';
+  const when = s.delayDays === 0
+    ? 'the day an order is fulfilled'
+    : `${s.delayDays} day${s.delayDays === 1 ? '' : 's'} after fulfilment`;
+  const reminders = s.reminders === 0 ? 'no reminder' : `${s.reminders} reminder${s.reminders === 1 ? '' : 's'}`;
+  return `first email ${when}, ${reminders}.`;
+}
+
+/** The status sentence with its link, for any surface that has the settings to hand. */
+export function RequestsStatus({
+  settings,
+  onAdjust,
+  className,
+}: {
+  settings: RequestSummary | null;
+  onAdjust?: () => void;
+  className?: string;
+}) {
+  if (!settings) return null;
+  return (
+    <p
+      role="status"
+      className={cn('flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] leading-snug text-ink-600 dark:text-ink-300', className)}
+    >
+      <Mail className={cn('size-3.5 shrink-0', settings.enabled ? 'text-brand-600 dark:text-brand-400' : 'text-ink-400')} strokeWidth={2.2} />
+      <span>
+        <strong className="font-semibold text-ink-900 dark:text-white">
+          Review requests are {settings.enabled ? 'ON' : 'OFF'}
+        </strong>
+        {' — '}
+        {describeRequests(settings)}
+      </span>
+      {onAdjust && (
+        <button
+          type="button"
+          onClick={onAdjust}
+          className="ring-focus rounded font-semibold text-brand-700 underline-offset-2 hover:underline dark:text-brand-400"
+        >
+          {settings.enabled ? 'Adjust or turn off' : 'Turn on'}
+        </button>
+      )}
+    </p>
+  );
+}
 
 /**
  * How the review-request programme is performing.
@@ -48,9 +115,10 @@ function formatWhen(iso: string): string {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-export default function RequestPerformance() {
+export default function RequestPerformance({ onNavigate }: { onNavigate?: Navigate }) {
   const [data, setData] = useState<RequestAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<RequestSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,8 +126,15 @@ export default function RequestPerformance() {
       .then((d) => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    // The settings behind the numbers, for the status line. Best effort: the panel is
+    // about the figures, and a missing sentence is better than a missing panel.
+    apiFetch<{ settings?: RequestSummary }>('/api/request-settings')
+      .then((r) => { if (!cancelled && r.settings) setSettings(r.settings); })
+      .catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
+
+  const adjust = onNavigate ? () => onNavigate('settings', { tab: 'notifications' }) : undefined;
 
   if (loading) {
     return (
@@ -87,6 +162,7 @@ export default function RequestPerformance() {
             icon={Send}
             title="No invitations sent yet"
             description="When an order is fulfilled, Marka Reviews schedules an email asking that customer for a review. Once they start going out, you'll see how many are opened and how many become reviews."
+            secondary={<RequestsStatus settings={settings} onAdjust={adjust} className="justify-center" />}
           />
         </div>
       </Panel>
@@ -108,6 +184,8 @@ export default function RequestPerformance() {
       />
 
       <div className="space-y-5 border-t border-border p-5">
+        {/* What is running, before how it is doing. */}
+        <RequestsStatus settings={settings} onAdjust={adjust} />
         {/* ── Funnel ──
             Horizontal bars on a common baseline rather than a tapering funnel shape.
             A trapezoid encodes the value twice, in width and in area, and the area is

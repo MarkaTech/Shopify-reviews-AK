@@ -16,10 +16,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import type { PageId } from './TopNav';
+import type { Navigate, PageId } from './TopNav';
 import { adminUrl, navigateTop } from '@/lib/admin-links';
-import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton, Stars, VerifiedMark } from './ui-kit';
+import { Panel, PanelHeader, Tile, Pill, Meter, ActionButton, Skeleton, Stars, VerifiedMark, EmptyState } from './ui-kit';
 import { BRAND, contrastRatio, FONT_FAMILY_PATTERN as FONT_FAMILY } from '@/lib/brand';
+import { describeRequests } from './RequestPerformance';
 
 // Mirrors src/lib/plans.ts. Prices and limits must match the server, which is what
 // actually enforces them — this list is presentation only.
@@ -81,13 +82,28 @@ const tabTrigger = cn(
   'dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-card dark:data-[state=active]:text-white'
 );
 
+/** Plan order, for "is this an upgrade or a downgrade". Mirrors PLANS in src/lib/plans.ts. */
+const PLAN_RANK: Record<string, number> = { free: 0, growth: 1, scale: 2 };
+const rankOf = (planId: string) => PLAN_RANK[planId] ?? 0;
+/** The plan's name as the merchant sees it, never the raw id ("Growth", not "growth"). */
+const planLabel = (planId: string) => plans.find(p => p.id === planId)?.name ?? planId;
+
+/** The Settings tabs a link may ask for by name (`?tab=`). */
+const TAB_IDS = ['general', 'display', 'notifications', 'integrations', 'subscription'];
+
 interface Usage {
   plan: string;
   planLabel: string;
   /** What the merchant pays: 0 on Free, and 0 on a complimentary plan. */
   price: number;
-  /** True when the plan was given free of charge by Marka. */
+  /** True when the plan in force is one given free of charge by Marka. */
   complimentary?: boolean;
+  /**
+   * The plan Marka gave this store free, whether or not it is the one in force — a store
+   * given Growth can still pay for Scale. Optional because the server may not send it yet;
+   * without it the gift is only known while it is the plan in force (`complimentary`).
+   */
+  complimentaryPlan?: string | null;
   /** The meter: review request emails sent this calendar month. */
   requests: { used: number; limit: number | null; percentUsed: number; resetsAt: string };
   reviews: { used: number; limit: number | null; percentUsed: number };
@@ -276,6 +292,64 @@ function ContrastNotes({
   );
 }
 
+/**
+ * What a tab shows while its own data is still on the way, or after that load failed.
+ *
+ * Each tab waits only for what it needs. The page used to gate EVERY tab on one
+ * Promise.all of storefront-config and notifications: if either request failed, the error
+ * was toasted and the whole page sat on a skeleton with nothing to click — including the
+ * Plan tab, which needs neither. A merchant hit by a blip on either endpoint could not
+ * reach the payment screen until they reloaded the entire admin frame.
+ */
+function TabFallback({ what, error, onRetry }: { what: string; error: string | null; onRetry: () => void }) {
+  if (error) {
+    return (
+      <Panel>
+        <EmptyState
+          icon={AlertTriangle}
+          tone="amber"
+          title={`Could not load ${what}`}
+          description={error}
+          action={
+            <ActionButton variant="outline" icon={RotateCcw} onClick={onRetry}>
+              Try again
+            </ActionButton>
+          }
+          secondary="Nothing has changed. The other tabs still work."
+        />
+      </Panel>
+    );
+  }
+  return (
+    // Static, as the guidelines ask of loading states; the status line says what is happening.
+    <div className="space-y-4" role="status" aria-busy="true">
+      <span className="sr-only">Loading {what}…</span>
+      {[0, 1].map(i => (
+        <Panel key={i} className="p-5">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-9 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-3.5 w-40" />
+              <Skeleton className="h-2.5 w-64" />
+            </div>
+          </div>
+          <div className="mt-5 space-y-4">
+            {[0, 1, 2].map(r => (
+              <div key={r} className="flex items-center justify-between gap-4">
+                <div className="w-full space-y-2">
+                  <Skeleton className="h-3 w-44" />
+                  <Skeleton className="h-2.5 w-72" />
+                </div>
+                <Skeleton className="h-5 w-9 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ))}
+    </div>
+  );
+}
+
 /** Usage against a plan limit. `null` limit means unlimited, so the bar stays empty. */
 function UsageBar({
   label, used, limit, percent, tone,
@@ -307,7 +381,18 @@ const TIMING_LABELS: Record<string, string> = {
   reminderGapDays: 'Days between sends',
 };
 
-export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { onNavigate?: (page: PageId) => void; storeDomain?: string; initialTab?: string }) {
+export default function SettingsPage({
+  onNavigate,
+  storeDomain,
+  initialTab,
+  usageVersion = 0,
+}: {
+  onNavigate?: Navigate;
+  storeDomain?: string;
+  initialTab?: string;
+  /** Bumped by the shell when it learns the plan changed (a payment settling), so the Plan tab fetches again. */
+  usageVersion?: number;
+}) {
   const confirm = useConfirm();
   const [config, setConfig] = useState<StorefrontConfig | null>(null);
   const [notif, setNotif] = useState<NotificationSettings | null>(null);
@@ -315,7 +400,11 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
   const [dirtyReq, setDirtyReq] = useState<Record<string, string>>({});
   const [mailProvider, setMailProvider] = useState<string | null>(null);
   const [fallbackEmail, setFallbackEmail] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // One failure flag per load, so each tab can say what went wrong with ITS data and offer
+  // a retry, instead of one toast and a page-wide skeleton. Null while loading or loaded.
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [notifError, setNotifError] = useState<string | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Three states, not two. `undefined` means we have not been able to find out — still
   // loading, or the request failed. `null` means the server told us no token exists.
@@ -330,31 +419,37 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
   const [usage, setUsage] = useState<Usage | null>(null);
 
   /**
-   * Tabs are controlled rather than uncontrolled, for two reasons: the Plan tab links
-   * straight to the features a plan unlocks, and a merchant returning from Shopify's
-   * approval screen is dropped on the Plan tab with `?upgraded=1` so the thing they just
-   * paid for is the first thing they see.
+   * Tabs are controlled rather than uncontrolled, for three reasons: the Plan tab links
+   * straight to the features a plan unlocks; a merchant returning from Shopify's approval
+   * screen is dropped on the Plan tab with `?upgraded=1` so the thing they just paid for
+   * is the first thing they see; and a link elsewhere in the app that promises
+   * "Settings → Notifications" arrives with `?tab=notifications` and lands there.
    */
   const [tab, setTab] = useState<string>(() => {
     if (typeof window === 'undefined') return initialTab ?? 'general';
-    return new URLSearchParams(window.location.search).get('upgraded') === '1'
-      ? 'subscription'
-      : initialTab ?? 'general';
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('upgraded') === '1') return 'subscription';
+    const asked = params.get('tab');
+    if (asked && TAB_IDS.includes(asked)) return asked;
+    return initialTab ?? 'general';
   });
   const [justUpgraded, setJustUpgraded] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).get('upgraded') === '1';
   });
 
-  // Clear the marker from the URL once it has been read, so a reload or a shared link
-  // does not keep announcing an upgrade that happened days ago.
+  // Clear the markers from the URL once they have been read, so a reload or a shared link
+  // does not keep announcing an upgrade that happened days ago, or keep forcing the tab a
+  // link once asked for over the one the merchant has since chosen.
   useEffect(() => {
-    if (!justUpgraded || typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
+    if (!params.has('upgraded') && !params.has('tab')) return;
     params.delete('upgraded');
+    params.delete('tab');
     const rest = params.toString();
     window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
-  }, [justUpgraded]);
+  }, []);
   const [upgrading, setUpgrading] = useState<string | null>(null);
 
   // Only what the merchant actually changed is sent. Sending the whole config on every
@@ -363,45 +458,102 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
   const [dirty, setDirty] = useState<Record<string, string>>({});
   const [dirtyNotif, setDirtyNotif] = useState<Record<string, string>>({});
 
-  // No setLoading(true) here on purpose. `loading` starts true, and calling setState
-  // synchronously from an effect body triggers a cascading render — which is what
-  // react-hooks/set-state-in-effect flags. The reset handler has its own `saving` state,
-  // so nothing needs the skeleton to reappear on a refetch.
-  const load = useCallback(() => {
-    Promise.all([
-      apiFetch<{ config: StorefrontConfig }>('/api/storefront-config'),
+  // Four loads, each on its own. Nothing here sets state synchronously: these run from an
+  // effect body, and a synchronous setState there is a cascading render — which is what
+  // react-hooks/set-state-in-effect flags. The Retry buttons clear their error flag
+  // themselves before calling back in, which is what puts the skeleton back.
+  const loadConfig = useCallback(
+    () =>
+      apiFetch<{ config: StorefrontConfig }>('/api/storefront-config')
+        .then(c => {
+          setConfig(c.config);
+          setConfigError(null);
+          setDirty({});
+        })
+        .catch(err => setConfigError(errorMessage(err, 'Could not load your storefront settings.'))),
+    []
+  );
+  const loadNotif = useCallback(
+    () =>
       apiFetch<{
         settings: NotificationSettings;
         provider: string | null;
         fallbackEmail: string | null;
-      }>('/api/notifications'),
-    ])
-      .then(([c, n]) => {
-        setConfig(c.config);
-        setNotif(n.settings);
-        setMailProvider(n.provider);
-        setFallbackEmail(n.fallbackEmail);
-        setDirty({});
-        setDirtyNotif({});
-      })
-      .catch(err => toast.error(errorMessage(err, 'Could not load settings')))
-      .finally(() => setLoading(false));
+      }>('/api/notifications')
+        .then(n => {
+          setNotif(n.settings);
+          setMailProvider(n.provider);
+          setFallbackEmail(n.fallbackEmail);
+          setNotifError(null);
+          setDirtyNotif({});
+        })
+        .catch(err => setNotifError(errorMessage(err, 'Could not load your notification settings.'))),
+    []
+  );
+  const loadUsage = useCallback(
+    () =>
+      apiFetch<Usage>('/api/usage')
+        .then(u => {
+          setUsage(u);
+          setUsageError(null);
+        })
+        .catch(err => {
+          setUsage(null);
+          setUsageError(errorMessage(err, 'Could not load your plan.'));
+        }),
+    []
+  );
+  const loadRequestSettings = useCallback(
+    () =>
+      apiFetch<{ settings: { enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number } }>('/api/request-settings')
+        .then(r => { setReqSettings(r.settings); setDirtyReq({}); })
+        .catch(() => setReqSettings(null)),
+    []
+  );
 
-    apiFetch<Usage>('/api/usage').then(setUsage).catch(() => setUsage(null));
-
-    apiFetch<{ settings: { enabled: boolean; requireMarketingConsent: boolean; delayDays: number; reminders: number; reminderGapDays: number } }>('/api/request-settings')
-      .then(r => { setReqSettings(r.settings); setDirtyReq({}); })
-      .catch(() => setReqSettings(null));
-  }, []);
+  const load = useCallback(() => {
+    loadConfig();
+    loadNotif();
+    loadUsage();
+    loadRequestSettings();
+  }, [loadConfig, loadNotif, loadUsage, loadRequestSettings]);
 
   useEffect(load, [load]);
 
+  // The shell saw the plan change (a payment that took a moment to settle): read the
+  // plan again so the header and the cards agree with the chip above them, and announce
+  // the unlock the way a normal return from Shopify would.
+  useEffect(() => {
+    if (!usageVersion) return;
+    apiFetch<Usage>('/api/usage')
+      .then(u => {
+        setUsage(u);
+        setUsageError(null);
+        if (u.plan !== 'free') setJustUpgraded(true);
+      })
+      .catch(() => undefined);
+  }, [usageVersion]);
+
   const currentPlan = usage?.plan ?? 'free';
   const complimentary = usage?.complimentary === true;
-  const PLAN_RANK: Record<string, number> = { free: 0, growth: 1, scale: 2 };
-  /** On a complimentary plan, the plans at or below it are already included, free. */
+  /**
+   * The plan Marka gave this store free, if any. Taken from the API when it says; failing
+   * that, known only while it is the plan in force. A store given Growth that pays for
+   * Scale is therefore only recognised as gifted when the server exposes the field — see
+   * the Usage type.
+   */
+  const giftPlan: string | null = usage?.complimentaryPlan ?? (complimentary ? currentPlan : null);
+  /**
+   * Plans the gift already covers and that the merchant is not paying above: nothing to
+   * do on those cards. Never the current plan itself (that card says "Current plan"), and
+   * never while the store pays for a plan above the gift — then the cards at or below
+   * the gift are the way to stop paying, and must stay clickable.
+   */
   const includedFree = (planId: string) =>
-    complimentary && (PLAN_RANK[planId] ?? 0) <= (PLAN_RANK[currentPlan] ?? 0);
+    giftPlan !== null &&
+    planId !== currentPlan &&
+    rankOf(planId) <= rankOf(giftPlan) &&
+    rankOf(currentPlan) <= rankOf(giftPlan);
 
   /**
    * Entitled features that have somewhere to go, in the order a merchant meets them.
@@ -665,84 +817,67 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
   const handleUpgrade = async (planId: string) => {
     if (planId === currentPlan) return;
 
-    // Downgrading now actually cancels the Shopify subscription, so it is a money
-    // decision and gets asked about. Upgrading does not: Shopify's own approval screen
-    // is the confirmation, and asking twice is friction in front of a purchase.
-    if (planId === 'free') {
-      const ok = await confirm({
-        title: 'Cancel your subscription?',
-        body: 'Your paid features stop straight away and Shopify stops billing you. Your reviews, widgets and settings are all kept — you can resubscribe whenever you like.',
-        confirmLabel: 'Cancel subscription',
-      });
+    // Moving down actually cancels the Shopify subscription, so it is a money decision
+    // and gets asked about. Upgrading does not: Shopify's own approval screen is the
+    // confirmation, and asking twice is friction in front of a purchase.
+    //
+    // The wording follows the outcome. A store given Growth free that pays for Scale and
+    // picks Free (or Growth) does not lose its paid features and land on Free — the server
+    // cancels Scale and settles them on the gift — so the old "your paid features stop"
+    // dialog contradicted what then happened, for exactly the merchants the gift was
+    // built for.
+    const landsOnGift = giftPlan !== null && rankOf(giftPlan) < rankOf(currentPlan) && rankOf(planId) <= rankOf(giftPlan);
+    if (planId === 'free' || landsOnGift) {
+      const ok = await confirm(
+        landsOnGift && giftPlan
+          ? {
+              title: `Stop paying for ${planLabel(currentPlan)}?`,
+              body: `You keep ${planLabel(giftPlan)} free of charge from Marka. Shopify stops billing you for ${planLabel(currentPlan)} straight away, and your reviews, widgets and settings are all kept.`,
+              confirmLabel: `Stop paying for ${planLabel(currentPlan)}`,
+            }
+          : {
+              title: 'Cancel your subscription?',
+              body: 'Your paid features stop straight away and Shopify stops billing you. Your reviews, widgets and settings are all kept — you can resubscribe whenever you like.',
+              confirmLabel: 'Cancel subscription',
+            }
+      );
       if (!ok) return;
     }
 
     setUpgrading(planId);
     try {
-      const data = await apiFetch<{ confirmationUrl?: string; activated?: boolean; plan?: string }>('/api/billing', {
+      const data = await apiFetch<{ confirmationUrl?: string; pricingPageUrl?: string; activated?: boolean; plan?: string }>('/api/billing', {
         method: 'POST',
         body: JSON.stringify({ plan: planId }),
       });
-      if (data.confirmationUrl) {
-        // Shopify hosts the approval screen and refuses to be framed, so this has to break
-        // out of the embedded admin iframe. `window.top.location` is the only way to do
-        // that; the lint rule below is about React state, and a navigation is neither
-        // React state nor something an effect can express.
-        // eslint-disable-next-line react-hooks/immutability
-        if (window.top) window.top.location.href = data.confirmationUrl;
-        // eslint-disable-next-line react-hooks/immutability
-        else window.location.href = data.confirmationUrl;
+      // Shopify hosts the approval screen (or, with Shopify App Pricing, its own plan
+      // page) and refuses to be framed, so the admin as a whole has to go there. That
+      // hand-off is App Bridge's job — see navigateTop for why assigning
+      // window.top.location after an await was the reason merchants "could not pay".
+      //
+      // `upgrading` is deliberately left set: the page is leaving. Clearing it in a
+      // finally block put the button back to "Upgrade" while the navigation was still in
+      // flight, and a second click created a second pending subscription at Shopify.
+      const approvalUrl = data.confirmationUrl || data.pricingPageUrl;
+      if (approvalUrl) {
+        navigateTop(approvalUrl);
         return;
       }
       if (data.activated) {
         // The plan the server settled on: choosing Free on top of a complimentary plan
         // lands on the complimentary plan, not on Free.
-        toast.success(`Switched to the ${data.plan ?? planId} plan.`);
+        toast.success(`Switched to the ${planLabel(data.plan ?? planId)} plan.`);
         setUsage(await apiFetch<Usage>('/api/usage'));
       }
+      setUpgrading(null);
     } catch (err) {
-      toast.error(errorMessage(err, 'Could not start the plan change'));
-    } finally {
+      // The server's text says why — Shopify refused the charge for this store, say —
+      // and is written for the merchant, so it is shown as is rather than replaced with
+      // a generic line. Long enough to read: it is the one thing they need from this screen.
+      toast.error(errorMessage(err, 'Could not start the plan change. Please try again.'), { duration: 8000 });
       setUpgrading(null);
     }
   };
-
-  if (loading || !config || !notif) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <Skeleton className="h-6 w-28" />
-            <Skeleton className="h-3 w-72" />
-          </div>
-          <Skeleton className="h-8 w-36 rounded-xl" />
-        </div>
-        <Skeleton className="h-9 w-full rounded-xl" />
-        {[0, 1].map(i => (
-          <Panel key={i} className="p-5">
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-9 rounded-xl" />
-              <div className="space-y-2">
-                <Skeleton className="h-3.5 w-40" />
-                <Skeleton className="h-2.5 w-64" />
-              </div>
-            </div>
-            <div className="mt-5 space-y-4">
-              {[0, 1, 2].map(r => (
-                <div key={r} className="flex items-center justify-between gap-4">
-                  <div className="w-full space-y-2">
-                    <Skeleton className="h-3 w-44" />
-                    <Skeleton className="h-2.5 w-72" />
-                  </div>
-                  <Skeleton className="h-5 w-9 rounded-full" />
-                </div>
-              ))}
-            </div>
-          </Panel>
-        ))}
-      </div>
-    );
-  }
 
   const SaveBar = (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
@@ -801,6 +936,9 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
 
         {/* ── General ───────────────────────────────────────────────────────────────── */}
         <TabsContent value="general">
+          {!config ? (
+            <TabFallback what="your settings" error={configError} onRetry={() => { setConfigError(null); loadConfig(); }} />
+          ) : (
           <div className="space-y-4">
             <Panel>
               <PanelHeader
@@ -938,10 +1076,14 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
               </div>
             </Panel>
           </div>
+          )}
         </TabsContent>
 
         {/* ── Display ───────────────────────────────────────────────────────────────── */}
         <TabsContent value="display">
+          {!config ? (
+            <TabFallback what="your display settings" error={configError} onRetry={() => { setConfigError(null); loadConfig(); }} />
+          ) : (
           <div className="space-y-4">
             <Panel>
               <PanelHeader
@@ -1013,7 +1155,16 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
                 description="Stars, badge icon, font and shape. Each starts on the Marka look; change any of them."
               />
               <div className="divide-y divide-border border-t border-border">
-                <SettingRow title="Star style" description="Used for every rating on your storefront.">
+                {/* The second sentence is there because it is not true that this reaches
+                    every star. The widget publishes the choice to the page when it loads,
+                    and the Liquid-only "Review stars" block inherits it — so on a page
+                    without the review widget (collections, home) that block falls back to
+                    its own setting, which defaults to the Marka tick-star. Until the block
+                    can read this on its own, the merchant has to be told to set it twice. */}
+                <SettingRow
+                  title="Star style"
+                  description="Used for every rating on your storefront. The ‘Review stars’ theme block has its own Star shape setting in the theme editor — set it there too for collection and home pages."
+                >
                   <div role="radiogroup" aria-label="Star style" className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-ink-50 p-1 dark:bg-white/[0.04]">
                     {([['tick', 'Marka tick-star'], ['classic', 'Classic star']] as const).map(([value, label]) => {
                       const on = starStyle === value;
@@ -1145,6 +1296,7 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
                 had just upgraded for it went looking on the Plan tab and found nothing.
                 It now lives on its own Integrations tab. */}
           </div>
+          )}
         </TabsContent>
 
         {/* ── Integrations ──────────────────────────────────────────────────────────── */}
@@ -1335,6 +1487,9 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
 
         {/* ── Notifications ─────────────────────────────────────────────────────────── */}
         <TabsContent value="notifications">
+          {!notif ? (
+            <TabFallback what="your notification settings" error={notifError} onRetry={() => { setNotifError(null); loadNotif(); }} />
+          ) : (
           <div className="space-y-4">
             {!mailProvider && (
               <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-[var(--elev-1)] dark:border-amber-400/20 dark:bg-amber-500/10">
@@ -1396,6 +1551,27 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
                 description="The review invitation is sent this many days after an order is fulfilled — give the parcel time to arrive. Reminders only go to customers who haven’t reviewed yet, and an unsubscribe stops everything."
               />
               <div className="divide-y divide-border border-t border-border">
+                {/* Where things stand, in one sentence, before the controls. Requests are
+                    on from the moment of install — every fulfilled order schedules an
+                    email — and nothing on this page said so: a merchant read the fields
+                    below as "nothing happens until I fill these in". Reads the live values,
+                    so an unsaved edit shows here too. */}
+                {reqSettings && (
+                  <div
+                    role="status"
+                    className={cn(
+                      'px-5 py-3 text-[12.5px] leading-snug',
+                      reqSettings.enabled
+                        ? 'bg-brand-50/70 text-brand-900 dark:bg-brand-500/10 dark:text-brand-100'
+                        : 'bg-ink-50/70 text-ink-700 dark:bg-white/[0.03] dark:text-ink-200'
+                    )}
+                  >
+                    <strong className="font-semibold">Review requests are {reqSettings.enabled ? 'ON' : 'OFF'}</strong>
+                    {' — '}
+                    {describeRequests(reqSettings)}
+                    {reqSettings.enabled ? ' Change the numbers below, or switch them off.' : ' Switch them on below to start asking.'}
+                  </div>
+                )}
                 {/* The off switch. Until this existed every fulfilled order emailed its
                     customer from the day the app was installed, and the only way to stop
                     it was to uninstall. */}
@@ -1482,6 +1658,7 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
               </div>
             </Panel>
           </div>
+          )}
         </TabsContent>
 
         {/* ── Plan ──────────────────────────────────────────────────────────────────── */}
@@ -1503,8 +1680,22 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
                         : usage.price === 0
                           ? 'No charge on this plan'
                           : `$${usage.price.toFixed(2)}/month • billed through Shopify`
-                      : 'Loading plan details…'}
+                      : usageError
+                        ? usageError
+                        : 'Loading plan details…'}
                   </p>
+                  {/* The one load this tab depends on, with its own way back. */}
+                  {usageError && !usage && (
+                    <ActionButton
+                      variant="outline"
+                      size="sm"
+                      icon={RotateCcw}
+                      className="mt-3"
+                      onClick={() => { setUsageError(null); loadUsage(); }}
+                    >
+                      Try again
+                    </ActionButton>
+                  )}
                 </div>
                 <ActionButton
                   variant="outline"
@@ -1583,6 +1774,26 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
               </Panel>
             )}
 
+            {/* The cards wait for the plan. Rendering them against a default of Free
+                would mark the Free card "Current plan" for a paying merchant while the
+                request was in flight — a claim, not a loading state. */}
+            {!usage ? (
+              usageError ? null : (
+                <div className="grid grid-cols-1 gap-4 pt-3 md:grid-cols-2 xl:grid-cols-3" role="status" aria-busy="true">
+                  <span className="sr-only">Loading plans…</span>
+                  {plans.map(plan => (
+                    <Panel key={plan.id} className="p-5">
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="mt-3 h-8 w-24" />
+                      <div className="mt-5 space-y-2.5">
+                        {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-3 w-full" />)}
+                      </div>
+                      <Skeleton className="mt-6 h-8 w-full rounded-lg" />
+                    </Panel>
+                  ))}
+                </div>
+              )
+            ) : (
             <div className="grid grid-cols-1 gap-4 pt-3 md:grid-cols-2 xl:grid-cols-3">
               {plans.map(plan => (
                 <Panel
@@ -1641,19 +1852,24 @@ export default function SettingsPage({ onNavigate, storeDomain, initialTab }: { 
                     onClick={() => handleUpgrade(plan.id)}
                   >
                     {upgrading === plan.id && <Loader2 className="size-3.5 animate-spin" />}
-                    {includedFree(plan.id)
-                      ? 'Included free'
-                      : plan.id === currentPlan
-                      ? 'Current Plan'
-                      : upgrading === plan.id
-                        ? 'Redirecting…'
-                        : plan.price === 0
-                          ? 'Downgrade'
-                          : 'Upgrade'}
+                    {/* The current plan is tested first: on a gifted Scale store the Scale
+                        card used to read "Included free" instead of "Current plan". And
+                        up or down is a question of rank, not of price — a merchant on
+                        Scale saw "Upgrade" on the cheaper Growth card. */}
+                    {plan.id === currentPlan
+                      ? 'Current plan'
+                      : includedFree(plan.id)
+                        ? 'Included free'
+                        : upgrading === plan.id
+                          ? 'Redirecting…'
+                          : rankOf(plan.id) < rankOf(currentPlan)
+                            ? 'Downgrade'
+                            : 'Upgrade'}
                   </ActionButton>
                 </Panel>
               ))}
             </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>

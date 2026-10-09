@@ -27,15 +27,32 @@ export function adminUrl(shopifyDomain: string | null | undefined, path: string)
 }
 
 /**
- * Navigate the merchant's admin to a URL from inside the embedded app.
+ * Leave the embedded app for a URL — Shopify's billing approval screen, the admin's
+ * subscriptions page — the way App Bridge expects.
  *
- * `window.top`, never `window.location`. The app runs in an iframe, so navigating the
- * frame leaves Shopify's chrome wrapped around a page that does not belong in it — and
- * for Shopify's own OAuth screen, which refuses to be framed, the result is a blank
- * rectangle with no way forward.
+ * Never by assigning `window.top.location`. The app runs inside Shopify's sandboxed admin
+ * iframe, which is only allowed to navigate its parent while the click's transient
+ * activation is still valid: about five seconds in Chrome and Firefox, and in Safari not
+ * reliably across an awaited fetch at all. Every billing hand-off sits behind a network
+ * round-trip (a session-token check, a few database reads and two Shopify calls), so on a
+ * slow response the window had closed by the time the URL arrived. Chrome then threw
+ * "The current window does not have permission to navigate the target frame" and Safari
+ * did nothing — the merchant watched the button flip back from "Redirecting…" to "Upgrade"
+ * and never reached Shopify's approval page, while a PENDING subscription was left behind
+ * at Shopify on every attempt.
+ *
+ * App Bridge patches the global `open` so that `open(url, '_top')` posts a message to the
+ * admin host, which performs the navigation itself. That is Shopify's documented way out
+ * of the frame ("embedded apps don't have permission to manipulate the parent browser
+ * window, including redirects") and it is not subject to the activation window. Outside
+ * the admin there is no App Bridge (`window.shopify` is undefined) and no parent to ask,
+ * so a plain location change is the right thing — and the only thing — to do.
  */
 export function navigateTop(url: string): void {
   if (typeof window === 'undefined') return;
-  if (window.top) window.top.location.href = url;
-  else window.location.href = url;
+  if (window.shopify) {
+    window.open(url, '_top');
+    return;
+  }
+  window.location.href = url;
 }

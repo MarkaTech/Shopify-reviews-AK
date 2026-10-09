@@ -419,8 +419,11 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
         <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-[16px]">Add a review</DialogTitle>
+            {/* The handle as well as the title: catalogues repeat titles ("5 Mukhi
+                Rudraksha Bracelet", three times), and the handle is what tells them apart. */}
             <DialogDescription className="text-[12.5px]">
               {reviewFor?.title}
+              {reviewFor?.handle && <span className="text-ink-400"> · {reviewFor.handle}</span>}
             </DialogDescription>
           </DialogHeader>
 

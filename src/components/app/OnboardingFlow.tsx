@@ -9,7 +9,8 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { ActionButton, Pill, RatingStar, VerifiedMark, type TileTone, TILE_TONE } from './ui-kit';
-import type { PageId } from './TopNav';
+import type { PageId, Navigate } from './TopNav';
+import { RequestsStatus, describeRequests, type RequestSummary } from './RequestPerformance';
 
 /**
  * First-run setup.
@@ -77,6 +78,8 @@ const STEPS: StepMeta[] = [
     minutes: 3,
   },
   {
+    // Copy for this step is replaced at render time by requestsStep() once the store's
+    // settings have loaded: requests are already running, and the step must say so.
     id: 'requests',
     title: 'Choose when to ask',
     body: 'You set how long after fulfilment the email goes out — same day, two weeks, two months — plus how many reminders follow. They stop the moment someone reviews.',
@@ -117,18 +120,43 @@ interface Progress {
   dismissedAt: string | null;
 }
 
+/**
+ * The "requests" step, told truthfully.
+ *
+ * Review requests are ON from install: every fulfilled order schedules an email after the
+ * delay, then the reminders, with no action from the merchant. The step used to be headed
+ * "Choose when to ask" and sat unticked, which reads as "nothing is sent until I do this"
+ * — the opposite of what is happening. The step is still worth a visit (the numbers are
+ * theirs to change), but it must lead with the fact that emails are already going out.
+ */
+function requestsStep(step: StepMeta, s: RequestSummary | null): Pick<StepMeta, 'title' | 'body' | 'cta'> {
+  if (!s) return step;
+  if (!s.enabled) {
+    return {
+      title: 'Review requests are off',
+      body: 'No invitation emails go out until you switch them on under Settings → Notifications. Turn them on and set how long after fulfilment to ask.',
+      cta: 'Turn on',
+    };
+  }
+  return {
+    title: 'Review requests are on',
+    body: `Already running — ${describeRequests(s)} Adjust the timing, the reminders or turn them off under Settings → Notifications.`,
+    cta: 'Adjust timing',
+  };
+}
+
 export default function OnboardingFlow({
   onNavigate,
   storeName,
 }: {
-  onNavigate: (page: PageId) => void;
+  onNavigate: Navigate;
   storeName?: string;
 }) {
   const [data, setData] = useState<Progress | null>(null);
   const [hidden, setHidden] = useState(false);
-  // The merchant's own send delay, so the preview shows their setting rather than
-  // asserting a default as though it were fixed behaviour.
-  const [delayDays, setDelayDays] = useState<number | null>(null);
+  // The merchant's own request settings, so the preview and the status line show their
+  // numbers rather than asserting a default as though it were fixed behaviour.
+  const [reqSettings, setReqSettings] = useState<RequestSummary | null>(null);
 
   const load = useCallback(() => {
     apiFetch<Progress>('/api/onboarding')
@@ -136,12 +164,16 @@ export default function OnboardingFlow({
       .catch(() => setData(null));
     // The route answers { settings: { delayDays, ... } }; reading r.delayDays found nothing,
     // so the card always fell back to "You choose the timing".
-    apiFetch<{ settings?: { delayDays?: number } }>('/api/request-settings')
-      .then((r) => setDelayDays(typeof r.settings?.delayDays === 'number' ? r.settings.delayDays : null))
+    apiFetch<{ settings?: RequestSummary }>('/api/request-settings')
+      .then((r) => setReqSettings(r.settings && typeof r.settings.delayDays === 'number' ? r.settings : null))
       .catch(() => undefined);
   }, []);
 
   useEffect(load, [load]);
+
+  // Where "adjust the timing" goes: the Notifications tab itself, not the top of Settings.
+  const openTiming = () => onNavigate('settings', { tab: 'notifications' });
+  const goTo = (step: StepMeta) => (step.id === 'requests' ? openTiming() : onNavigate(step.page));
 
   const dismiss = async () => {
     setHidden(true);
@@ -240,19 +272,23 @@ export default function OnboardingFlow({
           {/* One obvious action */}
           {next && (
             <div className="mt-7 flex flex-wrap items-center gap-3">
-              <ActionButton size="lg" trailingIcon={ArrowRight} onClick={() => onNavigate(next.page)}>
-                {next.cta}
+              <ActionButton size="lg" trailingIcon={ArrowRight} onClick={() => goTo(next)}>
+                {requestsStep(next, reqSettings).cta}
               </ActionButton>
               <span className="text-[12.5px] text-ink-400">
-                Next: {next.title.toLowerCase()}
+                Next: {requestsStep(next, reqSettings).title.toLowerCase()}
               </span>
             </div>
           )}
+
+          {/* Visible at every width — the preview on the right is lg-only, and this is
+              the one fact a new merchant must not miss: emails are already going out. */}
+          <RequestsStatus settings={reqSettings} onAdjust={openTiming} className="mt-6 max-w-md" />
         </div>
 
         {/* ── What it looks like when it's done ── */}
         <div className="hidden lg:block">
-          <ResultPreview delayDays={delayDays} onEditTiming={() => onNavigate('settings')} />
+          <ResultPreview delayDays={reqSettings?.delayDays ?? null} onEditTiming={openTiming} />
         </div>
       </div>
 
@@ -261,6 +297,7 @@ export default function OnboardingFlow({
         {STEPS.map((step, i) => {
           const done = doneIds.has(step.id);
           const isNext = next?.id === step.id;
+          const copy = requestsStep(step, reqSettings);
 
           return (
             <div
@@ -301,7 +338,7 @@ export default function OnboardingFlow({
                       done ? 'text-ink-400' : 'text-ink-900 dark:text-white'
                     )}
                   >
-                    {step.title}
+                    {copy.title}
                   </p>
                   {done && <Check className="size-3 text-brand-600" strokeWidth={3.5} />}
                   {step.optional && !done && (
@@ -313,12 +350,12 @@ export default function OnboardingFlow({
 
                 {!done && (
                   <>
-                    <p className="mt-1 text-[12.5px] leading-relaxed text-ink-500">{step.body}</p>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-ink-500">{copy.body}</p>
                     <button
-                      onClick={() => onNavigate(step.page)}
+                      onClick={() => goTo(step)}
                       className="ring-focus mt-2.5 inline-flex items-center gap-1 rounded text-[12.5px] font-semibold text-brand-700 transition-colors hover:text-brand-800 dark:text-brand-400"
                     >
-                      {step.cta}
+                      {copy.cta}
                       <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
                     </button>
                   </>

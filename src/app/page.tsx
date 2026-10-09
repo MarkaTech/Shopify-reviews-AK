@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import TopNav, { type PageId } from '@/components/app/TopNav';
+import TopNav, { type PageId, type NavigateOptions } from '@/components/app/TopNav';
 import { ConfirmProvider } from '@/components/app/confirm';
 import dynamic from 'next/dynamic';
 import DashboardPage from '@/components/app/DashboardPage';
@@ -44,11 +44,11 @@ const SettingsPage = dynamic(() => import('@/components/app/SettingsPage'), { ss
 const ProductsPage = dynamic(() => import('@/components/app/ProductsPage'), { ssr: false, loading });
 const QuestionsPage = dynamic(() => import('@/components/app/QuestionsPage'), { ssr: false, loading });
 const IncentivesPage = dynamic(() => import('@/components/app/IncentivesPage'), { ssr: false, loading });
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { ExternalLink, ChevronRight } from 'lucide-react';
 import { APP_NAME, BRAND_ASSETS } from '@/lib/brand';
 import { MarkaLockup } from '@/components/app/ui-kit';
-import { apiFetch } from '@/lib/api-client';
+import { apiFetch, ApiError } from '@/lib/api-client';
 
 const PAGE_TITLES: Record<PageId, { title: string; desc: string; parent?: string }> = {
   dashboard: { title: 'Dashboard', desc: 'How your reviews are performing' },
@@ -89,6 +89,33 @@ interface StoreSummary {
   plan: string;
 }
 
+/** The slice of /api/usage the shell reads: the plan chip and the request meter. */
+interface UsageSummary {
+  plan: string;
+  pendingReviews: number;
+  requests: { used: number; limit: number | null };
+}
+
+/**
+ * How long to keep asking after a payment that Shopify has taken but /api/billing/confirm
+ * could not yet classify. Five tries, three seconds apart: the webhook or the server's own
+ * retry normally lands well inside that, and a merchant who has just paid should see the
+ * chip change without being told to reload.
+ */
+const PLAN_POLL_ATTEMPTS = 5;
+const PLAN_POLL_INTERVAL_MS = 3000;
+
+/**
+ * A server-supplied failure reason, made safe to print under the generic line.
+ *
+ * Plain text only — anything that looks like markup is dropped rather than rendered —
+ * and short, so a stack trace that somehow reached a response body cannot fill the card.
+ */
+function sanitiseReason(message: string): string {
+  const clean = message.replace(/[<>]/g, '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return clean.length > 160 ? `${clean.slice(0, 157)}…` : clean;
+}
+
 export default function Home() {
   // Initialised from the URL, so a reload, a bookmark or a nav-menu click all land on
   // the screen that was asked for rather than on the dashboard.
@@ -122,6 +149,18 @@ export default function Home() {
     return '';
   };
   const [authError, setAuthError] = useState(getInitialError);
+  // The server's own reason when the session could not be established, shown under the
+  // generic line. The embedded failure card used to say "Your session expired" for every
+  // failure, including a managed-install bootstrap the API had rejected with a specific
+  // message — so a new merchant was told to reload, which repeated the failure, and
+  // support had nothing from the screen to go on.
+  const [authDetail, setAuthDetail] = useState('');
+  // Set when Shopify has taken the payment but confirm could not yet classify it. Drives
+  // the short poll below so the plan chip catches up without a reload.
+  const [planPending, setPlanPending] = useState(false);
+  // Bumped when the poll sees the paid plan arrive, so the Plan page (which holds its own
+  // copy of usage) knows to fetch again.
+  const [usageVersion, setUsageVersion] = useState(0);
 
   // Whether we are inside Shopify's admin iframe. Defaults to true so the server render
   // and the first client paint agree; corrected after mount. Outside the iframe there is
@@ -149,9 +188,9 @@ export default function Home() {
         const params = new URLSearchParams(window.location.search);
         if (params.get('billing') === 'success') {
           params.delete('billing');
-          const confirmed = await apiFetch<{ activated?: boolean }>('/api/billing/confirm').catch(
-            () => undefined
-          );
+          const confirmed = await apiFetch<{ activated?: boolean; pending?: boolean }>(
+            '/api/billing/confirm'
+          ).catch(() => undefined);
 
           // Land on the Plan tab with the upgrade marked, rather than dropping the
           // merchant back wherever they happened to be. They have just paid for a named
@@ -161,6 +200,18 @@ export default function Home() {
             params.set('page', 'plan');
             params.set('upgraded', '1');
             setCurrentPage('plan');
+          } else if (confirmed?.pending) {
+            // Shopify has the payment but could not yet be asked which plan it is for
+            // (the classification query failed; the server will settle it from the
+            // webhook or its next check). The merchant still goes to the Plan page — it
+            // is where the answer will appear — and is told why it does not show yet,
+            // instead of being dropped on the Dashboard still reading "Free".
+            params.set('page', 'plan');
+            setCurrentPage('plan');
+            // The toast itself is raised by the polling effect: at this point the
+            // authenticated shell, and the Toaster with it, has not mounted yet, and a
+            // toast raised before the Toaster exists is never shown.
+            setPlanPending(true);
           }
 
           const rest = params.toString();
@@ -179,9 +230,12 @@ export default function Home() {
         setIsAuthenticated(true);
         return;
       }
+      setAuthDetail('');
       setIsAuthenticated(false);
-    } catch {
-      // Session invalid or network failure
+    } catch (err) {
+      // Session invalid or network failure. Keep the server's reason for the card below;
+      // ApiError's message is already the merchant-safe text the route chose to send.
+      setAuthDetail(err instanceof ApiError ? sanitiseReason(err.message) : '');
       setIsAuthenticated(false);
     } finally {
       // Must run on EVERY path. This previously sat after the try/catch, so the
@@ -211,33 +265,63 @@ export default function Home() {
   // read `pendingReviews` — fifteen aggregates and a thirty-day scan, on every navigation,
   // for one integer, while the comment above it claimed analytics was avoided precisely
   // because it was expensive. `getUsage` returns the count now.
+  const applyUsage = useCallback((u: UsageSummary) => {
+    setUsage({
+      requests: u.requests?.used ?? 0,
+      cap: u.requests?.limit ?? null,
+      pending: u.pendingReviews ?? 0,
+    });
+    // The plan comes from here too, not only from the mount-time /api/store call.
+    //
+    // Those were two copies of one fact with different refresh rates: the badge was
+    // read once at mount and never again, while the quota beside it refreshed on
+    // every navigation. Downgrading to Free left a sidebar reading "Growth · 3/100"
+    // — a paid label next to a free allowance, both rendered from the same component.
+    //
+    // /api/usage derives the plan the same way every server-side gate does, and it is
+    // already fetched on every navigation, so making it the single source removes the
+    // drift rather than adding a second refresh to chase it.
+    if (u.plan) setStorePlan(u.plan);
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) return;
-    apiFetch<{
-      plan: string;
-      pendingReviews: number;
-      requests: { used: number; limit: number | null };
-    }>('/api/usage')
-      .then((u) => {
-        setUsage({
-          requests: u.requests?.used ?? 0,
-          cap: u.requests?.limit ?? null,
-          pending: u.pendingReviews ?? 0,
-        });
-        // The plan comes from here too, not only from the mount-time /api/store call.
-        //
-        // Those were two copies of one fact with different refresh rates: the badge was
-        // read once at mount and never again, while the quota beside it refreshed on
-        // every navigation. Downgrading to Free left a sidebar reading "Growth · 3/100"
-        // — a paid label next to a free allowance, both rendered from the same component.
-        //
-        // /api/usage derives the plan the same way every server-side gate does, and it is
-        // already fetched on every navigation, so making it the single source removes the
-        // drift rather than adding a second refresh to chase it.
-        if (u.plan) setStorePlan(u.plan);
-      })
-      .catch(() => undefined);
-  }, [isAuthenticated, currentPage]);
+    apiFetch<UsageSummary>('/api/usage').then(applyUsage).catch(() => undefined);
+  }, [isAuthenticated, currentPage, applyUsage]);
+
+  // After a payment that confirm could not classify: ask a few more times, a few seconds
+  // apart, and stop as soon as a paid plan shows up. The Plan page is told (usageVersion)
+  // so its own "Current plan" header catches up at the same moment as the chip.
+  useEffect(() => {
+    if (!planPending || !isAuthenticated) return;
+    toast.info('Payment received — your plan will update within a minute.', { duration: 10000 });
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      attempts++;
+      try {
+        const u = await apiFetch<UsageSummary>('/api/usage');
+        if (cancelled) return;
+        applyUsage(u);
+        if (u.plan && u.plan !== 'free') {
+          setPlanPending(false);
+          setUsageVersion((v) => v + 1);
+          return;
+        }
+      } catch {
+        // A failed poll is not news; the next one may succeed.
+      }
+      if (cancelled) return;
+      if (attempts < PLAN_POLL_ATTEMPTS) timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
+      else setPlanPending(false);
+    };
+    timer = setTimeout(tick, PLAN_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [planPending, isAuthenticated, applyUsage]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   /**
@@ -248,11 +332,15 @@ export default function Home() {
    * and host parameters are preserved — Shopify puts them on every embedded request and
    * dropping them breaks the session-token handshake on the next reload.
    */
-  const navigate = useCallback((page: PageId) => {
+  const navigate = useCallback((page: PageId, opts?: NavigateOptions) => {
     setCurrentPage(page);
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     params.set('page', page);
+    // A tab within the destination, read once by the page on mount and then cleared by
+    // it, so a plain navigation never inherits a tab asked for by an earlier link.
+    if (opts?.tab) params.set('tab', opts.tab);
+    else params.delete('tab');
     window.history.pushState({ page }, '', `${window.location.pathname}?${params}`);
   }, []);
 
@@ -308,6 +396,11 @@ export default function Home() {
             <p className="mt-2 text-[13px] leading-relaxed text-ink-500">
               {authError || 'Your session expired. Reloading usually fixes it.'}
             </p>
+            {/* The server's reason, when it gave one, so a real install problem is not
+                hidden behind advice to reload — and so support can be told what it said. */}
+            {authDetail && !authError && (
+              <p className="mt-2 text-[12px] leading-relaxed text-ink-400">{authDetail}</p>
+            )}
             <button
               type="button"
               onClick={() => window.location.reload()}
@@ -337,8 +430,8 @@ export default function Home() {
       case 'products': return <ProductsPage storeDomain={storeDomain} />;
       case 'widgets': return <WidgetsPage storeDomain={storeDomain} />;
       case 'incentives': return <IncentivesPage />;
-      case 'settings': return <SettingsPage key="settings" onNavigate={navigate} storeDomain={storeDomain} />;
-      case 'plan': return <SettingsPage key="plan" onNavigate={navigate} storeDomain={storeDomain} initialTab="subscription" />;
+      case 'settings': return <SettingsPage key="settings" onNavigate={navigate} storeDomain={storeDomain} usageVersion={usageVersion} />;
+      case 'plan': return <SettingsPage key="plan" onNavigate={navigate} storeDomain={storeDomain} initialTab="subscription" usageVersion={usageVersion} />;
       default: return <DashboardPage onNavigate={navigate} storeName={storeName} />;
     }
   };

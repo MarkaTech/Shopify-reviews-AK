@@ -119,7 +119,12 @@ export default function ReviewsPage() {
     if (sourceFilter !== 'all') params.set('source', sourceFilter);
     if (sentimentFilter !== 'all') params.set('sentiment', sentimentFilter);
     if (publishedFilter !== 'all') params.set('isPublished', publishedFilter);
-    if (verifiedFilter !== 'all') params.set('verifiedPurchase', verifiedFilter);
+    // Filter on the same field the badge, the export and the dashboard read. The legacy
+    // verifiedPurchase boolean can be true with no matched order, so filtering on it
+    // listed "verified buyers" that showed no badge.
+    if (verifiedFilter !== 'all') {
+      params.set('verificationStatus', verifiedFilter === 'true' ? 'verified_buyer' : '!verified_buyer');
+    }
     if (imagesFilter !== 'all') params.set('hasImages', imagesFilter);
     params.set('sortBy', sortBy);
     params.set('sortOrder', sortOrder);

@@ -9,7 +9,7 @@ import dynamic from 'next/dynamic';
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import OnboardingFlow from './OnboardingFlow';
-import type { PageId } from './TopNav';
+import type { Navigate } from './TopNav';
 
 /**
  * recharts, loaded off the critical path.
@@ -88,12 +88,12 @@ export default function DashboardPage({
   onNavigate,
   storeName,
 }: {
-  onNavigate?: (page: PageId) => void;
+  onNavigate?: Navigate;
   storeName?: string;
 }) {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
-  const go = onNavigate ?? (() => undefined);
+  const go: Navigate = onNavigate ?? (() => undefined);
 
   useEffect(() => {
     apiFetch<Analytics>('/api/analytics')
@@ -209,17 +209,19 @@ export default function DashboardPage({
 
       {!hasReviews ? (
         <Panel elevation="raised" className="overflow-hidden">
+          {/* "Set up requests" implied nothing was being sent. Requests are on from
+              install; the honest offer is to adjust them, on the tab where they live. */}
           <EmptyState
             icon={Inbox}
             title="Your first reviews will land here"
-            description="Import reviews you already own from AliExpress, Etsy or a CSV — or let Marka Reviews ask your recent customers automatically after their orders are fulfilled."
+            description="Import reviews you already own from AliExpress, Etsy or a CSV. Review requests are already on: after an order is fulfilled, Marka Reviews emails that customer for a review automatically."
             action={
               <>
                 <ActionButton icon={Sparkles} onClick={() => go('bulk-upload')}>
                   Import reviews
                 </ActionButton>
-                <ActionButton variant="outline" onClick={() => go('settings')}>
-                  Set up requests
+                <ActionButton variant="outline" onClick={() => go('settings', { tab: 'notifications' })}>
+                  Adjust requests
                 </ActionButton>
               </>
             }
@@ -281,7 +283,7 @@ export default function DashboardPage({
               Placed above the review breakdowns on purpose. Those describe reviews the
               merchant already has; this one describes whether more are coming, which is
               the question they open the dashboard to answer. */}
-          <RequestPerformance />
+          <RequestPerformance onNavigate={go} />
 
           {/* ── Distribution / products / sources ── */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
