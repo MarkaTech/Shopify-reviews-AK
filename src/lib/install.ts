@@ -57,6 +57,10 @@ export async function provisionStore(shop: string, tokens: ShopifyTokenSet) {
     tokenExpiresAt: tokens.expiresAt,
     refreshTokenExpiresAt: tokens.refreshExpiresAt,
     email: shopInfo.email || null,
+    // From the same shop-info query, so recording it costs no extra round trip. Spread in
+    // only when Shopify sent one: on a reinstall the update arm would otherwise overwrite a
+    // known currency with null.
+    ...(shopInfo.currency ? { currency: shopInfo.currency } : {}),
     isActive: true,
     installedAt: new Date(),
   };
@@ -90,7 +94,8 @@ export async function provisionStore(shop: string, tokens: ShopifyTokenSet) {
       console.error('[install] could not record the webhook marker for', shop, err)
     );
 
-  syncProductsInBackground(store.id, shop, accessToken);
+  // The currency was read above, so the sync need not ask Shopify for it a second time.
+  syncProductsInBackground(store.id, shop, accessToken, { knownCurrency: shopInfo.currency });
 
   return store;
 }

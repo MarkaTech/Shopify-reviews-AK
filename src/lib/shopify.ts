@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import { shopifyClientId } from './client-id';
+import { normaliseCurrencyCode } from './money';
 
 const SHOPIFY_API_KEY = shopifyClientId() || '';
 
@@ -595,6 +596,7 @@ const SHOP_QUERY = `
       myshopifyDomain
       primaryDomain { host }
       plan { publicDisplayName }
+      currencyCode
     }
   }
 `;
@@ -606,6 +608,11 @@ export interface ShopifyShopInfo {
   email: string;
   myshopify_domain: string;
   plan_display_name: string;
+  /**
+   * The shop's default currency (ISO 4217), or null if Shopify sent nothing usable. Read
+   * here because install already makes this call, so recording it costs no extra round trip.
+   */
+  currency: string | null;
 }
 
 export async function fetchShopifyShop(
@@ -621,6 +628,7 @@ export async function fetchShopifyShop(
       myshopifyDomain: string;
       primaryDomain: { host: string } | null;
       plan: { publicDisplayName: string } | null;
+      currencyCode: string | null;
     };
   }>(shop, accessToken, SHOP_QUERY, undefined, onUnauthorized);
 
@@ -632,7 +640,41 @@ export async function fetchShopifyShop(
     email: s.email || '',
     myshopify_domain: s.myshopifyDomain,
     plan_display_name: s.plan?.publicDisplayName || '',
+    currency: normaliseCurrencyCode(s.currencyCode),
   };
+}
+
+// A query of its own for the catalogue sync, which has no shop-info call to ride on. One
+// scalar on one object: about a point of the rate-limit bucket, against the hundreds a sync
+// spends on products.
+const SHOP_CURRENCY_QUERY = `
+  query ShopCurrency {
+    shop { currencyCode }
+  }
+`;
+
+/**
+ * The shop's default currency, e.g. "INR", or null if Shopify sent nothing usable.
+ *
+ * This is the currency the catalogue's prices are in: ProductVariant.price, which the sync
+ * reads, is the price in the shop's default currency. Shopify Markets may show shoppers a
+ * converted price, but the number stored on our Product row is this one.
+ *
+ * Throws like any Admin API call; the catalogue sync treats it as best effort.
+ */
+export async function fetchShopCurrency(
+  shop: string,
+  accessToken: string,
+  onUnauthorized?: () => Promise<string | null>
+): Promise<string | null> {
+  const data = await callShopifyGraphQL<{ shop: { currencyCode: string | null } | null }>(
+    shop,
+    accessToken,
+    SHOP_CURRENCY_QUERY,
+    undefined,
+    onUnauthorized
+  );
+  return normaliseCurrencyCode(data.shop?.currencyCode);
 }
 
 // ── Fetch Products from Shopify ──
@@ -690,6 +732,7 @@ export interface ShopifyProductSummary {
   handle: string;
   body_html: string | null;
   image: { src: string } | null;
+  /** `price` is in the shop's default currency, with no unit attached: see fetchShopCurrency. */
   variants: Array<{ price: string }>;
   vendor: string;
   product_type: string;

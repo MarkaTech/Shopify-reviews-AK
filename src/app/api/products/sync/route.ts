@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
       alreadyPresent: result.alreadyPresent,
       total: result.fetched,
       truncated: result.truncated,
+      // The shop's currency, refreshed by the same sync (null while Shopify has not told us).
+      currency: result.currency,
       source: 'shopify',
     });
   } catch (error: unknown) {

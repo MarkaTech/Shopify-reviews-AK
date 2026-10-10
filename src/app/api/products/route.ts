@@ -58,11 +58,19 @@ export async function GET(request: NextRequest) {
     const { storeId } = await withAuth(request);
     const searchParams = request.nextUrl.searchParams;
 
+    // The currency every `price` below is in (ISO 4217), or null while it is unknown. Sent
+    // with the products because a price is only half an answer without it, and so a page
+    // that lists prices needs no second request to learn their unit.
+    const currencyOf = () =>
+      db.store
+        .findUnique({ where: { id: storeId }, select: { currency: true } })
+        .then((s) => s?.currency ?? null);
+
     // The whole catalogue, three fields, for a dropdown. The paged list below caps at 250
     // a page, which the Import page used as "the product list" — so a store with 1,683
     // products could assign reviews to the first 250 of them and no others.
     if (searchParams.get('picker') === '1') {
-      const [products, total] = await Promise.all([
+      const [products, total, currency] = await Promise.all([
         db.product.findMany({
           where: { storeId },
           select: { id: true, title: true, handle: true },
@@ -70,8 +78,9 @@ export async function GET(request: NextRequest) {
           take: 5000,
         }),
         db.product.count({ where: { storeId } }),
+        currencyOf(),
       ]);
-      return NextResponse.json({ products, total, truncated: total > products.length });
+      return NextResponse.json({ products, total, truncated: total > products.length, currency });
     }
 
     const where: Prisma.ProductWhereInput = { storeId };
@@ -98,7 +107,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(250, Math.max(1, Number(searchParams.get('limit')) || 20));
     const skip = (page - 1) * limit;
 
-    const [products, total, catalogueSize, withReviews, reviewAgg] = await Promise.all([
+    const [products, total, catalogueSize, withReviews, reviewAgg, currency] = await Promise.all([
       db.product.findMany({
         where,
         include: {
@@ -131,6 +140,7 @@ export async function GET(request: NextRequest) {
         _count: { _all: true },
         _avg: { rating: true },
       }),
+      currencyOf(),
     ]);
 
     const productsWithStats = products.map((p) => ({
@@ -167,6 +177,7 @@ export async function GET(request: NextRequest) {
         averageRating: reviewAgg._avg.rating ? Math.round(reviewAgg._avg.rating * 10) / 10 : 0,
         withReviews,
       },
+      currency,
     });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Unauthorized')) return unauthorizedResponse();

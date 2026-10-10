@@ -67,6 +67,9 @@ export async function GET(request: Request) {
         plan: true,
         isActive: true,
         installedAt: true,
+        // ISO 4217, or null until the next install or catalogue sync records it. The shop's
+        // own prices and fixed-amount rewards are in this currency.
+        currency: true,
       },
     });
 

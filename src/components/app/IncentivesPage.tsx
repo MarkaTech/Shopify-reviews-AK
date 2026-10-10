@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { fixedAmountHelp } from '@/lib/money';
 import {
   Panel, PanelHeader, StatCard, Tile, Pill, EmptyState, ActionButton, SectionTitle, Skeleton,
   type TileTone,
@@ -173,6 +174,8 @@ export default function IncentivesPage() {
   const [form, setForm] = useState<FormState>({ ...BLANK_FORM });
   /** Whether the plan includes incentives. Unknown (null) behaves as allowed: the server decides. */
   const [eligible, setEligible] = useState<boolean | null>(null);
+  /** The shop's currency, so the fixed-amount help can name it. Null keeps the generic line. */
+  const [currency, setCurrency] = useState<string | null>(null);
 
   // Promise chain rather than async/await: every setState lands in a callback, so nothing
   // runs synchronously when this is called from an effect. Returns the promise so the
@@ -195,6 +198,11 @@ export default function IncentivesPage() {
     apiFetch<{ features?: Record<string, boolean> }>('/api/usage')
       .then(u => setEligible(u.features?.incentives ?? null))
       .catch(() => setEligible(null));
+    // A fixed-amount reward is minted in the shop's currency, whatever the merchant has in
+    // mind, so the form names it. Purely informational: a failure keeps the generic help.
+    apiFetch<{ store?: { currency?: string | null } }>('/api/store')
+      .then(s => setCurrency(s.store?.currency ?? null))
+      .catch(() => setCurrency(null));
   }, [load]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm(f => ({ ...f, [k]: v }));
@@ -498,7 +506,7 @@ export default function IncentivesPage() {
                 <p className="text-[11.5px] text-ink-400">
                   {form.rewardType === 'percentage'
                     ? 'Percentage off, between 1 and 100.'
-                    : 'Amount off, in your store’s currency.'}
+                    : fixedAmountHelp(currency)}
                 </p>
               </div>
             )}

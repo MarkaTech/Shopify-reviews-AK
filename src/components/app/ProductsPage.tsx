@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { adminUrl } from '@/lib/admin-links';
+import { formatMoney } from '@/lib/money';
 import {
   Panel, StatCard, Stars, Pill, EmptyState, ActionButton, Skeleton, Meter, RatingStar,
 } from './ui-kit';
@@ -54,6 +55,9 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
   const [summary, setSummary] = useState<{
     products: number; reviews: number; averageRating: number; withReviews: number;
   } | null>(null);
+  // The shop's currency, sent with the products. Prices used to be printed with a "$"
+  // whatever the store sold in; null (not yet recorded) shows the bare number instead.
+  const [currency, setCurrency] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,12 +77,14 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
           total: number;
           totalPages: number;
           summary: { products: number; reviews: number; averageRating: number; withReviews: number };
+          currency?: string | null;
         }>(`/api/products?${params}`);
         if (!cancelled) {
           setProducts(data.products || []);
           setTotalPages(data.totalPages || 1);
           setMatching(data.total || 0);
           setSummary(data.summary ?? null);
+          setCurrency(data.currency ?? null);
         }
       } catch (err) {
         // Previously an unhandled rejection: a failed load left the spinner up forever
@@ -313,10 +319,10 @@ export default function ProductsPage({ storeDomain }: { storeDomain?: string }) 
                   </div>
                 )}
 
-                {product.price != null && (
+                {product.price != null && Number.isFinite(product.price) && (
                   <div className="absolute right-2.5 top-2.5 rounded-lg bg-white/92 px-2 py-1 backdrop-blur-sm dark:bg-ink-900/85">
                     <span className="tnum text-[11px] font-bold text-ink-900 dark:text-white">
-                      ${product.price.toFixed(2)}
+                      {formatMoney(product.price, currency)}
                     </span>
                   </div>
                 )}
