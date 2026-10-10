@@ -1,0 +1,204 @@
+{% comment %}
+  Review highlights: a few good reviews in a bordered box, one at a time, for beside the
+  Add to cart button.
+
+  The review list sits far down a product page, below the description, and most shoppers
+  decide before they get there. This puts a handful of reviews where the decision is made:
+  the merchant's featured ones, a random few, or the latest, each with the reviewer's
+  initial, name, a "Verified" pill for a review tied to a real order, the stars and the
+  start of the text.
+
+  Design constraints, shared with the review block for the same reasons:
+
+  - **Deferred load.** Fetched when the block nears the viewport. Beside Add to cart that is
+    usually at once, but the script still waits on a long page rather than assuming.
+  - **No layout shift.** The box is drawn here with placeholders at its final height, and
+    it never changes height as it rotates: every review's text is held to the same number
+    of lines. Content below it, often the Add to cart button itself, never moves under the
+    shopper's finger. With nothing to show it is removed and takes no space.
+  - **Nothing invented.** "Verified" only for a review the app matched to an order, the
+    incentive disclosure on every review written under an offer (FTC 16 CFR 465), and
+    only published reviews, which is all the endpoint returns.
+{% endcomment %}
+
+{%- liquid
+  assign lines = block.settings.lines | default: 4
+
+  comment
+    The colours are per placement and optional: blank follows the colours set in the app
+    (Settings -> Display), the same as the review cards. A background picked here gets a
+    text colour paired to it by the script, so a dark box never meets dark theme text.
+  endcomment
+  assign style = '--rm-hl-lines:' | append: lines | append: ';'
+  if block.settings.border_color != blank
+    assign style = style | append: '--rm-hl-border:' | append: block.settings.border_color | append: ';'
+  endif
+  if block.settings.background_color != blank
+    assign style = style | append: '--rm-hl-bg:' | append: block.settings.background_color | append: ';'
+  endif
+
+  comment
+    Which of the merchant's widgets lends this box its look (star shape, colours, font),
+    from the page it is on. The review block asks the merchant; this block has nothing else
+    to say about placement, so it works it out rather than adding a setting.
+  endcomment
+  case request.page_type
+    when 'product'
+      assign placement = 'product_page'
+    when 'collection'
+      assign placement = 'collection_page'
+    when 'index'
+      assign placement = 'home_page'
+    else
+      assign placement = ''
+  endcase
+-%}
+
+<div
+  class="rm-hl"
+  data-rm-highlights
+  data-rm-shop="{{ shop.permanent_domain }}"
+  data-rm-product="{{ product.id }}"
+  data-rm-placement="{{ placement }}"
+  data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' | escape }}"
+  data-rm-source="{{ block.settings.source }}"
+  data-rm-limit="{{ block.settings.count }}"
+  data-rm-rotate="{{ block.settings.rotate_seconds }}"
+  data-rm-show-stars="{{ block.settings.show_stars }}"
+  data-rm-show-badge="{{ block.settings.show_verified }}"
+  data-rm-show-avatar="{{ block.settings.show_avatar }}"
+  {% if block.settings.background_color != blank %}data-rm-hl-bg="{{ block.settings.background_color | color_to_hex }}"{% endif %}
+  {% comment %}
+    The box's words in the shopper's language, read by the script (readLocale). escape_once,
+    because `t` already escapes and a second escape would show "&amp;" on the page.
+  {% endcomment %}
+  data-rm-t-read-more="{{ 'reviewmaster.read_more' | t | escape_once }}"
+  data-rm-t-show-less="{{ 'reviewmaster.show_less' | t | escape_once }}"
+  data-rm-t-verified-short="{{ 'reviewmaster.verified_short' | t | escape_once }}"
+  data-rm-t-highlights-label="{{ 'reviewmaster.highlights_label' | t | escape_once }}"
+  data-rm-t-previous-review="{{ 'reviewmaster.previous_review' | t | escape_once }}"
+  data-rm-t-next-review="{{ 'reviewmaster.next_review' | t | escape_once }}"
+  data-rm-t-slide-label="{{ 'reviewmaster.slide_label' | t | escape_once }}"
+  data-rm-t-pause-rotation="{{ 'reviewmaster.pause_rotation' | t | escape_once }}"
+  data-rm-t-play-rotation="{{ 'reviewmaster.play_rotation' | t | escape_once }}"
+  style="{{ style }}"
+  {{ block.shopify_attributes }}
+>
+  {%- comment -%}
+    Placeholders in the same structure as a real review, so the box is drawn at its final
+    height before anything is fetched and the script swaps content without moving the page.
+    No more placeholder lines than text lines, or a two-line box would load taller than it
+    ends up. Decorative, so hidden from assistive tech.
+  {%- endcomment -%}
+  {%- assign skel_lines = lines | at_most: 3 -%}
+  <div class="rm-hl__slides" aria-hidden="true">
+    <div class="rm-hl__slide">
+      <div class="rm-hl__head">
+        {%- if block.settings.show_avatar -%}<span class="rm-hl__avatar rm-hl__avatar--skel"></span>{%- endif -%}
+        <div class="rm-hl__who">
+          <span class="rm-skel rm-skel--line rm-skel--short"></span>
+          {%- if block.settings.show_stars -%}<span class="rm-skel rm-skel--stars"></span>{%- endif -%}
+        </div>
+      </div>
+      <div class="rm-hl__quote">
+        {%- for i in (1..skel_lines) -%}
+          <span class="rm-skel rm-skel--line{% if forloop.last %} rm-skel--short{% endif %}"></span>
+        {%- endfor -%}
+      </div>
+    </div>
+  </div>
+  <div class="rm-hl__foot"></div>
+</div>
+
+{%- comment -%}
+  No manual <script> tag: declaring "javascript" in the schema makes Shopify serve the
+  asset from its CDN, deduplicated across blocks, so a page with this box and the review
+  list loads reviewmaster.js once.
+{%- endcomment -%}
+
+{% schema %}
+{
+  "name": "Review highlights",
+  "target": "section",
+  "stylesheet": "reviewmaster.css",
+  "javascript": "reviewmaster.js",
+  "settings": [
+    {
+      "type": "select",
+      "id": "source",
+      "label": "Which reviews",
+      "default": "featured",
+      "options": [
+        { "value": "featured", "label": "Featured" },
+        { "value": "random", "label": "Random" },
+        { "value": "latest", "label": "Latest" }
+      ],
+      "info": "Featured = reviews you mark with the star in Marka Reviews → All reviews. When there are not enough, recent 4 and 5 star reviews fill the rest. Random and Latest use 4 and 5 star reviews with some text."
+    },
+    {
+      "type": "range",
+      "id": "count",
+      "label": "Number of reviews",
+      "min": 3, "max": 12, "step": 1, "default": 6
+    },
+    {
+      "type": "range",
+      "id": "rotate_seconds",
+      "label": "Auto-rotate every",
+      "min": 0, "max": 20, "step": 1, "unit": "s", "default": 6,
+      "info": "0 turns rotation off. It pauses while a shopper points at or tabs into the box, and never runs for shoppers whose device asks for reduced motion."
+    },
+    {
+      "type": "range",
+      "id": "lines",
+      "label": "Lines of text before \"Read more\"",
+      "min": 2, "max": 8, "step": 1, "default": 4
+    },
+    {
+      "type": "checkbox",
+      "id": "show_stars",
+      "label": "Show stars",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_verified",
+      "label": "Show the Verified badge",
+      "default": true,
+      "info": "Only ever on reviews Marka Reviews matched to a real order."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_avatar",
+      "label": "Show initial avatar",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Colours",
+      "info": "Leave blank to follow the colours set in Marka Reviews → Settings → Display."
+    },
+    {
+      "type": "color",
+      "id": "border_color",
+      "label": "Border colour"
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "Background colour"
+    },
+    {
+      "type": "header",
+      "content": "Advanced"
+    },
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "App URL",
+      "default": "https://reviewmaster-app.azurewebsites.net",
+      "info": "Leave as-is unless you run Marka Reviews on a custom domain."
+    }
+  ]
+}
+{% endschema %}

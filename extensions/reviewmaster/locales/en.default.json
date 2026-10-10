@@ -26,6 +26,23 @@
     "your_question": "Your question",
     "question_email_privacy": "Not published. Used only to let you know when the shop answers.",
     "submit_question": "Send question",
-    "no_questions_yet": "No questions yet"
+    "no_questions_yet": "No questions yet",
+    "rating_count": {
+      "one": "{{ count }} rating",
+      "other": "{{ count }} ratings"
+    },
+    "see_more": "See more reviews",
+    "loading_more": "Loading…",
+    "load_more_error": "Could not load more reviews. Please try again.",
+    "showing_of": "Showing {shown} of {total} reviews",
+    "read_more": "Read more",
+    "show_less": "Show less",
+    "verified_short": "Verified",
+    "highlights_label": "Customer reviews",
+    "previous_review": "Previous review",
+    "next_review": "Next review",
+    "slide_label": "{index} of {total}",
+    "pause_rotation": "Stop rotating reviews",
+    "play_rotation": "Start rotating reviews"
   }
 }

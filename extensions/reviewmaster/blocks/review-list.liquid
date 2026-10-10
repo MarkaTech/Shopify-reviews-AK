@@ -64,6 +64,15 @@
     height, not a style choice, so it always applies.
   endcomment
   assign style = style | append: '--rm-min-height:' | append: block.settings.reserved_height | append: 'px;'
+
+  comment
+    Where a jump to the reviews stops: this far below the top of the window, so a sticky
+    header does not cover the heading. Emitted only when moved off the stylesheet's 80 px,
+    like the colours above; a block saved before the setting existed gets the default too.
+  endcomment
+  if block.settings.scroll_offset != blank and block.settings.scroll_offset != 80
+    assign style = style | append: '--rm-scroll-offset:' | append: block.settings.scroll_offset | append: 'px;'
+  endif
 -%}
 
 <div
@@ -79,6 +88,16 @@
   {%- endcomment -%}
   data-rm-placement="{{ block.settings.placement }}"
   data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' | escape }}"
+  {% comment %}
+    Words for "See more reviews", from the locale file in the shopper's language. The
+    script reads every data-rm-t-* attribute (readLocale); the merchant's own copy from
+    Settings still wins where they have set some. escape_once, because `t` already escapes
+    and a second escape would show "&amp;" on the page.
+  {% endcomment %}
+  data-rm-t-see-more="{{ 'reviewmaster.see_more' | t | escape_once }}"
+  data-rm-t-loading-more="{{ 'reviewmaster.loading_more' | t | escape_once }}"
+  data-rm-t-load-more-error="{{ 'reviewmaster.load_more_error' | t | escape_once }}"
+  data-rm-t-showing-of="{{ 'reviewmaster.showing_of' | t | escape_once }}"
   style="{{ style }}"
   {{ block.shopify_attributes }}
 >
@@ -103,10 +122,17 @@
         if remainder >= 0.25
           assign empty_stars = empty_stars | minus: 1
         endif
+
+        comment
+          One decimal, as the metafield holds today. Rounded rather than printed raw so the
+          summary keeps reading "4.9" if the app starts storing two decimals for the star
+          block's "Decimals in the average" setting.
+        endcomment
+        assign summary_value = value | round: 1
       -%}
       <div class="rm-summary__score">
-        <span class="rm-summary__number">{{ value }}</span>
-        <span class="rm-stars__icons" role="img" aria-label="{{ 'reviewmaster.rating_aria' | t: value: value, max: 5, count: rating_count }}">
+        <span class="rm-summary__number">{{ summary_value }}</span>
+        <span class="rm-stars__icons" role="img" aria-label="{{ 'reviewmaster.rating_aria' | t: value: summary_value, max: 5, count: rating_count }}">
           {%- for i in (1..full_stars) -%}<span class="rm-star rm-star--full" aria-hidden="true">★</span>{%- endfor -%}
           {%- if remainder >= 0.25 -%}<span class="rm-star rm-star--half" aria-hidden="true">★</span>{%- endif -%}
           {%- for i in (1..empty_stars) -%}<span class="rm-star rm-star--empty" aria-hidden="true">★</span>{%- endfor -%}
@@ -305,6 +331,13 @@
       "content": "Advanced"
     },
     {
+      "type": "range",
+      "id": "scroll_offset",
+      "label": "Space for a sticky header",
+      "min": 0, "max": 200, "step": 10, "unit": "px", "default": 80,
+      "info": "Clicking the review count under the product title scrolls here and stops this far below the top of the window. Raise it if your header covers the reviews heading."
+    },
+    {
       "type": "text",
       "id": "app_url",
       "label": "App URL",
@@ -313,7 +346,7 @@
     },
     {
       "type": "paragraph",
-      "content": "Reviews per page, sort order, heading text and what each review shows are set in the Marka Reviews app under Settings and Widgets, so they stay consistent across every placement."
+      "content": "Reviews per page, \"See more\" or numbered pages, sort order, heading text and what each review shows are set in the Marka Reviews app under Settings and Widgets, so they stay consistent across every placement."
     }
   ]
 }

@@ -52,7 +52,23 @@
     // list never invites something the server will refuse.
     noQuestionsPlain: 'No questions yet.',
     questionInvalid: 'Please add your name and a question.',
-    questionError: 'Could not send your question. Please try again.'
+    questionError: 'Could not send your question. Please try again.',
+    // "See more", the highlights box and its carousel. The blocks also hand the widget
+    // these words from the theme's locale file (see readLocale), so a translated storefront
+    // shows its own; these are the last resort, for a block saved before that existed.
+    seeMore: 'See more reviews',
+    loadingMore: 'Loading…',
+    loadMoreError: 'Could not load more reviews. Please try again.',
+    showingOf: 'Showing {shown} of {total} reviews',
+    readMore: 'Read more',
+    showLess: 'Show less',
+    verifiedShort: 'Verified',
+    highlightsLabel: 'Customer reviews',
+    previousReview: 'Previous review',
+    nextReview: 'Next review',
+    slideLabel: '{index} of {total}',
+    pauseRotation: 'Stop rotating reviews',
+    playRotation: 'Start rotating reviews'
   };
 
   /** Layouts that live in an overlay rather than inline in the page flow. */
@@ -61,8 +77,36 @@
   /** Layouts that show only the summary \u2014 no list, no pagination, no form. */
   var SUMMARY_ONLY = { badge: 1 };
 
+  /**
+   * Words from the theme's locale file, handed over by the blocks as data-rm-t-* attributes.
+   *
+   * The merchant's configured copy covers what Settings lets them edit; the words that are
+   * new with "See more" and the highlights box have no setting, and hardcoding them here
+   * would put English on every translated storefront. Liquid's `t` filter knows the
+   * shopper's language and this file does not, so the block resolves them and the widget
+   * reads them back. getAttribute undoes the HTML escaping `t` applies, so an apostrophe
+   * in a translation arrives as an apostrophe.
+   */
+  var LOCALE = {};
+
+  /** "see-more" -> "seeMore": attribute suffix to the key t() is asked for. */
+  function camel(s) {
+    return String(s).replace(/-([a-z0-9])/g, function (m, c) { return c.toUpperCase(); });
+  }
+
+  function readLocale(root) {
+    var attrs = root.attributes;
+    for (var i = 0; i < attrs.length; i++) {
+      var a = attrs[i];
+      // A key missing from a locale renders as "translation missing: ..." rather than
+      // nothing, and that is not a thing to put on a shopper's screen.
+      if (a.name.indexOf('data-rm-t-') !== 0 || !a.value || /^translation missing/i.test(a.value)) continue;
+      LOCALE[camel(a.name.slice(10))] = a.value;
+    }
+  }
+
   function t(key, vars) {
-    var text = (CONFIG && CONFIG.text && CONFIG.text[key]) || FALLBACK[key] || '';
+    var text = (CONFIG && CONFIG.text && CONFIG.text[key]) || LOCALE[key] || FALLBACK[key] || '';
     if (vars) {
       Object.keys(vars).forEach(function (k) {
         text = text.split('{' + k + '}').join(vars[k]);
@@ -76,6 +120,13 @@
       return CONFIG.behaviour[key];
     }
     return fallback;
+  }
+
+  /** A whole number from a data attribute or a config value, held to [min, max]. */
+  function clampInt(v, min, max, fallback) {
+    var n = parseInt(v, 10);
+    if (isNaN(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
   }
 
   // 3, 4, 6 or 8 digits: the lengths CSS accepts. A 5- or 7-digit typo passed before, and
@@ -267,6 +318,155 @@
     } catch (e) { return ''; }
   }
 
+  /** GET a storefront read through the same per-query cache the review list uses. */
+  function getJson(url) {
+    if (CACHE[url]) return Promise.resolve(CACHE[url]);
+    return fetch(url, { credentials: 'omit' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        CACHE[url] = data;
+        return data;
+      });
+  }
+
+  /**
+   * The reviews in `incoming` not already in `seen`, recording them there.
+   *
+   * "See more" asks for the rows after the ones on screen by position, and positions move:
+   * a review published between two clicks pushes every row down one, so the next answer
+   * starts with the last review already shown. Drawing it twice looks like a bug to a
+   * shopper, and on a server that ignores the offset it would be the whole first page again.
+   */
+  function freshReviews(seen, incoming) {
+    var out = [];
+    (incoming || []).forEach(function (r) {
+      if (!r || r.id == null || seen[r.id]) return;
+      seen[r.id] = 1;
+      out.push(r);
+    });
+    return out;
+  }
+
+  /**
+   * What the next "See more" click asks for. By offset normally: the number on screen, and
+   * the merchant's load-more count. A server from before offset only understands pages, so
+   * from one of those it is the next page at the first page's size, counted separately from
+   * what is on screen because dedupe can leave that short of a whole number of pages.
+   */
+  function nextChunk(shown, page, perPage, step, legacy) {
+    if (legacy) return { page: page + 1, limit: perPage || step };
+    return { offset: shown, limit: step };
+  }
+
+  /** Review text on one line: the highlights box clamps lines, and blank lines waste them. */
+  function plainText(s) {
+    return String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * The letter in a reviewer's avatar. Two code units when the first is half of a surrogate
+   * pair, or an emoji or a rarer script would render as a broken glyph.
+   */
+  function initial(name) {
+    var s = plainText(name).replace(/^["'(\[@#_.\-]+/, '');
+    if (!s) return '?';
+    var code = s.charCodeAt(0);
+    var c = code >= 0xD800 && code <= 0xDBFF && s.length > 1 ? s.slice(0, 2) : s.charAt(0);
+    return c.toUpperCase();
+  }
+
+  /**
+   * Fisher-Yates, in place. The server picks the random sample, but its answer is cached at
+   * the edge for five minutes, so without this every shopper in that window would see the
+   * "random" reviews in the same order.
+   */
+  function shuffle(list, rnd) {
+    for (var i = list.length - 1; i > 0; i--) {
+      var j = Math.floor(rnd() * (i + 1));
+      var tmp = list[i];
+      list[i] = list[j];
+      list[j] = tmp;
+    }
+    return list;
+  }
+
+  /** Index i in a ring of n: one before the first is the last, one after the last the first. */
+  function wrapIndex(i, n) {
+    return n ? ((i % n) + n) % n : 0;
+  }
+
+  /**
+   * The reviews to show in the highlights box, each once and each with something to read.
+   *
+   * A server from before highlights=1 ignores it and answers with an ordinary first page.
+   * Its 4 and 5 star reviews with a real body stand in until the server is updated, the
+   * same rule the server applies, so the block is not empty in the meantime.
+   */
+  function highlightsFrom(data, limit) {
+    if (!data) return [];
+    var list = data.highlights;
+    if (!Array.isArray(list)) {
+      list = (data.reviews || []).filter(function (r) {
+        return r && r.rating >= 4 && plainText(r.body).length >= 40;
+      });
+    }
+    return freshReviews(Object.create(null), list).filter(function (r) {
+      return !!plainText(r.body || r.title);
+    }).slice(0, limit);
+  }
+
+  // ── Jumping to the reviews ──────────────────────────────────────────────────────────
+  //
+  // The review count under the product title, the highlights box's "Read more", and the
+  // review URLs in the Google Shopping feed all point at #reviewmaster-reviews. Left to
+  // the browser that jump lands under a sticky header, lands on an empty reserved box when
+  // the list has not been fetched yet, and does nothing at all when the widget is a
+  // floating or popup panel, whose content is out of the page flow.
+
+  var JUMP = 'reviewmaster-reviews';
+
+  function reducedMotion() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    } catch (e) { return false; }
+  }
+
+  /**
+   * How far below the top of the window a jump stops, so a sticky header does not cover the
+   * heading. The review block's "Space for a sticky header" arrives as --rm-scroll-offset in
+   * px; the stylesheet also uses it as scroll-margin-top, so the browser's own jump to the
+   * anchor (no script, or a link from another page) stops in the same place.
+   */
+  function scrollOffset(node) {
+    var v = NaN;
+    try { v = parseFloat(window.getComputedStyle(node).getPropertyValue('--rm-scroll-offset')); } catch (e) {}
+    return isNaN(v) ? 80 : v;
+  }
+
+  function scrollToNode(node) {
+    var top = Math.max(0, node.getBoundingClientRect().top + window.pageYOffset - scrollOffset(node));
+    try {
+      window.scrollTo({ top: top, behavior: reducedMotion() ? 'auto' : 'smooth' });
+    } catch (e) {
+      window.scrollTo(0, top);
+    }
+  }
+
+  /**
+   * Move focus without scrolling a second time. A keyboard or screen-reader user who
+   * followed a link to the reviews should continue from the reviews, not from the link they
+   * left. tabindex -1 makes the target focusable without adding it to the Tab order.
+   */
+  function focusQuietly(node, fallback) {
+    var target = node && node.getClientRects().length ? node : fallback;
+    if (!target) return;
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); }
+  }
+
   /**
    * Full-size media viewer.
    *
@@ -354,12 +554,28 @@
     this.histEl = root.querySelector('[data-rm-histogram]');
     this.filtersEl = root.querySelector('[data-rm-filters]');
     this.pagEl = root.querySelector('[data-rm-pagination]');
+    // Set once a reply shows the server ignores `offset`, and kept: that is a property of
+    // the server, not of the list on screen.
+    this.legacyPaging = false;
+    this.resetMore();
+    readLocale(root);
     this.bindForm();
   }
 
-  Widget.prototype.url = function () {
-    var p = ['shop=' + encodeURIComponent(this.shop), 'page=' + this.page];
-    if (this.perPage) p.push('limit=' + this.perPage);
+  /**
+   * The reviews query. Given a chunk from nextChunk it asks for the rows after the ones on
+   * screen, by offset or, from a server that predates offset, by page. Without one it is the
+   * same first-page query as always, parameter for parameter, so the edge cache keeps hitting.
+   */
+  Widget.prototype.url = function (chunk) {
+    var p = ['shop=' + encodeURIComponent(this.shop)];
+    if (chunk && chunk.offset !== undefined) {
+      p.push('offset=' + chunk.offset, 'limit=' + chunk.limit);
+    } else {
+      p.push('page=' + (chunk ? chunk.page : this.page));
+      var limit = chunk ? chunk.limit : this.perPage;
+      if (limit) p.push('limit=' + limit);
+    }
     if (this.sort) p.push('sort=' + encodeURIComponent(this.sort));
     if (this.productId) p.push('product_id=' + encodeURIComponent(this.productId));
     if (this.placement) p.push('placement=' + encodeURIComponent(this.placement));
@@ -371,6 +587,8 @@
   Widget.prototype.load = function () {
     var self = this;
     var url = this.url();
+    // A new list is on its way. A "See more" answer still in flight belongs to the old one.
+    this.gen++;
 
     this.showSkeletons();
 
@@ -431,6 +649,22 @@
     applyColors(this.root, data.config.colors);
     applyCustomCss(data.config.customCss);
     this.applyLayout();
+    this.configured = true;
+    // A jump that arrived before the layout was known has been waiting for this (see
+    // reveal). An overlay has just lifted everything out of the page into its panel, so
+    // open the panel; if the wait ran out and the page already scrolled, put it back
+    // where the shopper was, or closing the panel would leave them far down the page.
+    if (this.revealPending) {
+      clearTimeout(this.revealTimer);
+      if (this.setOpen) {
+        if (this.revealLanded) window.scrollTo(0, this.revealFrom);
+        this.setOpen(true);
+      } else if (!this.revealLanded) {
+        this.land();
+      }
+      this.revealPending = false;
+      this.revealLanded = false;
+    }
     this.applyText();
     this.applyBranding(data.config.branding);
     this.applyOffer(data.offer);
@@ -553,6 +787,10 @@
     list.innerHTML = '';
     list.dataset.rmSkeleton = '';
     list.removeAttribute('aria-busy');
+    // A new list, so a new record of what is on it: "See more" appends against this, and a
+    // sort, filter or star-row click lands here and so starts again from the first page.
+    this.resetMore();
+    this.total = data.total || 0;
 
     if (!data.reviews || !data.reviews.length) {
       // Only speak up when a FILTER emptied the list. With no filters the Liquid summary
@@ -571,7 +809,9 @@
     // Testimonial is a single featured quote, not a list. Showing one card is the point of
     // the layout, so the extra rows are simply not rendered rather than hidden with CSS.
     var items = this.layout === 'testimonial' ? data.reviews.slice(0, 1) : data.reviews;
-    items.forEach(function (r) { list.appendChild(self.card(r)); });
+    var fresh = freshReviews(this.seen, items);
+    fresh.forEach(function (r) { list.appendChild(self.card(r)); });
+    this.shown = fresh.length;
     list.style.minHeight = '0';
 
     if (this.histEl && data.aggregate && data.aggregate.count) this.renderHistogram(data.aggregate);
@@ -583,8 +823,13 @@
       this.buildCarousel();
     } else if (this.layout === 'testimonial') {
       if (this.pagEl) this.pagEl.hidden = true;
-    } else {
+    } else if (behaviour('paginationStyle', 'loadMore') === 'pages') {
       this.renderPagination(data.total);
+    } else {
+      // The default, and what a server from before paginationStyle gets too. Inside the
+      // floating, popup and sidebar panels this is the better fit anyway: the panel already
+      // scrolls, and numbered pages there had nothing sensible to scroll back to.
+      this.renderMore();
     }
   };
 
@@ -884,9 +1129,8 @@
       self.load();
       // Scroll the review section into view, not the document. Anchoring on the widget
       // root keeps the shopper inside the reviews rather than throwing them to the top of
-      // the product page.
-      var top = self.root.getBoundingClientRect().top + window.pageYOffset - 80;
-      window.scrollTo({ top: top, behavior: 'smooth' });
+      // the product page. Same landing point as a jump from the count under the title.
+      scrollToNode(self.root);
     }
 
     function arrow(label, page, disabled, aria) {
@@ -932,6 +1176,177 @@
 
     nav.appendChild(arrow('\u203a', this.page + 1, this.page >= pages, 'Next page of reviews'));
     p.appendChild(nav);
+  };
+
+  /**
+   * "See more reviews": the default since Settings gained a pagination style.
+   *
+   * Appends instead of replacing, so a shopper keeps every review they have read on screen
+   * and never loses their place to a page flip. Each click asks for the rows after the ones
+   * shown (nextChunk), draws only the ones not already there (freshReviews), and reports
+   * the new count. A sort, filter or star-row click reloads through load(), whose render()
+   * starts over from the first page.
+   */
+  Widget.prototype.resetMore = function () {
+    // Bumped with every new list, so an answer for the old one is recognised and dropped.
+    this.gen = (this.gen || 0) + 1;
+    // No prototype, so an id can never collide with an inherited name.
+    this.seen = Object.create(null);
+    this.shown = 0;
+    this.total = 0;
+    this.morePage = 1;
+    this.moreBusy = false;
+    this.moreDone = false;
+    this.more = null;
+  };
+
+  Widget.prototype.moreStep = function () {
+    return clampInt(behaviour('loadMoreCount', 10), 1, 50, 10);
+  };
+
+  Widget.prototype.renderMore = function () {
+    var self = this;
+    var p = this.pagEl;
+    if (!p) return;
+    p.innerHTML = '';
+
+    // Everything is already on screen: no footer, as numbered pagination hides itself when
+    // there is a single page.
+    if (this.shown >= this.total) {
+      p.hidden = true;
+      return;
+    }
+    p.hidden = false;
+
+    // A live region, so the new count is read out after a click. Focus stays on the button
+    // (aria-disabled rather than disabled while loading, because a disabled button drops
+    // keyboard focus), and the shopper hears what changed.
+    var info = el('div', 'rm-pagination__info');
+    info.setAttribute('role', 'status');
+    var btn = el('button', 'rm-btn rm-btn--ghost rm-more');
+    btn.type = 'button';
+    btn.addEventListener('click', function () { self.loadMore(); });
+    var note = el('p', 'rm-more__error');
+    note.setAttribute('role', 'alert');
+    note.hidden = true;
+    p.appendChild(info);
+    p.appendChild(btn);
+    p.appendChild(note);
+    this.more = { info: info, btn: btn, note: note };
+    this.updateMore('');
+  };
+
+  Widget.prototype.updateMore = function (state) {
+    var m = this.more;
+    if (!m) return;
+    var loading = state === 'loading';
+    m.info.textContent = t('showingOf', { shown: this.shown, total: Math.max(this.total, this.shown) });
+    m.btn.hidden = !loading && (this.moreDone || this.shown >= this.total);
+    m.btn.textContent = t(loading ? 'loadingMore' : 'seeMore');
+    if (loading) m.btn.setAttribute('aria-disabled', 'true');
+    else m.btn.removeAttribute('aria-disabled');
+    m.note.hidden = state !== 'error';
+    m.note.textContent = state === 'error' ? t('loadMoreError') : '';
+  };
+
+  Widget.prototype.loadMore = function () {
+    var self = this;
+    var list = this.listEl;
+    if (this.moreBusy || !this.more || !list) return;
+    this.moreBusy = true;
+    var gen = this.gen;
+    var hadFocus = document.activeElement === this.more.btn;
+    this.updateMore('loading');
+    list.setAttribute('aria-busy', 'true');
+
+    function ask() {
+      var chunk = nextChunk(self.shown, self.morePage, self.perPage, self.moreStep(), self.legacyPaging);
+      return getJson(self.url(chunk)).then(function (data) { return { chunk: chunk, data: data || {} }; });
+    }
+
+    ask()
+      .then(function (res) {
+        // A server from before `offset` ignores it and answers with the first page again,
+        // which the dedupe would quietly turn into "nothing more". Its reply also leaves
+        // `offset` out, which is the tell: from here on, count in pages.
+        if (res.chunk.offset !== undefined && res.data.offset === undefined) {
+          self.legacyPaging = true;
+          return ask();
+        }
+        return res;
+      })
+      .then(function (res) {
+        if (gen !== self.gen) return;
+        var rows = res.data.reviews || [];
+        var fresh = freshReviews(self.seen, rows);
+        fresh.forEach(function (r) { list.appendChild(self.card(r)); });
+        self.shown += fresh.length;
+        if (res.chunk.page) self.morePage = res.chunk.page;
+        if (typeof res.data.total === 'number') self.total = res.data.total;
+        // Fewer rows than asked for is the end, whatever the total said a moment ago.
+        if (rows.length < res.chunk.limit) self.moreDone = true;
+        self.moreBusy = false;
+        list.removeAttribute('aria-busy');
+        self.updateMore('');
+        // With everything shown the button goes; focus goes to the first review it brought
+        // in, rather than falling back to the top of the page.
+        if (hadFocus && self.more.btn.hidden && fresh.length) {
+          focusQuietly(list.children[list.children.length - fresh.length], null);
+        }
+      })
+      .catch(function () {
+        if (gen !== self.gen) return;
+        self.moreBusy = false;
+        list.removeAttribute('aria-busy');
+        self.updateMore('error');
+      });
+  };
+
+  /**
+   * Bring the reviews to a shopper who asked for them: the count under the product title,
+   * the highlights box's "Read more", or a page opened at #reviewmaster-reviews.
+   */
+  Widget.prototype.reveal = function () {
+    var self = this;
+    // The observer waits for the block to come near the viewport. A jump is the shopper
+    // saying they want the reviews now, so fetch now rather than land on placeholders.
+    if (this.loadNow) this.loadNow();
+    if (this.setOpen) {
+      this.setOpen(true);
+      return;
+    }
+    if (this.configured) {
+      this.land();
+      return;
+    }
+    // The layout arrives with the list, and it decides what a jump means: a scroll for an
+    // inline list, the panel for an overlay. Scrolling first and asking later sent the
+    // shopper to the bottom of the page on a store with a floating widget. The answer is
+    // usually an edge-cached response away, so wait for it (applyConfig finishes the job),
+    // but not for long: past 700 ms, land on the reserved space as for a list. A config
+    // that never comes (the fetch failed) must not swallow the next click, so once the
+    // wait has run out a click lands straight away.
+    if (this.revealPending) {
+      if (this.revealLanded) this.land();
+      return;
+    }
+    this.revealPending = true;
+    this.revealTimer = setTimeout(function () {
+      if (!self.revealPending) return;
+      self.revealFrom = window.pageYOffset;
+      self.revealLanded = true;
+      self.land();
+    }, 700);
+  };
+
+  /**
+   * Scroll an inline widget into view below any sticky header, and move focus to its
+   * heading. Focus first: a browser without preventScroll jumps on focus, and the scroll
+   * that follows then corrects for the header.
+   */
+  Widget.prototype.land = function () {
+    focusQuietly(this.root.querySelector('.rm-widget__heading'), this.root);
+    scrollToNode(this.root);
   };
 
   /**
@@ -1016,6 +1431,9 @@
       if (open) close.focus();
       else trigger.focus();
     }
+    // For reveal(): a link to the reviews opens the panel, since there is nothing in the
+    // page flow to scroll to.
+    self.setOpen = setOpen;
 
     trigger.addEventListener('click', function () {
       setOpen(!root.classList.contains('is-open'));
@@ -1616,6 +2034,323 @@
     note.textContent = message;
   };
 
+  // ── Review highlights ───────────────────────────────────────────────────────────────
+  //
+  // A few good reviews in a box beside Add to cart, one at a time, from the "Review
+  // highlights" block. The review list sits far down the page; this puts the proof where
+  // the buying decision is made.
+  //
+  // The rules are the review widget's: every shopper string through textContent, the
+  // "Verified" pill only for a review tied to a real order, the incentive disclosure on any
+  // review written under an offer, nothing fetched until the block nears the viewport. And
+  // one of its own: the box never changes height as it rotates. Each review's text is held
+  // to the same number of lines, so the Add to cart button below it never moves under the
+  // shopper's finger.
+
+  function Highlights(root) {
+    var d = root.dataset;
+    this.root = root;
+    this.shop = d.rmShop;
+    this.productId = d.rmProduct;
+    this.appUrl = (d.rmAppUrl || '').replace(/\/$/, '');
+    this.placement = d.rmPlacement || '';
+    this.source = /^(featured|random|latest)$/.test(d.rmSource || '') ? d.rmSource : 'featured';
+    this.limit = clampInt(d.rmLimit, 1, 12, 6);
+    this.rotate = clampInt(d.rmRotate, 0, 60, 6);
+    this.showStars = d.rmShowStars !== 'false';
+    this.showBadge = d.rmShowBadge !== 'false';
+    this.showAvatar = d.rmShowAvatar !== 'false';
+    this.slides = [];
+    this.dots = [];
+    this.index = 0;
+    this.timer = null;
+    // Rotation pauses while the pointer or focus is inside, and stops for good once the
+    // shopper takes over (an arrow, a dot, the pause button). Motion that fights a reader
+    // is worse than none.
+    this.hover = false;
+    this.focused = false;
+    this.stopped = false;
+    readLocale(root);
+  }
+
+  Highlights.prototype.url = function () {
+    var p = ['highlights=1', 'shop=' + encodeURIComponent(this.shop),
+      'source=' + this.source, 'limit=' + this.limit];
+    if (this.productId) p.push('product_id=' + encodeURIComponent(this.productId));
+    if (this.placement) p.push('placement=' + encodeURIComponent(this.placement));
+    return this.appUrl + '/api/storefront/reviews?' + p.join('&');
+  };
+
+  Highlights.prototype.load = function () {
+    var self = this;
+    getJson(this.url())
+      .then(function (data) { self.render(data); })
+      // Quietly gone, like the review widget on a failed fetch: a broken box beside Add to
+      // cart is worse than no box.
+      .catch(function () { self.hide(); });
+  };
+
+  /** No highlights: no box, and no space held for one. */
+  Highlights.prototype.hide = function () {
+    this.halt();
+    this.root.innerHTML = '';
+    this.root.hidden = true;
+  };
+
+  Highlights.prototype.render = function (data) {
+    var self = this;
+    var root = this.root;
+    var cfg = data && data.config;
+    if (cfg) {
+      // The merchant's look, applied as the review widget applies it, so the box matches
+      // on a page whose review list has not loaded yet or that has none. The config is
+      // only adopted for the text when no review widget has set one: the list's own config
+      // is for its placement, and it must keep it.
+      if (!CONFIG) CONFIG = cfg;
+      applyColors(root, cfg.colors);
+      if (cfg.layout) applyMarks(cfg.layout);
+      applyCustomCss(cfg.customCss);
+    }
+
+    var items = highlightsFrom(data, this.limit);
+    if (this.source === 'random') shuffle(items, Math.random);
+    if (!items.length) {
+      this.hide();
+      return;
+    }
+
+    // A background picked on the block comes with a text colour that reads on it, the
+    // same pairing the review cards get, so a dark box never meets the theme's dark text.
+    var bg = root.getAttribute('data-rm-hl-bg');
+    if (isHex(bg)) root.style.setProperty('--rm-hl-text', pairedText(bg));
+
+    var n = items.length;
+    root.innerHTML = '';
+    root.hidden = false;
+    root.setAttribute('role', 'region');
+    root.setAttribute('aria-label', t('highlightsLabel'));
+    if (n > 1) root.setAttribute('aria-roledescription', 'carousel');
+
+    var track = el('div', 'rm-hl__slides');
+    this.track = track;
+    this.slides = items.map(function (r, i) {
+      var s = self.slide(r, i, n);
+      track.appendChild(s);
+      return s;
+    });
+    root.appendChild(track);
+
+    var foot = el('div', 'rm-hl__foot');
+    // "Read more" goes to the full review list when the page has one (the same jump as the
+    // count under the title). Without one there is nowhere to go, so it opens the text here.
+    var more;
+    if (document.getElementById(JUMP)) {
+      more = el('a', 'rm-hl__more', t('readMore'));
+      more.href = '#' + JUMP;
+    } else {
+      more = el('button', 'rm-hl__more', t('readMore'));
+      more.type = 'button';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', function () { self.expand(!root.classList.contains('is-expanded')); });
+    }
+    this.more = more;
+    foot.appendChild(more);
+    if (n > 1) foot.appendChild(this.controls(items));
+    root.appendChild(foot);
+
+    if (n > 1) this.bind();
+    // Whether the text is cut off depends on the width, so check again when it changes.
+    window.addEventListener('resize', function () { self.measure(); });
+    this.show(0);
+    this.cycle();
+  };
+
+  Highlights.prototype.slide = function (r, i, n) {
+    var s = el('div', 'rm-hl__slide');
+    if (n > 1) {
+      s.setAttribute('role', 'group');
+      s.setAttribute('aria-roledescription', 'slide');
+      s.setAttribute('aria-label', t('slideLabel', { index: i + 1, total: n }));
+    }
+
+    var head = el('div', 'rm-hl__head');
+    if (this.showAvatar) {
+      var av = el('span', 'rm-hl__avatar', initial(r.author));
+      av.setAttribute('aria-hidden', 'true');
+      head.appendChild(av);
+    }
+    var who = el('div', 'rm-hl__who');
+    var line = el('div', 'rm-hl__line');
+    line.appendChild(el('span', 'rm-hl__name', r.author));
+
+    // The strict status only, as on the review cards. "Verified" on a review with no
+    // matching order is the misrepresentation FTC 16 CFR 465 is about.
+    if (this.showBadge && r.verificationStatus === 'verified_buyer') {
+      var pill = el('span', 'rm-hl__pill');
+      var tick = el('span', 'rm-hl__tick', '✓');
+      tick.setAttribute('aria-hidden', 'true');
+      pill.appendChild(tick);
+      pill.appendChild(document.createTextNode(t('verifiedShort')));
+      pill.title = 'This reviewer bought this product from this store';
+      line.appendChild(pill);
+    }
+    // FTC 16 CFR 465.4: the disclosure goes wherever the review goes, and this box is
+    // exactly the kind of prominent placement it was written for. No setting turns it off.
+    if (r.incentivized) {
+      var inc = el('span', 'rm-badge rm-badge--incentive', t('incentivisedBadge'));
+      inc.title = t('incentivisedTooltip');
+      line.appendChild(inc);
+    }
+    who.appendChild(line);
+    if (this.showStars) who.appendChild(stars(r.rating, 'rm-hl__stars'));
+    head.appendChild(who);
+    s.appendChild(head);
+
+    var quote = el('div', 'rm-hl__quote');
+    quote.appendChild(el('p', 'rm-hl__text', plainText(r.body || r.title)));
+    s.appendChild(quote);
+    return s;
+  };
+
+  /** ‹ dots › and, when it rotates, a pause button. */
+  Highlights.prototype.controls = function (items) {
+    var self = this;
+    var nav = el('div', 'rm-hl__nav');
+
+    function arrow(label, aria, dir) {
+      var b = el('button', 'rm-hl__btn', label);
+      b.type = 'button';
+      b.setAttribute('aria-label', aria);
+      b.addEventListener('click', function () { self.go(self.index + dir); });
+      return b;
+    }
+
+    nav.appendChild(arrow('‹', t('previousReview'), -1));
+    // The dots are a pointer convenience. Keyboard and screen-reader users have the
+    // arrows, the arrow keys and each slide's "2 of 6", so the dots stay out of the Tab
+    // order and out of the accessibility tree rather than adding six more stops.
+    var dots = el('div', 'rm-hl__dots');
+    dots.setAttribute('aria-hidden', 'true');
+    items.forEach(function (r, i) {
+      var d = el('button', 'rm-hl__dot');
+      d.type = 'button';
+      d.tabIndex = -1;
+      d.addEventListener('click', function () { self.go(i); });
+      dots.appendChild(d);
+      self.dots.push(d);
+    });
+    nav.appendChild(dots);
+    nav.appendChild(arrow('›', t('nextReview'), 1));
+
+    // WCAG 2.2.2: motion that starts by itself needs a way to stop it.
+    if (this.rotate && !reducedMotion()) {
+      var toggle = el('button', 'rm-hl__btn rm-hl__toggle');
+      toggle.type = 'button';
+      var label = function () {
+        toggle.textContent = self.stopped ? '▶' : '‖';
+        toggle.setAttribute('aria-label', t(self.stopped ? 'playRotation' : 'pauseRotation'));
+      };
+      toggle.addEventListener('click', function () {
+        self.stopped = !self.stopped;
+        // Asking for rotation with focus still on this button would otherwise do nothing
+        // until focus left the box.
+        if (!self.stopped) self.focused = false;
+        label();
+        self.cycle();
+      });
+      label();
+      this.syncToggle = label;
+      nav.appendChild(toggle);
+    }
+    return nav;
+  };
+
+  Highlights.prototype.bind = function () {
+    var self = this;
+    var root = this.root;
+    root.addEventListener('keydown', function (e) {
+      var k = e.key;
+      if (k !== 'ArrowLeft' && k !== 'ArrowRight' && k !== 'Left' && k !== 'Right') return;
+      e.preventDefault();
+      self.go(self.index + (k === 'ArrowLeft' || k === 'Left' ? -1 : 1));
+    });
+    root.addEventListener('mouseenter', function () { self.hover = true; self.cycle(); });
+    root.addEventListener('mouseleave', function () { self.hover = false; self.cycle(); });
+    root.addEventListener('focusin', function () { self.focused = true; self.cycle(); });
+    root.addEventListener('focusout', function (e) {
+      if (e.relatedTarget && root.contains(e.relatedTarget)) return;
+      self.focused = false;
+      self.cycle();
+    });
+  };
+
+  /** The shopper moved it themselves: show that review, and rotate no further. */
+  Highlights.prototype.go = function (i) {
+    this.stopped = true;
+    this.show(i);
+    this.cycle();
+    if (this.syncToggle) this.syncToggle();
+  };
+
+  Highlights.prototype.show = function (i) {
+    var n = this.slides.length;
+    if (!n) return;
+    i = wrapIndex(i, n);
+    this.index = i;
+    this.slides.forEach(function (s, k) { s.hidden = k !== i; });
+    this.dots.forEach(function (d, k) { d.classList.toggle('is-current', k === i); });
+    if (this.root.classList.contains('is-expanded')) this.expand(false);
+    this.measure();
+  };
+
+  /**
+   * "Read more" only when there is more: the text is clamped by CSS, and only the browser
+   * knows whether it overflowed. Hidden with visibility rather than removed, so the box
+   * keeps its height from one review to the next.
+   */
+  Highlights.prototype.measure = function () {
+    var s = this.slides[this.index];
+    var p = s && s.querySelector('.rm-hl__text');
+    if (!p || !this.more) return;
+    var open = this.root.classList.contains('is-expanded');
+    this.more.style.visibility = open || p.scrollHeight > p.clientHeight + 1 ? '' : 'hidden';
+  };
+
+  /** Read more in place, for a page with no review list to jump to. */
+  Highlights.prototype.expand = function (open) {
+    this.root.classList.toggle('is-expanded', open);
+    this.more.textContent = t(open ? 'showLess' : 'readMore');
+    this.more.setAttribute('aria-expanded', String(open));
+    this.cycle();
+  };
+
+  /** Start or stop the rotation to match the current state, and say so to screen readers. */
+  Highlights.prototype.cycle = function () {
+    var self = this;
+    var run = this.rotate > 0 && this.slides.length > 1 && !this.stopped && !this.hover &&
+      !this.focused && !this.root.classList.contains('is-expanded') && !reducedMotion();
+    if (run && !this.timer) {
+      this.timer = setInterval(function () {
+        // The theme editor replaces a section's markup without telling the old script.
+        if (!document.documentElement.contains(self.root)) {
+          self.halt();
+          return;
+        }
+        self.show(self.index + 1);
+      }, this.rotate * 1000);
+    } else if (!run) {
+      this.halt();
+    }
+    // Announce a new review only when a person asked for it. Read out on a timer, it would
+    // talk over whatever the shopper is doing every few seconds.
+    if (this.track) this.track.setAttribute('aria-live', this.timer ? 'off' : 'polite');
+  };
+
+  Highlights.prototype.halt = function () {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  };
+
   /**
    * The merchant's marks, applied before the review list is fetched.
    *
@@ -1652,7 +2387,46 @@
       .catch(function () {});
   }
 
+  /**
+   * Run `load` once, when `node` comes within 400 px of the viewport. Returns a function
+   * that runs it straight away instead (still only once), for a shopper who jumps to the
+   * reviews before scrolling anywhere near them.
+   */
+  function lazy(node, load) {
+    var done = false;
+    var io = null;
+    function now() {
+      if (done) return;
+      done = true;
+      if (io) io.disconnect();
+      load();
+    }
+    if ('IntersectionObserver' in window) {
+      io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) now();
+        });
+      }, { rootMargin: '400px' });
+      io.observe(node);
+    } else {
+      now();
+    }
+    return now;
+  }
+
+  /** The review widgets on the page, so a jump to #reviewmaster-reviews can find its own. */
+  var WIDGETS = [];
+
+  function widgetFor(node) {
+    for (var i = 0; i < WIDGETS.length; i++) {
+      if (WIDGETS[i].root === node) return WIDGETS[i];
+    }
+    return null;
+  }
+
   function init() {
+    // Forget widgets whose block the theme editor has since replaced.
+    WIDGETS = WIDGETS.filter(function (w) { return document.documentElement.contains(w.root); });
     var nodes = document.querySelectorAll('[data-rm-widget]');
     if (!nodes.length) return;
 
@@ -1660,6 +2434,7 @@
       if (node.dataset.rmInit) return;
       node.dataset.rmInit = '1';
       var w = new Widget(node);
+      WIDGETS.push(w);
 
       // The marks first, ahead of the observer gate below. See fetchLook.
       fetchLook(w);
@@ -1667,16 +2442,7 @@
       // Defer the fetch until the widget approaches the viewport. On a product page the
       // review list is nearly always below the fold, so loading it during initial page
       // load costs the shopper time for something they may never scroll to.
-      if ('IntersectionObserver' in window) {
-        var io = new IntersectionObserver(function (entries) {
-          entries.forEach(function (entry) {
-            if (entry.isIntersecting) { io.disconnect(); w.load(); }
-          });
-        }, { rootMargin: '400px' });
-        io.observe(node);
-      } else {
-        w.load();
-      }
+      w.loadNow = lazy(node, function () { w.load(); });
     });
   }
 
@@ -1696,21 +2462,95 @@
       if (node.dataset.rmInit) return;
       node.dataset.rmInit = '1';
       var w = new QuestionsWidget(node);
-
-      if ('IntersectionObserver' in window) {
-        var io = new IntersectionObserver(function (entries) {
-          entries.forEach(function (entry) {
-            if (entry.isIntersecting) { io.disconnect(); w.load(); }
-          });
-        }, { rootMargin: '400px' });
-        io.observe(node);
-      } else {
-        w.load();
-      }
+      lazy(node, function () { w.load(); });
     });
   }
 
-  function boot() { init(); initQuestions(); }
+  /**
+   * The highlights box, deferred like the others. It usually sits beside Add to cart, near
+   * the top, so in practice the observer fires at once; on a long description page it
+   * still waits. It asks for the merchant's marks too when it is the first block to run,
+   * since the star block under the title takes them from the page.
+   */
+  function initHighlights() {
+    var nodes = document.querySelectorAll('[data-rm-highlights]');
+    Array.prototype.forEach.call(nodes, function (node) {
+      if (node.dataset.rmInit) return;
+      node.dataset.rmInit = '1';
+      var h = new Highlights(node);
+      fetchLook(h);
+      lazy(node, function () { h.load(); });
+    });
+  }
+
+  /** Reveal the review widget the jump links point at. False when the page has none. */
+  function revealReviews() {
+    var node = document.getElementById(JUMP);
+    if (!node) return false;
+    var w = widgetFor(node);
+    if (w) w.reveal();
+    else scrollToNode(node);
+    return true;
+  }
+
+  /**
+   * Same-page links to #reviewmaster-reviews: the star block's count and "be the first",
+   * the highlights box's "Read more", and any the merchant added. Only a bare hash is
+   * handled; a link carrying a path (the star block on a collection or home page) is a
+   * different page, and navigating there is right. One listener on the document, so the
+   * Liquid-only star block needs no script of its own.
+   */
+  function onJumpClick(e) {
+    if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a || a.getAttribute('href') !== '#' + JUMP) return;
+    var node = document.getElementById(JUMP);
+    if (!node) return;
+    e.preventDefault();
+    // A star block showing another product than this page's reviews (a featured product
+    // section on a product page) goes to that product's own reviews instead.
+    var holder = a.closest('[data-rm-product]');
+    var mine = holder ? holder.getAttribute('data-rm-product') : '';
+    var theirs = node.getAttribute('data-rm-product') || '';
+    var other = a.getAttribute('data-rm-product-url');
+    if (mine && theirs && mine !== theirs && other) {
+      window.location.href = other + '#' + JUMP;
+      return;
+    }
+    revealReviews();
+  }
+
+  // Whether the shopper has started moving around the page themselves. A page opened at
+  // #reviewmaster-reviews lands again once images above have loaded and pushed the
+  // reviews down, but never once they have taken over.
+  var moved = false;
+  var urlHandled = false;
+
+  /**
+   * A page opened at #reviewmaster-reviews: from the star count on a collection page, or a
+   * review link in Google Shopping. The browser's own jump cannot fetch the list or open an
+   * overlay panel; this does both, and lands again once the page has finished loading.
+   */
+  function revealFromUrl() {
+    if (urlHandled || window.location.hash !== '#' + JUMP || !document.getElementById(JUMP)) return;
+    urlHandled = true;
+    revealReviews();
+    if (document.readyState !== 'complete') {
+      window.addEventListener('load', function () { if (!moved) revealReviews(); });
+    }
+  }
+
+  document.addEventListener('click', onJumpClick);
+  // A full-path link to this same page (the browser treats it as a hash change) or a
+  // script setting location.hash.
+  window.addEventListener('hashchange', function () {
+    if (window.location.hash === '#' + JUMP) revealReviews();
+  });
+  ['wheel', 'touchstart', 'keydown'].forEach(function (type) {
+    window.addEventListener(type, function () { moved = true; }, { passive: true, once: true });
+  });
+
+  function boot() { init(); initQuestions(); initHighlights(); revealFromUrl(); }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);

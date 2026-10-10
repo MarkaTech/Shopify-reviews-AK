@@ -13,6 +13,23 @@
 {%- liquid
   assign rating = product.metafields.reviews.rating
   assign rating_count = product.metafields.reviews.rating_count.value | default: 0
+
+  comment
+    Where the count and the "be the first" link go.
+
+    On the product's own page, a bare #reviewmaster-reviews: the review widget is on this
+    page, the selected variant stays in the URL, and the widget script (which the review
+    block loads) turns the jump into a smooth scroll that clears a sticky header, fetches
+    the list if it has not been yet, or opens a floating or popup panel.
+
+    Anywhere else (a featured product on the home page, a collection) a review widget on
+    the page is not this product's, so the link goes to the product page and lands on its
+    reviews there. A bare hash used to go nowhere at all on those pages.
+  endcomment
+  assign reviews_href = '#reviewmaster-reviews'
+  if request.page_type != 'product' and product.url != blank
+    assign reviews_href = product.url | append: '#reviewmaster-reviews'
+  endif
 -%}
 
 {%- if rating != blank and rating_count > 0 -%}
@@ -33,6 +50,33 @@
     assign empty_stars = scale_max | minus: full_stars
     if remainder >= 0.25
       assign empty_stars = empty_stars | minus: 1
+    endif
+  -%}
+
+  {%- comment -%}
+    The average to one or two decimals.
+
+    The metafield holds what src/lib/ratings.ts wrote, which is one decimal today ("4.9"),
+    so two decimals shows "4.90" until the app writes more precision. One decimal is the
+    default and is exactly the output every existing placement already had. Liquid's round
+    is half-up, so a 4.95 stored with two decimals shows 5.0 at one, not 4.9. Liquid prints
+    a whole or one-place number as "5.0" or "4.9" whatever it was rounded to, so for two
+    decimals the second digit is padded here: "4.90", never a mix of 4.9 and 4.93.
+  {%- endcomment -%}
+  {%- liquid
+    assign decimals = block.settings.value_decimals | default: '1' | plus: 0
+    if decimals != 2
+      assign decimals = 1
+    endif
+    assign shown_value = value | round: decimals | append: ''
+    if decimals == 2
+      assign value_parts = shown_value | split: '.'
+      assign value_frac = value_parts[1] | default: ''
+      if value_frac.size == 0
+        assign shown_value = value_parts[0] | append: '.00'
+      elsif value_frac.size == 1
+        assign shown_value = shown_value | append: '0'
+      endif
     endif
   -%}
 
@@ -64,20 +108,26 @@
     Settings -> Display, which the review widget publishes on the page; a block on a page
     with no widget then shows the Marka tick-star, the default. Picking a shape here wins.
   {%- endcomment -%}
+  {%- comment -%}
+    data-rm-product lets the widget script tell a star block for another product (a
+    featured product section on a product page) from this page's own, and send its link to
+    that product's reviews instead of this one's.
+  {%- endcomment -%}
   <div
     class="rm-stars rm-stars--{{ block.settings.size }}"
     style="{{ star_style }}"
+    data-rm-product="{{ product.id }}"
     {%- if block.settings.star_shape == 'tick' or block.settings.star_shape == 'classic' %} data-rm-stars="{{ block.settings.star_shape }}"{% endif %}
     {{ block.shopify_attributes }}
   >
     {%- comment -%}
       role="img" with a single aria-label, rather than ten decorative star glyphs a screen
-      reader would read out one at a time.
+      reader would read out one at a time. The same rounded number as the visible one.
     {%- endcomment -%}
     <span
       class="rm-stars__icons"
       role="img"
-      aria-label="{{ 'reviewmaster.rating_aria' | t: value: value, max: scale_max, count: rating_count }}"
+      aria-label="{{ 'reviewmaster.rating_aria' | t: value: shown_value, max: scale_max, count: rating_count }}"
     >
       {%- for i in (1..full_stars) -%}<span class="rm-star rm-star--full" aria-hidden="true">★</span>{%- endfor -%}
       {%- if remainder >= 0.25 -%}<span class="rm-star rm-star--half" aria-hidden="true">★</span>{%- endif -%}
@@ -90,15 +140,34 @@
       stars. A block saved before this setting existed has no value, so blank counts as on.
     {%- endcomment -%}
     {%- if block.settings.show_value != false -%}
-      <span class="rm-stars__value">{{ value | round: 1 }}</span>
+      <span class="rm-stars__value">{{ shown_value }}</span>
     {%- endif -%}
 
+    {%- comment -%}
+      "15 reviews" or "15 ratings": the merchant's word for it. A block saved before the
+      setting existed has no value and keeps "reviews". Pluralised by the locale file
+      (one/other), so a single review does not read "1 ratings". The "(15)" style keeps its
+      look and gets the words as its accessible name, since "(15)" read out as a link says
+      nothing about where it goes.
+    {%- endcomment -%}
     {%- if block.settings.show_count -%}
-      <a class="rm-stars__count" href="#reviewmaster-reviews">
+      {%- liquid
+        if block.settings.count_label == 'ratings'
+          assign count_words = 'reviewmaster.rating_count' | t: count: rating_count
+        else
+          assign count_words = 'reviewmaster.review_count' | t: count: rating_count
+        endif
+      -%}
+      <a
+        class="rm-stars__count"
+        href="{{ reviews_href }}"
+        data-rm-product-url="{{ product.url }}"
+        {%- if block.settings.count_style == 'parentheses' %} aria-label="{{ count_words }}"{% endif %}
+      >
         {%- if block.settings.count_style == 'parentheses' -%}
           ({{ rating_count }})
         {%- else -%}
-          {{ 'reviewmaster.review_count' | t: count: rating_count }}
+          {{ count_words }}
         {%- endif -%}
       </a>
     {%- endif -%}
@@ -109,8 +178,8 @@
     No reviews yet. Rendering a prompt keeps the vertical space stable so the page does not
     reflow once a first review lands, and gives the merchant a call to action.
   {%- endcomment -%}
-  <div class="rm-stars rm-stars--empty-state" {{ block.shopify_attributes }}>
-    <a href="#reviewmaster-reviews">{{ 'reviewmaster.be_first' | t }}</a>
+  <div class="rm-stars rm-stars--empty-state" data-rm-product="{{ product.id }}" {{ block.shopify_attributes }}>
+    <a href="{{ reviews_href }}" data-rm-product-url="{{ product.url }}">{{ 'reviewmaster.be_first' | t }}</a>
   </div>
 {%- endif -%}
 
@@ -157,10 +226,21 @@
       "info": "The number beside the stars, such as 4.8."
     },
     {
+      "type": "select",
+      "id": "value_decimals",
+      "label": "Decimals in the average",
+      "default": "1",
+      "options": [
+        { "value": "1", "label": "One (4.9)" },
+        { "value": "2", "label": "Two (4.93)" }
+      ]
+    },
+    {
       "type": "checkbox",
       "id": "show_count",
       "label": "Show review count",
-      "default": true
+      "default": true,
+      "info": "The count links to the reviews further down the page."
     },
     {
       "type": "select",
@@ -169,8 +249,19 @@
       "default": "parentheses",
       "options": [
         { "value": "parentheses", "label": "(42)" },
-        { "value": "words", "label": "42 reviews" }
+        { "value": "words", "label": "42 reviews (in words)" }
       ]
+    },
+    {
+      "type": "select",
+      "id": "count_label",
+      "label": "Count wording",
+      "default": "reviews",
+      "options": [
+        { "value": "reviews", "label": "42 reviews" },
+        { "value": "ratings", "label": "42 ratings" }
+      ],
+      "info": "Used when Count style is in words."
     },
     {
       "type": "checkbox",

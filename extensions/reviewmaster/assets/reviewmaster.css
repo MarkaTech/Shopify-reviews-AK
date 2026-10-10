@@ -30,11 +30,25 @@
 /* The average as a number beside the stars (the star block's show_value). It had no rule, so
    it took whatever size and weight the surrounding theme element had. */
 .rm-stars__value { font-size: .9em; font-weight: 600; margin-left: .35em; }
-.rm-stars__count { font-size: .85em; color: inherit; opacity: .7; text-decoration: none; }
-.rm-stars__count:hover { text-decoration: underline; }
+/* The count is a link to the reviews, and now looks like one: underlined in the text colour
+   around it, as merchants asked for ("15 ratings" under the title). It used to be muted and
+   bare until hovered, which on a touch screen meant never. */
+.rm-stars__count { font-size: .85em; color: inherit; text-decoration: underline;
+  text-decoration-thickness: 1px; text-underline-offset: .2em; }
+.rm-stars__count:hover { text-decoration-thickness: 2px; }
+.rm-stars__count:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 .rm-widget { margin: 2rem 0; font-size: .95rem; }
 .rm-widget__heading { margin: 0 0 1rem; font-size: 1.25rem; }
+/* Where a jump to #reviewmaster-reviews stops: below a sticky header rather than under it.
+   The block's "Space for a sticky header" sets the variable; the script reads the same one
+   for its smooth scroll, so the browser's own jump and the script's land in one place. */
+.rm-widget { scroll-margin-top: var(--rm-scroll-offset, 80px); }
+/* The heading takes focus after a jump so keyboard users continue from the reviews. It is
+   not a control, and the scroll has already shown where they are, so no ring for it or for
+   the widget it falls back to. (A review that takes focus after "See more" keeps the
+   browser's ring: nothing else would show a keyboard user where focus went.) */
+.rm-widget__heading[tabindex="-1"]:focus, .rm-widget[tabindex="-1"]:focus { outline: none; }
 
 .rm-summary { display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 1rem; padding: 1rem 0; border-top: 1px solid #e5e7eb;
@@ -116,6 +130,15 @@
 .rm-page--arrow { font-size: 1.1rem; line-height: 1; }
 .rm-page:focus-visible { outline: 2px solid var(--rm-accent, #1B3358); outline-offset: 2px; }
 .rm-page__gap { padding: 0 .2rem; opacity: .5; font-size: .85rem; }
+
+/* "See more reviews". Sits in the pagination footer, under "Showing 5 of 23 reviews". A ghost
+   button in the text colour, so it reads on a light or a dark theme alike, and it waits
+   (aria-disabled, not disabled, so keyboard focus stays on it) while the next reviews load. */
+.rm-more { min-width: 12rem; font-weight: 600; }
+.rm-more:hover:not([aria-disabled="true"]) { border-color: var(--rm-accent, #1B3358); }
+.rm-more:focus-visible { outline: 2px solid var(--rm-accent, #1B3358); outline-offset: 2px; }
+.rm-more[aria-disabled="true"] { opacity: .6; cursor: progress; }
+.rm-more__error { margin: 0; font-size: .8rem; }
 
 .rm-form-wrap { margin-top: 1.5rem; padding: 1.25rem; border: 1px solid #e5e7eb;
   border-radius: var(--rm-radius, 8px); }
@@ -567,6 +590,98 @@
   .rm-hist__label .rm-hist__glyph { display: none; }
 }
 
+/* ── Review highlights ──
+   The bordered box beside Add to cart (blocks/review-highlights.liquid): one review at a
+   time, with an initial avatar, the name, a "Verified" pill, stars and the start of the text.
+
+   Sized in em, not rem: it sits in the theme's product information column and should scale
+   with the theme's text there. Dawn and the themes built on it set the root to 10 px, where
+   a rem-sized box comes out at two thirds of the text beside it.
+
+   Colours: the block's own border and background when the merchant picked them, else the
+   app's card colours (chosen or derived, as on the review cards), else none: a transparent
+   box in the theme's own text colour, which reads on a light or a dark theme. A background
+   picked on the block comes with --rm-hl-text, paired to it by the script (pairedText).
+
+   The height never changes between reviews: the text area always holds the configured
+   number of lines, and "Read more" is hidden with visibility rather than removed. So the
+   Add to cart button under the box does not move while it rotates. */
+.rm-hl {
+  margin: 1em 0; padding: 1em 1.1em; font-size: .95em; line-height: 1.5;
+  border: 1px solid var(--rm-hl-border, var(--rm-border, rgba(128, 128, 128, .35)));
+  border-radius: var(--rm-radius, 8px);
+  background: var(--rm-hl-bg, var(--rm-card-bg, var(--rm-card-bg-auto, transparent)));
+  color: var(--rm-hl-text, var(--rm-card-text, var(--rm-card-text-auto, inherit)));
+  font-family: var(--rm-font, inherit);
+}
+/* Nothing to show takes no space. Above any display rule here, as for the widget. */
+.rm-hl[hidden], .rm-hl [hidden] { display: none !important; }
+
+.rm-hl__slide { animation: rm-hl-in .25s ease; }
+@keyframes rm-hl-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* 2.7em is the name line (1.5em), the gap and the stars (1em): the placeholder holds the
+   same height, so nothing moves when the review arrives. */
+.rm-hl__head { display: flex; align-items: center; gap: .75em; min-height: 2.7em; }
+/* The accent with white, as on the primary button and the Q&A marker. */
+.rm-hl__avatar {
+  flex: none; width: 2.5em; height: 2.5em; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--rm-accent, #1B3358); color: #fff; font-weight: 700; line-height: 1;
+}
+.rm-hl__avatar--skel { background: currentColor; opacity: .09; }
+/* The placeholders' own spacing would make the loading box taller than the loaded one. */
+.rm-hl__head .rm-skel { margin-bottom: 0; }
+.rm-hl__who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .2em; }
+.rm-hl__line { display: flex; flex-wrap: wrap; align-items: center; gap: .3em .5em; }
+.rm-hl__name { font-weight: 600; overflow-wrap: break-word; }
+/* The merchant's "Verified Purchase" badge colours, in the short form the box has room for. */
+.rm-hl__pill {
+  display: inline-flex; align-items: center; gap: .3em; padding: .1em .6em;
+  border-radius: 999px; font-size: .75em; font-weight: 600; line-height: 1.5; white-space: nowrap;
+  background: var(--rm-verified-bg, #1B3358); color: var(--rm-verified-text, #FDF1DE);
+}
+
+/* Exactly --rm-hl-lines lines, whatever the review: clamped when longer, held open when
+   shorter. One line-height for both, so the two always agree. */
+.rm-hl__quote { margin-top: .75em; min-height: calc(var(--rm-hl-lines, 4) * 1.5em); }
+.rm-hl__text {
+  margin: 0; line-height: 1.5; overflow: hidden; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--rm-hl-lines, 4);
+}
+.rm-hl.is-expanded .rm-hl__text { display: block; -webkit-line-clamp: none; overflow: visible; }
+
+.rm-hl__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: .5em;
+  margin-top: .75em; min-height: 2em;
+}
+.rm-hl__more {
+  padding: 0; border: 0; background: none; font: inherit; font-size: .9em; color: inherit;
+  text-decoration: underline; text-underline-offset: .2em; cursor: pointer;
+}
+.rm-hl__nav { display: flex; align-items: center; gap: .4em; margin-left: auto; }
+/* color: inherit, so the arrows read on a dark box or a dark theme; a <button> otherwise
+   takes the browser's black. */
+.rm-hl__btn {
+  width: 2em; height: 2em; padding: 0; border: 1px solid rgba(128, 128, 128, .45);
+  border-radius: 999px; background: transparent; color: inherit; font: inherit;
+  line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.rm-hl__btn:hover { border-color: currentColor; }
+/* currentColor, which is the box's text and so always shows on the box. */
+.rm-hl__more:focus-visible, .rm-hl__btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.rm-hl__dots { display: flex; align-items: center; gap: .35em; }
+/* color: inherit, or currentColor is the browser's button black and the dots vanish on a
+   dark box. */
+.rm-hl__dot {
+  width: .5em; height: .5em; padding: 0; border: 0; border-radius: 999px; font: inherit;
+  color: inherit; background: currentColor; opacity: .25; cursor: pointer;
+}
+.rm-hl__dot.is-current { opacity: .85; }
+/* A narrow column has room for the arrows or twelve dots, not both. */
+@media (max-width: 480px) { .rm-hl__dots { display: none; } }
+@media (prefers-reduced-motion: reduce) { .rm-hl__slide { animation: none; } }
+
 /* The theme's own font unless the merchant named one in Settings -> Display (a font the
    theme already loads; naming it here does not load it). */
 .rm-widget, .rm-stars, .rm-trigger, .rm-panel { font-family: var(--rm-font, inherit); }
@@ -588,7 +703,11 @@
     top: 50%; left: 50%; right: auto; bottom: auto; width: 1.6rem; height: 1.6rem;
     transform: translate(-50%, -50%);
   }
-  .rm-helpful, .rm-hist__row, .rm-page { min-height: 44px; }
+  .rm-helpful, .rm-hist__row, .rm-page, .rm-more { min-height: 44px; }
   /* Square, like the arrows beside it: a 34 px-wide target was still a miss sideways. */
   .rm-page { min-width: 44px; }
+  /* The highlights arrows, and the footer that holds them, so the box is the same height
+     before and after they arrive. */
+  .rm-hl__btn { width: 44px; height: 44px; }
+  .rm-hl__foot { min-height: 44px; }
 }
