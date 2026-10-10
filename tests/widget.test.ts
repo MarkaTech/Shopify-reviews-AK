@@ -725,7 +725,7 @@ test('the highlights block is the one the widget looks for, with the settings th
   const settings = Object.fromEntries(s.settings.filter((x: any) => x.id).map((x: any) => [x.id, x]));
   assert.deepStrictEqual(settings.source.options.map((o: any) => o.value), ['featured', 'random', 'latest']);
   assert.strictEqual(settings.source.default, 'featured');
-  assert.match(settings.source.info, /Featured = reviews you mark with the star in Marka Reviews → All reviews/);
+  assert.match(settings.source.info, /Featured = reviews you mark with Feature in Marka Reviews → All reviews/);
   assert.deepStrictEqual([settings.count.min, settings.count.max, settings.count.default], [3, 12, 6]);
   assert.deepStrictEqual([settings.rotate_seconds.min, settings.rotate_seconds.default], [0, 6]);
   assert.deepStrictEqual([settings.lines.min, settings.lines.max, settings.lines.default], [2, 8, 4]);

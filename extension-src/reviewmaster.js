@@ -63,6 +63,8 @@
     readMore: 'Read more',
     showLess: 'Show less',
     verifiedShort: 'Verified',
+    aboutProduct: 'on {product}',
+    highlightsEmpty: 'No reviews to highlight yet. Mark reviews with Feature in Marka Reviews → All reviews, or choose Random or Latest.',
     highlightsLabel: 'Customer reviews',
     previousReview: 'Previous review',
     nextReview: 'Next review',
@@ -449,7 +451,9 @@
   function scrollToNode(node) {
     var top = Math.max(0, node.getBoundingClientRect().top + window.pageYOffset - scrollOffset(node));
     try {
-      window.scrollTo({ top: top, behavior: reducedMotion() ? 'auto' : 'smooth' });
+      // 'instant', not 'auto': auto follows the page's CSS, and plenty of themes set
+      // html { scroll-behavior: smooth }, which would scroll a reduced-motion visitor anyway.
+      window.scrollTo({ top: top, behavior: reducedMotion() ? 'instant' : 'smooth' });
     } catch (e) {
       window.scrollTo(0, top);
     }
@@ -2094,6 +2098,13 @@
   Highlights.prototype.hide = function () {
     this.halt();
     this.root.innerHTML = '';
+    // In the theme editor an empty box would vanish, and a merchant adding the block to a
+    // new store would think it broken. There it says what it needs instead; on the live
+    // storefront it takes no space at all.
+    if (this.root.getAttribute('data-rm-design-mode') === 'true') {
+      this.root.appendChild(el('p', 'rm-hl__empty', t('highlightsEmpty')));
+      return;
+    }
     this.root.hidden = true;
   };
 
@@ -2107,6 +2118,8 @@
       // only adopted for the text when no review widget has set one: the list's own config
       // is for its placement, and it must keep it.
       if (!CONFIG) CONFIG = cfg;
+      // The app-wide "show verified badges" switch governs the box too, as it does the cards.
+      if (cfg.behaviour && cfg.behaviour.showVerifiedBadge === false) this.showBadge = false;
       applyColors(root, cfg.colors);
       if (cfg.layout) applyMarks(cfg.layout);
       applyCustomCss(cfg.customCss);
@@ -2117,6 +2130,12 @@
     if (!items.length) {
       this.hide();
       return;
+    }
+    // When any slide names another product, every slide keeps that line (blank where it has
+    // none), so the box does not change height as it rotates.
+    this.anyAbout = false;
+    for (var ai = 0; ai < items.length; ai++) {
+      if (typeof items[ai].productTitle === 'string' && items[ai].productTitle) this.anyAbout = true;
     }
 
     // A background picked on the block comes with a text colour that reads on it, the
@@ -2191,7 +2210,8 @@
       tick.setAttribute('aria-hidden', 'true');
       pill.appendChild(tick);
       pill.appendChild(document.createTextNode(t('verifiedShort')));
-      pill.title = 'This reviewer bought this product from this store';
+      // Product-neutral on purpose: a store-wide top-up may be about another product.
+      pill.title = 'Verified buyer: this reviewer bought from this store';
       line.appendChild(pill);
     }
     // FTC 16 CFR 465.4: the disclosure goes wherever the review goes, and this box is
@@ -2202,6 +2222,15 @@
       line.appendChild(inc);
     }
     who.appendChild(line);
+    // A review topping up the box from elsewhere in the store says so. Beside Add to cart,
+    // a quote about a different product read as a quote about this one.
+    if (typeof r.productTitle === 'string' && r.productTitle) {
+      who.appendChild(el('span', 'rm-hl__about', t('aboutProduct').replace('{product}', r.productTitle)));
+    } else if (this.anyAbout) {
+      var blank = el('span', 'rm-hl__about', '\u00a0');
+      blank.setAttribute('aria-hidden', 'true');
+      who.appendChild(blank);
+    }
     if (this.showStars) who.appendChild(stars(r.rating, 'rm-hl__stars'));
     head.appendChild(who);
     s.appendChild(head);
@@ -2506,6 +2535,11 @@
     if (!a || a.getAttribute('href') !== '#' + JUMP) return;
     var node = document.getElementById(JUMP);
     if (!node) return;
+    // Hidden (a closed accordion, an inactive tab, hidden on mobile): its box is all zeros,
+    // and scrolling to it moved the page up by the header offset onto nothing. The browser's
+    // own anchor jump is no worse, and a theme that opens its tab on hash change gets to.
+    // An overlay layout keeps its panel in the root and is opened instead, so it stays ours.
+    if (!node.getClientRects().length && !node.querySelector('.rm-panel')) return;
     e.preventDefault();
     // A star block showing another product than this page's reviews (a featured product
     // section on a product page) goes to that product's own reviews instead.

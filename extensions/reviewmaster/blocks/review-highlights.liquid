@@ -67,6 +67,7 @@
   data-rm-show-stars="{{ block.settings.show_stars }}"
   data-rm-show-badge="{{ block.settings.show_verified }}"
   data-rm-show-avatar="{{ block.settings.show_avatar }}"
+  data-rm-design-mode="{{ request.design_mode }}"
   {% if block.settings.background_color != blank %}data-rm-hl-bg="{{ block.settings.background_color | color_to_hex }}"{% endif %}
   {% comment %}
     The box's words in the shopper's language, read by the script (readLocale). escape_once,
@@ -133,7 +134,7 @@
         { "value": "random", "label": "Random" },
         { "value": "latest", "label": "Latest" }
       ],
-      "info": "Featured = reviews you mark with the star in Marka Reviews → All reviews. When there are not enough, recent 4 and 5 star reviews fill the rest. Random and Latest use 4 and 5 star reviews with some text."
+      "info": "Featured = reviews you mark with Feature in Marka Reviews → All reviews. When there are not enough, recent 4 and 5 star reviews fill the rest. Random and Latest use 4 and 5 star reviews with some text."
     },
     {
       "type": "range",

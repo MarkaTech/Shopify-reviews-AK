@@ -633,8 +633,14 @@
 /* The placeholders' own spacing would make the loading box taller than the loaded one. */
 .rm-hl__head .rm-skel { margin-bottom: 0; }
 .rm-hl__who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .2em; }
-.rm-hl__line { display: flex; flex-wrap: wrap; align-items: center; gap: .3em .5em; }
-.rm-hl__name { font-weight: 600; overflow-wrap: break-word; }
+/* One row, always: a long name (or name + Verified + Incentivised) wrapping to a second line
+   made the box grow as it rotated and pushed Add to cart down. The name gives way first. */
+.rm-hl__line { display: flex; flex-wrap: nowrap; align-items: center; gap: .3em .5em; min-width: 0; }
+.rm-hl__name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rm-hl__line > .rm-hl__pill, .rm-hl__line > .rm-badge { flex: none; }
+.rm-hl__who { min-width: 0; }
+.rm-hl__about { display: block; font-size: .8em; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-hl__empty { margin: 0; font-size: .875em; opacity: .75; }
 /* The merchant's "Verified Purchase" badge colours, in the short form the box has room for. */
 .rm-hl__pill {
   display: inline-flex; align-items: center; gap: .3em; padding: .1em .6em;
