@@ -189,6 +189,10 @@ export interface StorefrontConfig {
     slideLabel: string;
     pauseRotation: string;
     playRotation: string;
+    /** Under a highlight from another product. `{product}` is substituted. */
+    aboutProduct: string;
+    /** Shown only in the theme editor when the highlights box has nothing to show. */
+    highlightsEmpty: string;
   };
   behaviour: {
     showHistogram: boolean;
@@ -328,6 +332,8 @@ export const DEFAULT_CONFIG: StorefrontConfig = {
     slideLabel: '{index} of {total}',
     pauseRotation: 'Stop rotating reviews',
     playRotation: 'Start rotating reviews',
+    aboutProduct: 'on {product}',
+    highlightsEmpty: 'No reviews to highlight yet. Mark reviews with Feature in Marka Reviews → All reviews, or choose Random or Latest.',
   },
   behaviour: {
     showHistogram: true,
@@ -593,6 +599,8 @@ export const LOCALE_TEXT_KEYS: ReadonlySet<string> = new Set([
   'slideLabel',
   'pauseRotation',
   'playRotation',
+  'aboutProduct',
+  'highlightsEmpty',
 ]);
 
 /**

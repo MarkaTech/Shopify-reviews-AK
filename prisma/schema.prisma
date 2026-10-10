@@ -224,6 +224,11 @@ model Review {
   // which on a large store means scanning that store's entire review history to answer
   // a question about the last month.
   @@index([storeId, reviewDate])
+  // The Review highlights box asks for a store's featured, published reviews, newest first,
+  // on every product page view. No other index leads with isFeatured, so without this
+  // Postgres walked the store's whole review history to find the handful the merchant
+  // starred.
+  @@index([storeId, isFeatured, isPublished, reviewDate])
   // Scoped by source as well as store: two platforms must never collide on a key that
   // only means something within one of them.
   @@unique([storeId, source, sourceReviewKey])

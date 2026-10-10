@@ -2225,7 +2225,7 @@
     // A review topping up the box from elsewhere in the store says so. Beside Add to cart,
     // a quote about a different product read as a quote about this one.
     if (typeof r.productTitle === 'string' && r.productTitle) {
-      who.appendChild(el('span', 'rm-hl__about', t('aboutProduct').replace('{product}', r.productTitle)));
+      who.appendChild(el('span', 'rm-hl__about', t('aboutProduct', { product: r.productTitle })));
     } else if (this.anyAbout) {
       var blank = el('span', 'rm-hl__about', '\u00a0');
       blank.setAttribute('aria-hidden', 'true');

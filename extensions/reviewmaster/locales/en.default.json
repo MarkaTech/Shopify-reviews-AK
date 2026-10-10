@@ -46,6 +46,8 @@
     "next_review": "Next review",
     "slide_label": "{index} of {total}",
     "pause_rotation": "Stop rotating reviews",
-    "play_rotation": "Start rotating reviews"
+    "play_rotation": "Start rotating reviews",
+    "about_product": "on {product}",
+    "highlights_empty": "No reviews to highlight yet. Mark reviews with Feature in Marka Reviews → All reviews, or choose Random or Latest."
   }
 }

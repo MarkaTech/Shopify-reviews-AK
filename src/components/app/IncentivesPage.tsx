@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { apiFetch, ApiError, errorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { fixedAmountHelp } from '@/lib/money';
+import { fixedAmountHelp, formatMoney } from '@/lib/money';
 import {
   Panel, PanelHeader, StatCard, Tile, Pill, EmptyState, ActionButton, SectionTitle, Skeleton,
   type TileTone,
@@ -96,10 +96,11 @@ const BLANK_FORM: FormState = {
   isActive: true,
 };
 
-function rewardLabel(type: string, value: number): string {
+function rewardLabel(type: string, value: number, currency: string | null = null): string {
   if (type === 'free_shipping') return 'Free shipping';
   if (type === 'percentage') return `${value}% off`;
-  return `${value} off`;
+  // Same wording the storefront offer and the reward email use, so the preview matches.
+  return `${formatMoney(value, currency)} off`;
 }
 
 /**
@@ -311,7 +312,7 @@ export default function IncentivesPage() {
   };
 
   const showValue = form.rewardType !== 'free_shipping';
-  const previewReward = rewardLabel(form.rewardType, Number(form.rewardValue) || 0).toLowerCase();
+  const previewReward = rewardLabel(form.rewardType, Number(form.rewardValue) || 0, currency).toLowerCase();
 
   const valueMax = form.rewardType === 'percentage' ? 100 : undefined;
   const valueUnit = form.rewardType === 'percentage' ? '%' : undefined;
@@ -671,8 +672,8 @@ export default function IncentivesPage() {
                 // rewardLabel ignores the value for it, so every rung would read the same.
                 const tiers: string[] = [];
                 if (i.rewardType !== 'free_shipping') {
-                  if (i.rewardValuePhoto != null) tiers.push(`photo ${rewardLabel(i.rewardType, i.rewardValuePhoto)}`);
-                  if (i.rewardValueVideo != null) tiers.push(`video ${rewardLabel(i.rewardType, i.rewardValueVideo)}`);
+                  if (i.rewardValuePhoto != null) tiers.push(`photo ${rewardLabel(i.rewardType, i.rewardValuePhoto, currency)}`);
+                  if (i.rewardValueVideo != null) tiers.push(`video ${rewardLabel(i.rewardType, i.rewardValueVideo, currency)}`);
                 }
 
                 return (
@@ -690,7 +691,7 @@ export default function IncentivesPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="display tnum text-[15px] font-bold text-ink-900 dark:text-white">
-                          {rewardLabel(i.rewardType, i.rewardValue)}
+                          {rewardLabel(i.rewardType, i.rewardValue, currency)}
                         </span>
                         {i.isActive ? (
                           <Pill tone="brand" icon={CheckCircle2}>Active</Pill>

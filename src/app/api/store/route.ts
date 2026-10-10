@@ -77,6 +77,15 @@ export async function GET(request: Request) {
     // was wrong it is corrected behind them and right on the next load.
     if (store) {
       after(() => reconcilePlan(storeId, shop, accessToken, store.plan, onUnauthorized));
+      // A store installed before the currency was recorded has none until something asks
+      // Shopify. The first time the merchant opens the app is that moment — once: after
+      // that the column is set and this is skipped. Best effort, like the sync's own call.
+      if (!store.currency) {
+        after(async () => {
+          const { refreshStoreCurrency } = await import('@/lib/product-sync');
+          await refreshStoreCurrency(storeId, shop, accessToken, onUnauthorized);
+        });
+      }
     }
 
     return NextResponse.json({ store: { ...store, shop } });

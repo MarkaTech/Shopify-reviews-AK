@@ -18,6 +18,7 @@
 
 import crypto from 'crypto';
 import { isSuppressed } from './suppression';
+import { formatMoney } from './money';
 import { APP_STORE_URL, BRAND_ASSETS, POWERED_BY } from './brand';
 
 export type SendResult =
@@ -551,6 +552,8 @@ export interface IncentiveEmailInput {
   /** 'percentage' or fixed amount, straight from the incentive row. */
   rewardType: string;
   rewardValue: number;
+  /** The shop's currency, for a fixed-amount reward. Null gives the bare number. */
+  currency?: string | null;
   expiresAt: Date;
   /** The merchant's disclosure line. Always included — the reward and the disclosure travel together. */
   disclosureText: string;
@@ -586,7 +589,7 @@ export function renderIncentiveEmail(input: IncentiveEmailInput): EmailMessage {
       ? 'free shipping on'
       : input.rewardType === 'percentage'
       ? `${input.rewardValue}% off`
-      : `${input.rewardValue.toFixed(2)} off`;
+      : `${formatMoney(input.rewardValue, input.currency ?? null)} off`;
   const expires = input.expiresAt.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',

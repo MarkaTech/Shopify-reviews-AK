@@ -33,6 +33,7 @@
 
 import crypto from 'crypto';
 import { db } from './db';
+import { formatMoney } from './money';
 import { callShopifyGraphQL } from './shopify';
 
 const DISCOUNT_CREATE = `
@@ -381,12 +382,18 @@ export async function describeActiveIncentive(storeId: string): Promise<{
   });
   if (!incentive) return null;
 
+  // A fixed amount is in the shop's currency; "100 off" with no unit is not an offer a
+  // shopper can weigh. Without a recorded currency it stays the bare number.
+  const store =
+    incentive.rewardType !== 'percentage' && incentive.rewardType !== 'free_shipping'
+      ? await db.store.findUnique({ where: { id: storeId }, select: { currency: true } })
+      : null;
   const reward =
     incentive.rewardType === 'percentage'
       ? `${incentive.rewardValue}% off`
       : incentive.rewardType === 'free_shipping'
       ? 'free shipping'
-      : `${incentive.rewardValue} off`;
+      : `${formatMoney(incentive.rewardValue, store?.currency ?? null)} off`;
 
   return {
     offer: incentive.requiresMedia
@@ -506,7 +513,7 @@ export async function rewardPublishedReview(
     if (!grant || grant.alreadyGranted) return;
 
     const { renderIncentiveEmail, sendEmail } = await import('./email');
-    const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true } });
+    const store = await db.store.findUnique({ where: { id: storeId }, select: { name: true, currency: true } });
 
     // Same unsubscribe machinery the review-request emails carry.
     //
@@ -529,6 +536,7 @@ export async function rewardPublishedReview(
       code: grant.code,
       rewardType: grant.rewardType,
       rewardValue: grant.rewardValue,
+      currency: store?.currency ?? null,
       expiresAt: grant.expiresAt,
       disclosureText: grant.disclosureText,
     });

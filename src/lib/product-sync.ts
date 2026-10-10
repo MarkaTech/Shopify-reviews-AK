@@ -149,7 +149,7 @@ export async function syncProducts(
  * store holds afterwards (the fresh one, or the stored one when Shopify could not be
  * asked), or null when neither is known.
  */
-async function refreshStoreCurrency(
+export async function refreshStoreCurrency(
   storeId: string,
   shop: string,
   accessToken: string,

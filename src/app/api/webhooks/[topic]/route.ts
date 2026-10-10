@@ -362,13 +362,17 @@ const webhookHandlers: Record<string, WebhookHandler> = {
   },
 
   'shop-update': async (data, storeId) => {
-    const shop = data as { name?: string; domain?: string; email?: string };
+    const shop = data as { name?: string; domain?: string; email?: string; currency?: string };
+    const { normaliseCurrencyCode } = await import('@/lib/money');
     await db.store.update({
       where: { id: storeId },
       data: {
         name: shop.name || undefined,
         domain: shop.domain || undefined,
         email: shop.email || undefined,
+        // The payload names the shop's currency, so a merchant who changes it is followed
+        // without waiting for a catalogue sync. Absent or malformed: leave what we have.
+        currency: normaliseCurrencyCode(shop.currency) ?? undefined,
       },
     });
   },
