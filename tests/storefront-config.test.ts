@@ -29,6 +29,10 @@ import {
   pairedCardText,
   pairCardTextForLayout,
   getStorefrontConfig,
+  saveStorefrontConfig,
+  PAGINATION_STYLES,
+  LOCALE_TEXT_KEYS,
+  leaveDefaultsToLocale,
   type StorefrontConfig,
 } from '../src/lib/storefront-config';
 import { BRAND, contrastRatio } from '../src/lib/brand';
@@ -551,6 +555,83 @@ test('navy or cream always gives the store star at least 3:1, so the tile is nev
   assert.ok((contrastRatio(BRAND.orange, BRAND.navy) ?? 0) > (contrastRatio(BRAND.orange, BRAND.cream) ?? 0));
 });
 
+console.log('\n"See more" and the highlights box: behaviour and words');
+
+test('"See more" is the default, adding ten each time; perPage stays the first page', () => {
+  assert.strictEqual(DEFAULT_CONFIG.behaviour.paginationStyle, 'loadMore');
+  assert.strictEqual(DEFAULT_CONFIG.behaviour.loadMoreCount, 10);
+  assert.strictEqual(DEFAULT_CONFIG.behaviour.perPage, 5);
+  assert.deepStrictEqual([...PAGINATION_STYLES].sort(), ['loadMore', 'pages']);
+  assert.ok(VALID_KEYS.has('sf.behaviour.paginationStyle'));
+  assert.ok(VALID_KEYS.has('sf.behaviour.loadMoreCount'));
+});
+
+/**
+ * The English the widget's new words default to, exactly as the theme's locale file
+ * (extensions/reviewmaster/locales/en.default.json) words them, keyed as the widget asks.
+ */
+const NEW_WORDS: Record<string, [string, string]> = {
+  seeMore: ['see_more', 'See more reviews'],
+  loadingMore: ['loading_more', 'Loading…'],
+  loadMoreError: ['load_more_error', 'Could not load more reviews. Please try again.'],
+  showingOf: ['showing_of', 'Showing {shown} of {total} reviews'],
+  readMore: ['read_more', 'Read more'],
+  showLess: ['show_less', 'Show less'],
+  verifiedShort: ['verified_short', 'Verified'],
+  highlightsLabel: ['highlights_label', 'Customer reviews'],
+  previousReview: ['previous_review', 'Previous review'],
+  nextReview: ['next_review', 'Next review'],
+  slideLabel: ['slide_label', '{index} of {total}'],
+  pauseRotation: ['pause_rotation', 'Stop rotating reviews'],
+  playRotation: ['play_rotation', 'Start rotating reviews'],
+};
+
+test('every new widget word has an English default identical to the locale file', () => {
+  const locale = JSON.parse(
+    readFileSync(join(__dirname, '..', 'extensions', 'reviewmaster', 'locales', 'en.default.json'), 'utf8')
+  ).reviewmaster as Record<string, unknown>;
+  const text = DEFAULT_CONFIG.text as Record<string, string>;
+  for (const [key, [localeKey, english]] of Object.entries(NEW_WORDS)) {
+    assert.strictEqual(text[key], english, key);
+    // The locale file gains these with the extension release; where it has one, the two match.
+    if (localeKey in locale) assert.strictEqual(locale[localeKey], english, localeKey);
+    assert.ok(VALID_KEYS.has(`sf.text.${key}`), `sf.text.${key} cannot be saved`);
+  }
+  assert.deepStrictEqual([...LOCALE_TEXT_KEYS].sort(), Object.keys(NEW_WORDS).sort());
+});
+
+test('every word the widget asks t() for can be configured, or is a known exception', () => {
+  // Q&A copy predates this and is not in the text config: the widget's own English applies.
+  const NOT_CONFIGURABLE = new Set([
+    'askQuestion', 'noQuestions', 'noQuestionsPlain', 'storeAnswer', 'questionThanks',
+    'questionsHeading', 'questionInvalid', 'questionError',
+  ]);
+  const src = readFileSync(join(__dirname, '..', 'extension-src', 'reviewmaster.js'), 'utf8');
+  const asked = new Set<string>();
+  // t('key', ...) and t(cond ? 'a' : 'b'). Not preceded by a word character, so
+  // createElement('style') and the like are not mistaken for one.
+  for (const m of src.matchAll(/(?<![\w.$])t\(\s*'([A-Za-z]+)'/g)) asked.add(m[1]);
+  for (const m of src.matchAll(/(?<![\w.$])t\([^'()]*\?\s*'([A-Za-z]+)'\s*:\s*'([A-Za-z]+)'\s*\)/g)) {
+    asked.add(m[1]);
+    asked.add(m[2]);
+  }
+  assert.ok(asked.has('verifiedBadge'), 'found none of the t() calls');
+  for (const key of asked) {
+    assert.ok(key in DEFAULT_CONFIG.text || NOT_CONFIGURABLE.has(key), `the widget asks for ${key}, which has no default`);
+  }
+});
+
+test('the storefront gets the new words blank while they are the default, so the locale applies', () => {
+  const text = { ...DEFAULT_CONFIG.text, seeMore: 'Mehr Bewertungen' };
+  leaveDefaultsToLocale(text);
+  assert.strictEqual(text.seeMore, 'Mehr Bewertungen');
+  assert.strictEqual(text.readMore, '');
+  assert.strictEqual(text.slideLabel, '');
+  // The strings from before the locale handover go out as they always have.
+  assert.strictEqual(text.heading, DEFAULT_CONFIG.text.heading);
+  assert.strictEqual(text.verifiedBadge, DEFAULT_CONFIG.text.verifiedBadge);
+});
+
 /** Async tests, run in order after the synchronous ones above. */
 const asyncTests: Array<[string, () => Promise<void>]> = [];
 const testAsync = (name: string, fn: () => Promise<void>) => asyncTests.push([name, fn]);
@@ -606,8 +687,65 @@ testAsync('Minimal pairs or not by the layout the placement really renders', asy
   assert.strictEqual((await getStorefrontConfig('store', null)).colors.cardText, '#1f2937');
 });
 
+testAsync('loadMoreCount is read back within 1..50, and junk is the default', async () => {
+  for (const [saved, read] of [['7', 7], ['0', 1], ['-3', 1], ['99', 50], ['12.6', 13], ['abc', 10]] as const) {
+    stubDb({ 'sf.behaviour.loadMoreCount': saved });
+    assert.strictEqual((await getStorefrontConfig('store', null)).behaviour.loadMoreCount, read, saved);
+  }
+});
+
+testAsync('paginationStyle is read back only as one of the two styles', async () => {
+  stubDb({ 'sf.behaviour.paginationStyle': 'pages' });
+  assert.strictEqual((await getStorefrontConfig('store', null)).behaviour.paginationStyle, 'pages');
+  stubDb({ 'sf.behaviour.paginationStyle': 'infinite' });
+  assert.strictEqual((await getStorefrontConfig('store', null)).behaviour.paginationStyle, 'loadMore');
+  stubDb({});
+  assert.strictEqual((await getStorefrontConfig('store', null)).behaviour.paginationStyle, 'loadMore');
+});
+
+testAsync('saving refuses an unknown paginationStyle and keeps the valid ones', async () => {
+  const written: Record<string, string> = {};
+  Object.defineProperty(db, 'storeSetting', {
+    value: {
+      upsert: async ({ create }: { create: { key: string; value: string } }) => {
+        written[create.key] = create.value;
+      },
+    },
+    configurable: true,
+    writable: true,
+  });
+  const result = await saveStorefrontConfig('store', {
+    'sf.behaviour.paginationStyle': 'infinite',
+    'sf.behaviour.loadMoreCount': '20',
+    'sf.text.seeMore': 'Show <b>more</b>',
+  });
+  assert.deepStrictEqual(result.rejected, ['sf.behaviour.paginationStyle']);
+  assert.ok(!('sf.behaviour.paginationStyle' in written));
+  assert.strictEqual(written['sf.behaviour.loadMoreCount'], '20');
+  // The new words go through the same sanitising as every other text key.
+  assert.strictEqual(written['sf.text.seeMore'], 'Show bmore/b');
+  const ok = await saveStorefrontConfig('store', { 'sf.behaviour.paginationStyle': 'pages' });
+  assert.deepStrictEqual(ok.rejected, []);
+  assert.strictEqual(written['sf.behaviour.paginationStyle'], 'pages');
+});
+
+testAsync('the storefront read leaves untouched new words to the locale; a merchant\'s own goes out', async () => {
+  stubDb({ 'sf.text.seeMore': 'Load more reviews' });
+  const shop = await getStorefrontConfig('store', null);
+  assert.strictEqual(shop.text.seeMore, 'Load more reviews');
+  assert.strictEqual(shop.text.readMore, '');
+  assert.strictEqual(shop.text.heading, 'Customer reviews');
+});
+
+testAsync('the admin read (localeText: false) shows the English defaults to edit against', async () => {
+  stubDb({});
+  const admin = await getStorefrontConfig('store', undefined, { pairText: false, localeText: false });
+  assert.strictEqual(admin.text.readMore, 'Read more');
+  assert.strictEqual(admin.text.showingOf, 'Showing {shown} of {total} reviews');
+});
+
 void (async () => {
-  if (asyncTests.length) console.log('\ngetStorefrontConfig — who gets a paired card text');
+  if (asyncTests.length) console.log('\ngetStorefrontConfig and saveStorefrontConfig against a stand-in database');
   for (const [name, fn] of asyncTests) {
     try {
       await fn();

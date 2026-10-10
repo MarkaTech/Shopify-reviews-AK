@@ -719,6 +719,9 @@ export default function SettingsPage({
   const badgeIcon: 'tick' | 'none' = String(config?.layout.badgeIcon ?? 'tick') === 'none' ? 'none' : 'tick';
   const fontFamily = String(config?.layout.fontFamily ?? '');
   const fontInvalid = fontFamily.trim() !== '' && !FONT_FAMILY.test(fontFamily.trim());
+  // Anything but 'pages' is the button, as on the storefront: a store saved before the
+  // setting existed has no value and gets the default.
+  const paginationStyle: 'loadMore' | 'pages' = config?.behaviour.paginationStyle === 'pages' ? 'pages' : 'loadMore';
 
   const hasChanges =
     Object.keys(dirty).length > 0 ||
@@ -1164,7 +1167,11 @@ export default function SettingsPage({
                 description="How the review list behaves on your product pages"
               />
               <div className="divide-y divide-border border-t border-border">
-                <SettingRow htmlFor="perPage" title="Reviews per page">
+                <SettingRow
+                  htmlFor="perPage"
+                  title="Reviews per page"
+                  description="How many show when the page opens, and on each numbered page"
+                >
                   <Input
                     id="perPage"
                     type="number" min={1} max={50}
@@ -1173,6 +1180,37 @@ export default function SettingsPage({
                     onChange={e => setBehaviour('perPage', Number(e.target.value))}
                   />
                 </SettingRow>
+                {/* How the shopper gets past the first page, in the list, grid, masonry and
+                    overlay layouts. The carousel scrolls and the testimonial shows one quote. */}
+                <SettingRow title="More reviews" description="How shoppers reach the reviews after the first page">
+                  <Select
+                    value={paginationStyle}
+                    onValueChange={v => setBehaviour('paginationStyle', v)}
+                  >
+                    <SelectTrigger className="h-9 w-[260px] rounded-xl text-[13px]" aria-label="More reviews"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="loadMore">
+                        “See more” button (adds {num(config.behaviour.loadMoreCount, 10)} each time)
+                      </SelectItem>
+                      <SelectItem value="pages">Numbered pages</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingRow>
+                {paginationStyle === 'loadMore' && (
+                  <SettingRow
+                    htmlFor="loadMoreCount"
+                    title="Reviews added per click"
+                    description="1 to 50"
+                  >
+                    <Input
+                      id="loadMoreCount"
+                      type="number" min={1} max={50}
+                      className="h-9 w-[120px] rounded-xl text-[13px]"
+                      value={num(config.behaviour.loadMoreCount, 10)}
+                      onChange={e => setBehaviour('loadMoreCount', Number(e.target.value))}
+                    />
+                  </SettingRow>
+                )}
                 <SettingRow title="Default sort">
                   <Select
                     value={String(config.behaviour.defaultSort || 'recent')}

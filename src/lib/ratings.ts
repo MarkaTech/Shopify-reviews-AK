@@ -91,6 +91,14 @@ export const EMPTY_AGGREGATE: RatingAggregate = {
  * `ProductRating.productId` is globally unique, so a bare upsert on it would take the
  * update branch on another merchant's row if a caller ever passed a foreign id. Both keys
  * are matched, so a foreign row updates nothing.
+ *
+ * The average is kept to two decimals, so the star block can show 4.93 rather than only
+ * 4.9. Two decimals rounded again to one is not always the one-decimal rounding of the
+ * mean: a mean of 4.946 is 4.95, which one-decimal readers (the star block's default, the
+ * review list's summary, the admin) would show as 5.0 where it showed 4.9 before. So a
+ * value is capped at its own one-decimal rounding plus 0.04: 4.946 is stored as 4.94, and
+ * every one-decimal reader shows exactly what it always did. The cap only ever applies in
+ * that half-hundredth below a one-decimal boundary, and only ever lowers the value.
  */
 export async function recomputeProductRating(
   storeId: string,
@@ -110,7 +118,10 @@ export async function recomputeProductRating(
       -- pgcrypto or a particular Postgres version. Prisma's cuid() default only applies
       -- to writes Prisma builds itself, and nothing reads this id as a cuid.
       ${crypto.randomUUID()}, ${storeId}, ${productId},
-      COALESCE(ROUND(AVG(r."rating")::numeric, 1), 0)::float8,
+      COALESCE(
+        LEAST(ROUND(AVG(r."rating")::numeric, 2), ROUND(AVG(r."rating")::numeric, 1) + 0.04),
+        0
+      )::float8,
       COUNT(*)::int,
       COUNT(*) FILTER (WHERE r."rating" = 1)::int,
       COUNT(*) FILTER (WHERE r."rating" = 2)::int,
@@ -181,7 +192,7 @@ const METAFIELDS_DELETE = `
  * The `rating` metafield type is a JSON object with a declared scale — a bare number is
  * rejected:
  *
- *   {"scale_min":"1.0","scale_max":"5.0","value":"4.3"}
+ *   {"scale_min":"1.0","scale_max":"5.0","value":"4.93"}
  *
  * When a product drops to zero published reviews the metafields are DELETED rather than
  * set to zero. A zero-value rating metafield renders as an honest-looking "0.0 stars" in
@@ -232,11 +243,7 @@ export async function syncRatingMetafields(
           namespace: 'reviews',
           key: 'rating',
           type: 'rating',
-          value: JSON.stringify({
-            scale_min: '1.0',
-            scale_max: '5.0',
-            value: aggregate.average.toFixed(1),
-          }),
+          value: ratingMetafieldValue(aggregate.average),
         },
         {
           ownerId: shopifyProductGid,
@@ -254,6 +261,26 @@ export async function syncRatingMetafields(
   if (errs?.length) {
     throw new Error(`metafieldsSet: ${errs.map((e) => e.message).join('; ')}`);
   }
+}
+
+/**
+ * The `reviews.rating` metafield value for an average.
+ *
+ * Two decimals, matching what recomputeProductRating stores. The theme's star block offers
+ * "Decimals in the average: 2", and with one decimal here it could only ever show 4.90.
+ * Every reader of this metafield copes: the star block rounds to what it displays, the
+ * JSON-LD's ratingValue may carry two, and the review list's summary rounds to one from the
+ * extension release that brought the setting (the one before it printed the value as
+ * stored, so that release goes out first). A product keeps its one-decimal value until its
+ * rating is next recomputed: any review change, or the operator portal's "Recompute star
+ * ratings".
+ */
+export function ratingMetafieldValue(average: number): string {
+  return JSON.stringify({
+    scale_min: '1.0',
+    scale_max: '5.0',
+    value: average.toFixed(2),
+  });
 }
 
 /**
