@@ -312,7 +312,10 @@ export default function IncentivesPage() {
   };
 
   const showValue = form.rewardType !== 'free_shipping';
-  const previewReward = rewardLabel(form.rewardType, Number(form.rewardValue) || 0, currency).toLowerCase();
+  // Lowercased for "free shipping" only: the sentence reads "get free shipping on…". A
+  // currency symbol must stay as the storefront prints it ("CA$10.00", not "ca$10.00").
+  const rewardText = rewardLabel(form.rewardType, Number(form.rewardValue) || 0, currency);
+  const previewReward = form.rewardType === 'free_shipping' ? rewardText.toLowerCase() : rewardText;
 
   const valueMax = form.rewardType === 'percentage' ? 100 : undefined;
   const valueUnit = form.rewardType === 'percentage' ? '%' : undefined;

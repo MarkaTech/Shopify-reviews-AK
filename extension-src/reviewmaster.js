@@ -64,7 +64,7 @@
     showLess: 'Show less',
     verifiedShort: 'Verified',
     aboutProduct: 'on {product}',
-    highlightsEmpty: 'No reviews to highlight yet. Mark reviews with Feature in Marka Reviews → All reviews, or choose Random or Latest.',
+    highlightsEmpty: 'Nothing to show here yet. This box shows 4 and 5 star reviews with a few lines of text, and with Featured, reviews you mark with Feature in Marka Reviews → All reviews.',
     highlightsLabel: 'Customer reviews',
     previousReview: 'Previous review',
     nextReview: 'Next review',
@@ -630,6 +630,14 @@
         // listEl is null for the badge layout, which removes the list entirely — so this
         // has to be guarded, or the error handler throws its own error.
         if (self.listEl) self.listEl.innerHTML = '';
+        // The old list's "See more" footer goes with it. Left in place it still said
+        // "Showing 15 of 37", and a click added rows of the NEW sort to an empty list; a
+        // request in flight when the reload began left the button stuck on "Loading…".
+        self.resetMore();
+        if (self.pagEl) {
+          self.pagEl.innerHTML = '';
+          self.pagEl.hidden = true;
+        }
       });
   };
 
@@ -2160,20 +2168,21 @@
     root.appendChild(track);
 
     var foot = el('div', 'rm-hl__foot');
-    // "Read more" goes to the full review list when the page has one (the same jump as the
-    // count under the title). Without one there is nowhere to go, so it opens the text here.
-    var more;
-    if (document.getElementById(JUMP)) {
-      more = el('a', 'rm-hl__more', t('readMore'));
-      more.href = '#' + JUMP;
-    } else {
-      more = el('button', 'rm-hl__more', t('readMore'));
-      more.type = 'button';
-      more.setAttribute('aria-expanded', 'false');
-      more.addEventListener('click', function () { self.expand(!root.classList.contains('is-expanded')); });
-    }
+    // "Read more" opens the text right here. It used to jump to the review list, which need
+    // not contain the review being read: a quote "on Product B" is never in Product A's list,
+    // and an older featured review is not on the list's first page. The list keeps its own
+    // way in — the "See all reviews" link beside it — when the page has one.
+    var more = el('button', 'rm-hl__more', t('readMore'));
+    more.type = 'button';
+    more.setAttribute('aria-expanded', 'false');
+    more.addEventListener('click', function () { self.expand(!root.classList.contains('is-expanded')); });
     this.more = more;
     foot.appendChild(more);
+    if (document.getElementById(JUMP)) {
+      var all = el('a', 'rm-hl__all', t('seeAll'));
+      all.href = '#' + JUMP;
+      foot.appendChild(all);
+    }
     if (n > 1) foot.appendChild(this.controls(items));
     root.appendChild(foot);
 
@@ -2516,6 +2525,11 @@
   function revealReviews() {
     var node = document.getElementById(JUMP);
     if (!node) return false;
+    // Hidden (a closed accordion, an inactive tab, hidden at this width) and not an overlay:
+    // its box is all zeros, so any scroll lands 80 px above wherever the shopper was. The
+    // browser's own jump, or the theme's tab script, is the better answer — every route
+    // in (click, hash change, page load) comes through here, so the check lives here.
+    if (!node.getClientRects().length && !node.querySelector('.rm-panel')) return false;
     var w = widgetFor(node);
     if (w) w.reveal();
     else scrollToNode(node);
@@ -2535,22 +2549,23 @@
     if (!a || a.getAttribute('href') !== '#' + JUMP) return;
     var node = document.getElementById(JUMP);
     if (!node) return;
-    // Hidden (a closed accordion, an inactive tab, hidden on mobile): its box is all zeros,
-    // and scrolling to it moved the page up by the header offset onto nothing. The browser's
-    // own anchor jump is no worse, and a theme that opens its tab on hash change gets to.
-    // An overlay layout keeps its panel in the root and is opened instead, so it stays ours.
-    if (!node.getClientRects().length && !node.querySelector('.rm-panel')) return;
-    e.preventDefault();
     // A star block showing another product than this page's reviews (a featured product
-    // section on a product page) goes to that product's own reviews instead.
+    // section on a product page) goes to that product's own reviews instead — decided
+    // before anything else, since it is about where to go, not how to get there here.
     var holder = a.closest('[data-rm-product]');
     var mine = holder ? holder.getAttribute('data-rm-product') : '';
     var theirs = node.getAttribute('data-rm-product') || '';
     var other = a.getAttribute('data-rm-product-url');
     if (mine && theirs && mine !== theirs && other) {
+      e.preventDefault();
       window.location.href = other + '#' + JUMP;
       return;
     }
+    // Hidden (a closed accordion, an inactive tab, hidden on mobile): left to the browser's
+    // own anchor jump, and to a theme that opens its tab on hash change. An overlay layout
+    // keeps its panel in the root and is opened instead, so it stays ours.
+    if (!node.getClientRects().length && !node.querySelector('.rm-panel')) return;
+    e.preventDefault();
     revealReviews();
   }
 

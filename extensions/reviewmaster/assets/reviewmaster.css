@@ -661,10 +661,12 @@
   display: flex; align-items: center; justify-content: space-between; gap: .5em;
   margin-top: .75em; min-height: 2em;
 }
-.rm-hl__more {
+.rm-hl__more, .rm-hl__all {
   padding: 0; border: 0; background: none; font: inherit; font-size: .9em; color: inherit;
   text-decoration: underline; text-underline-offset: .2em; cursor: pointer;
 }
+/* The way to the full list, beside "Read more" (which now opens the text in place). */
+.rm-hl__all { white-space: nowrap; opacity: .85; }
 .rm-hl__nav { display: flex; align-items: center; gap: .4em; margin-left: auto; }
 /* color: inherit, so the arrows read on a dark box or a dark theme; a <button> otherwise
    takes the browser's black. */
@@ -675,7 +677,7 @@
 }
 .rm-hl__btn:hover { border-color: currentColor; }
 /* currentColor, which is the box's text and so always shows on the box. */
-.rm-hl__more:focus-visible, .rm-hl__btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.rm-hl__more:focus-visible, .rm-hl__all:focus-visible, .rm-hl__btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .rm-hl__dots { display: flex; align-items: center; gap: .35em; }
 /* color: inherit, or currentColor is the browser's button black and the dots vanish on a
    dark box. */

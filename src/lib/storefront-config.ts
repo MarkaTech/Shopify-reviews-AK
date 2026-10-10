@@ -333,7 +333,7 @@ export const DEFAULT_CONFIG: StorefrontConfig = {
     pauseRotation: 'Stop rotating reviews',
     playRotation: 'Start rotating reviews',
     aboutProduct: 'on {product}',
-    highlightsEmpty: 'No reviews to highlight yet. Mark reviews with Feature in Marka Reviews → All reviews, or choose Random or Latest.',
+    highlightsEmpty: 'Nothing to show here yet. This box shows 4 and 5 star reviews with a few lines of text, and with Featured, reviews you mark with Feature in Marka Reviews → All reviews.',
   },
   behaviour: {
     showHistogram: true,

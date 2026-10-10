@@ -585,7 +585,7 @@ const NEW_WORDS: Record<string, [string, string]> = {
   pauseRotation: ['pause_rotation', 'Stop rotating reviews'],
   playRotation: ['play_rotation', 'Start rotating reviews'],
   aboutProduct: ['about_product', 'on {product}'],
-  highlightsEmpty: ['highlights_empty', 'No reviews to highlight yet. Mark reviews with Feature in Marka Reviews → All reviews, or choose Random or Latest.'],
+  highlightsEmpty: ['highlights_empty', 'Nothing to show here yet. This box shows 4 and 5 star reviews with a few lines of text, and with Featured, reviews you mark with Feature in Marka Reviews → All reviews.'],
 };
 
 test('every new widget word has an English default identical to the locale file', () => {
