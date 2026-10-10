@@ -64,6 +64,15 @@ const SOURCE_LABELS: Record<string, string> = {
 const PAGE_SIZE = 20;
 
 /**
+ * What "Feature" does, on the button that does it. Featuring changed nothing on the
+ * storefront until the Review highlights box, which shows featured reviews first; a
+ * merchant who never added that block has no other way to learn what the button is for.
+ */
+const FEATURE_HINT = 'Feature — shown in the Review highlights box on your product pages';
+const UNFEATURE_HINT = 'Unfeature — no longer shown first in the Review highlights box';
+const FEATURED_HINT = 'Featured — shown in the Review highlights box on your product pages';
+
+/**
  * Ceiling on a single CSV export.
  *
  * The list API caps `limit` server-side, so this is a request rather than a promise — the
@@ -101,6 +110,7 @@ export default function ReviewsPage() {
   const [publishedFilter, setPublishedFilter] = useState<string>('all');
   const [verifiedFilter, setVerifiedFilter] = useState<string>('all');
   const [imagesFilter, setImagesFilter] = useState<string>('all');
+  const [featuredFilter, setFeaturedFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState('reviewDate');
   const [sortOrder, setSortOrder] = useState('desc');
   const [showFilters, setShowFilters] = useState(false);
@@ -126,10 +136,11 @@ export default function ReviewsPage() {
       params.set('verificationStatus', verifiedFilter === 'true' ? 'verified_buyer' : '!verified_buyer');
     }
     if (imagesFilter !== 'all') params.set('hasImages', imagesFilter);
+    if (featuredFilter !== 'all') params.set('isFeatured', featuredFilter);
     params.set('sortBy', sortBy);
     params.set('sortOrder', sortOrder);
     return params;
-  }, [debouncedSearch, ratingFilter, sourceFilter, sentimentFilter, publishedFilter, verifiedFilter, imagesFilter, sortBy, sortOrder]);
+  }, [debouncedSearch, ratingFilter, sourceFilter, sentimentFilter, publishedFilter, verifiedFilter, imagesFilter, featuredFilter, sortBy, sortOrder]);
 
   /**
    * Load the review list for the current filters.
@@ -398,12 +409,12 @@ export default function ReviewsPage() {
     await fetchReviews();
   };
 
-  const activeFilterCount = [ratingFilter, sourceFilter, sentimentFilter, verifiedFilter, imagesFilter].filter(f => f !== 'all').length;
+  const activeFilterCount = [ratingFilter, sourceFilter, sentimentFilter, verifiedFilter, imagesFilter, featuredFilter].filter(f => f !== 'all').length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const clearFilters = () => {
     setRatingFilter('all'); setSourceFilter('all'); setSentimentFilter('all');
-    setVerifiedFilter('all'); setImagesFilter('all');
+    setVerifiedFilter('all'); setImagesFilter('all'); setFeaturedFilter('all');
     setPage(1);
   };
 
@@ -488,7 +499,7 @@ export default function ReviewsPage() {
         </div>
 
         {showFilters && (
-          <div className="animate-rise mt-3 grid grid-cols-2 gap-2.5 border-t border-border pt-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="animate-rise mt-3 grid grid-cols-2 gap-2.5 border-t border-border pt-3 sm:grid-cols-3 lg:grid-cols-7">
             <Select value={ratingFilter} onValueChange={v => { setRatingFilter(v); setPage(1); }}>
               <SelectTrigger className="h-9 rounded-xl text-[12.5px]"><SelectValue placeholder="Rating" /></SelectTrigger>
               <SelectContent>
@@ -534,6 +545,16 @@ export default function ReviewsPage() {
                 <SelectItem value="all">Any media</SelectItem>
                 <SelectItem value="true">With photos</SelectItem>
                 <SelectItem value="false">Text only</SelectItem>
+              </SelectContent>
+            </Select>
+            {/* The reviews the Review highlights box shows first, so a merchant can see
+                what is in it and take one out. */}
+            <Select value={featuredFilter} onValueChange={v => { setFeaturedFilter(v); setPage(1); }}>
+              <SelectTrigger className="h-9 rounded-xl text-[12.5px]" aria-label="Featured"><SelectValue placeholder="Featured" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Featured or not</SelectItem>
+                <SelectItem value="true">Featured</SelectItem>
+                <SelectItem value="false">Not featured</SelectItem>
               </SelectContent>
             </Select>
             <Select value={sortOrder} onValueChange={setSortOrder}>
@@ -679,7 +700,9 @@ export default function ReviewsPage() {
                           Verified buyer
                         </span>
                       )}
-                      {review.isFeatured && <Pill tone="amber" icon={Award}>Featured</Pill>}
+                      {review.isFeatured && (
+                        <span title={FEATURED_HINT}><Pill tone="amber" icon={Award}>Featured</Pill></span>
+                      )}
                       {review.isPinned && <Pill tone="amber" icon={Pin}>Pinned</Pill>}
                       {review.isIncentivized && <Pill tone="violet" icon={Gift}>Incentivised</Pill>}
                       {!review.isPublished && <Pill tone="neutral" icon={EyeOff}>Not published</Pill>}
@@ -804,6 +827,7 @@ export default function ReviewsPage() {
                         icon={Award}
                         disabled={busy}
                         onClick={() => handleToggleFeature(review)}
+                        title={review.isFeatured ? UNFEATURE_HINT : FEATURE_HINT}
                       >
                         {review.isFeatured ? 'Unfeature' : 'Feature'}
                       </ActionButton>
@@ -907,7 +931,7 @@ export default function ReviewsPage() {
             <ActionButton size="sm" variant="outline" icon={EyeOff} onClick={() => handleBulkAction('unpublish')}>
               Unpublish
             </ActionButton>
-            <ActionButton size="sm" variant="outline" icon={Award} onClick={() => handleBulkAction('feature')}>
+            <ActionButton size="sm" variant="outline" icon={Award} onClick={() => handleBulkAction('feature')} title={FEATURE_HINT}>
               Feature
             </ActionButton>
             <DropdownMenu>

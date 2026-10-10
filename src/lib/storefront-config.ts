@@ -70,6 +70,12 @@ export const STAR_STYLES = ['tick', 'classic'] as const;
 export const BADGE_ICONS = ['tick', 'none'] as const;
 
 /**
+ * How a shopper reaches the reviews past the first page: a "See more reviews" button that
+ * adds `loadMoreCount` each time (the default), or numbered pages.
+ */
+export const PAGINATION_STYLES = ['loadMore', 'pages'] as const;
+
+/**
  * A font family the merchant's theme already loads, or empty for the theme's own font.
  *
  * Names, spaces, commas and hyphens only. The value becomes a CSS custom property on the
@@ -161,6 +167,28 @@ export interface StorefrontConfig {
     helpfulThanks: string;
     seeAll: string;
     close: string;
+    /**
+     * The words for "See more" and the Review highlights box. Unlike the strings above,
+     * the blocks also hand these to the widget from the theme's locale file, in the
+     * shopper's language; see LOCALE_TEXT_KEYS for which of the two wins.
+     */
+    seeMore: string;
+    loadingMore: string;
+    loadMoreError: string;
+    /** `{shown}` and `{total}` are substituted. */
+    showingOf: string;
+    readMore: string;
+    showLess: string;
+    /** The short pill in the highlights box; the review cards keep verifiedBadge. */
+    verifiedShort: string;
+    /** The highlights box's accessible name. */
+    highlightsLabel: string;
+    previousReview: string;
+    nextReview: string;
+    /** Each highlight's accessible name. `{index}` and `{total}` are substituted. */
+    slideLabel: string;
+    pauseRotation: string;
+    playRotation: string;
   };
   behaviour: {
     showHistogram: boolean;
@@ -184,8 +212,13 @@ export interface StorefrontConfig {
     allowAnonymous: boolean;
     /** Characters required in the review body. */
     minReviewLength: number;
+    /** The first page. With numbered pages, every page. */
     perPage: number;
     defaultSort: string;
+    /** See PAGINATION_STYLES. */
+    paginationStyle: string;
+    /** Reviews each "See more" click adds. */
+    loadMoreCount: number;
   };
   /** Merchant CSS, sanitised. Empty string means none. */
   /**
@@ -280,6 +313,21 @@ export const DEFAULT_CONFIG: StorefrontConfig = {
     helpfulThanks: 'Thanks for the feedback',
     seeAll: 'See all reviews',
     close: 'Close',
+    // Word for word what extensions/reviewmaster/locales/en.default.json says, so an
+    // English storefront reads the same whichever of the two supplies them.
+    seeMore: 'See more reviews',
+    loadingMore: 'Loading…',
+    loadMoreError: 'Could not load more reviews. Please try again.',
+    showingOf: 'Showing {shown} of {total} reviews',
+    readMore: 'Read more',
+    showLess: 'Show less',
+    verifiedShort: 'Verified',
+    highlightsLabel: 'Customer reviews',
+    previousReview: 'Previous review',
+    nextReview: 'Next review',
+    slideLabel: '{index} of {total}',
+    pauseRotation: 'Stop rotating reviews',
+    playRotation: 'Start rotating reviews',
   },
   behaviour: {
     showHistogram: true,
@@ -300,6 +348,8 @@ export const DEFAULT_CONFIG: StorefrontConfig = {
     minReviewLength: 5,
     perPage: 5,
     defaultSort: 'recent',
+    paginationStyle: 'loadMore',
+    loadMoreCount: 10,
   },
   customCss: '',
   // Overwritten from the plan in getStorefrontConfig. The default is the paid
@@ -323,6 +373,9 @@ const CSS_KEY = `${PREFIX}customCss`;
 const NUMERIC_RANGES: Record<string, [number, number]> = {
   'behaviour.perPage': [1, 50],
   'behaviour.minReviewLength': [0, 1000],
+  // The same ceiling as perPage and for the same reason: the storefront endpoint will not
+  // return more than 50 rows in one answer.
+  'behaviour.loadMoreCount': [1, 50],
   'layout.columns': [1, 6],
   'layout.borderRadius': [0, 40],
   'layout.maxReviews': [1, 50],
@@ -507,6 +560,55 @@ function validLayoutValue(field: string, value: string): boolean {
   return true;
 }
 
+/** The behaviour fields that only take one of a fixed set of values. Other fields pass. */
+function validBehaviourValue(field: string, value: string): boolean {
+  if (field === 'paginationStyle') return (PAGINATION_STYLES as readonly string[]).includes(value);
+  return true;
+}
+
+/**
+ * Text the blocks also hand the widget from the theme's locale file, in the shopper's
+ * language.
+ *
+ * The widget resolves a word from this config first, then from the locale file (handed
+ * over by the blocks as data-rm-t-* attributes), then from its own English. For these
+ * keys the storefront is sent only what a merchant actually wrote: sending the English
+ * default would put English on every translated storefront, since it would win over the
+ * translation sitting in the locale file. An empty value falls through to the locale.
+ *
+ * The strings that predate the locale handover (heading, writeReview and the rest) keep
+ * going out as they always have, defaults included, so nothing on a live storefront moves.
+ */
+export const LOCALE_TEXT_KEYS: ReadonlySet<string> = new Set([
+  'seeMore',
+  'loadingMore',
+  'loadMoreError',
+  'showingOf',
+  'readMore',
+  'showLess',
+  'verifiedShort',
+  'highlightsLabel',
+  'previousReview',
+  'nextReview',
+  'slideLabel',
+  'pauseRotation',
+  'playRotation',
+]);
+
+/**
+ * Blank every LOCALE_TEXT_KEYS value that is still the English default, so the shopper's
+ * locale applies. A value equal to the default is treated as untouched whether or not a
+ * row exists: a merchant who typed the default wanted those words, and on an English
+ * storefront the locale file says exactly the same.
+ */
+export function leaveDefaultsToLocale(text: StorefrontConfig['text']): void {
+  const t = text as Record<string, string>;
+  const d = DEFAULT_CONFIG.text as Record<string, string>;
+  for (const key of LOCALE_TEXT_KEYS) {
+    if (t[key] === d[key]) t[key] = '';
+  }
+}
+
 function emptyConfig(): StorefrontConfig {
   return {
     colors: { ...DEFAULT_CONFIG.colors },
@@ -536,11 +638,14 @@ function emptyConfig(): StorefrontConfig {
  *   "Use theme colour" link that seemed to do nothing, because the next read paired it
  *   again. Then a stale pair against a newly picked background made the contrast check
  *   offer a fix that wiped the background they had just chosen.
+ * @param options.localeText Default true: the words the theme's locale file also carries
+ *   (LOCALE_TEXT_KEYS) go out empty unless the merchant wrote their own, so the shopper's
+ *   language applies. The admin passes false, to show and edit the English defaults.
  */
 export async function getStorefrontConfig(
   storeId: string,
   placement?: string | null,
-  { pairText = true }: { pairText?: boolean } = {}
+  { pairText = true, localeText = true }: { pairText?: boolean; localeText?: boolean } = {}
 ): Promise<StorefrontConfig> {
   const rows = await db.storeSetting.findMany({
     where: { storeId, key: { startsWith: PREFIX } },
@@ -581,6 +686,7 @@ export async function getStorefrontConfig(
     } else if (group === 'text' && field in config.text) {
       (config.text as Record<string, string>)[field] = row.value;
     } else if (group === 'behaviour' && field in config.behaviour) {
+      if (!validBehaviourValue(field, row.value)) continue;
       applyValue(config.behaviour as unknown as Record<string, unknown>, group, field, row.value);
     }
   }
@@ -592,6 +698,7 @@ export async function getStorefrontConfig(
   rebrandLegacyDefaults(config.colors, colorSavedAt);
   // After applyActiveWidget, so the pairing sees the layout this placement really renders.
   if (pairText) pairCardTextForLayout(config);
+  if (localeText) leaveDefaultsToLocale(config.text);
 
   // Resolved from the plan rather than from a setting, and last, so nothing above can
   // overwrite it. The attribution is what the Free tier trades for being free — and what
@@ -755,6 +862,13 @@ export async function saveStorefrontConfig(
       const field = key.slice(`${PREFIX}layout.`.length);
       if (field === 'fontFamily') value = value.trim().replace(/\s+/g, ' ');
       if (!validLayoutValue(field, value)) {
+        rejected.push(key);
+        continue;
+      }
+    } else if (key.startsWith(`${PREFIX}behaviour.`)) {
+      // paginationStyle decides which control the widget draws. An unknown value would be
+      // read back as the default anyway; refusing it here tells the merchant it did not save.
+      if (!validBehaviourValue(key.slice(`${PREFIX}behaviour.`.length), value)) {
         rejected.push(key);
         continue;
       }

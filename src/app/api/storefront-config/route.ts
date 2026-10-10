@@ -13,8 +13,10 @@ export async function GET(request: NextRequest) {
   try {
     const { storeId } = await withAuth(request);
     // Unpaired: the merchant's own choices, so a card text left to follow the theme reads
-    // back as that and not as the colour the storefront derives for it. See pairText.
-    const config = await getStorefrontConfig(storeId, undefined, { pairText: false });
+    // back as that and not as the colour the storefront derives for it. See pairText. And
+    // with every English default filled in, including the words the storefront read leaves
+    // to the theme's locale file (localeText), so the merchant sees what they would change.
+    const config = await getStorefrontConfig(storeId, undefined, { pairText: false, localeText: false });
     // Defaults ship alongside so the UI can show a "reset to default" affordance per field
     // without hardcoding the same strings in the client.
     return NextResponse.json({ config, defaults: DEFAULT_CONFIG });
@@ -35,7 +37,7 @@ export async function PUT(request: NextRequest) {
 
     const result = await saveStorefrontConfig(storeId, body.updates);
     // Unpaired, like the read above: the Settings screen replaces its state with this.
-    const config = await getStorefrontConfig(storeId, undefined, { pairText: false });
+    const config = await getStorefrontConfig(storeId, undefined, { pairText: false, localeText: false });
 
     // Rejected keys are reported rather than silently dropped — a merchant who typed an
     // invalid colour deserves to know the save did not fully apply.
