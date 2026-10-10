@@ -31,6 +31,15 @@ model Store {
   refreshTokenExpiresAt DateTime?
 
   email           String?
+
+  // The shop's default currency, an ISO 4217 code such as "INR". Product.price is in this
+  // currency: the catalogue sync reads ProductVariant.price, which Shopify gives in the shop's
+  // default currency with no unit attached. Without it a price is a bare number, and the
+  // products page used to put a "$" in front of every one, which told a rupee store its
+  // catalogue was in dollars. Written at install and on every catalogue sync. Nullable: a
+  // store installed before this column existed has none until its next sync or reinstall.
+  currency        String?
+
   plan            String   @default("free") // free, starter, pro, enterprise
   isActive        Boolean  @default(true)
   installedAt     DateTime?
