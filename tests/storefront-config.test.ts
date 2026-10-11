@@ -712,6 +712,11 @@ testAsync("a widget designed with its own side padding wins for its placement; o
   assert.strictEqual((await getStorefrontConfig('store', null)).layout.sidePadding, 8);
   stubDb({}, [{ widgetType: 'list', placement: 'all_pages', config: JSON.stringify({ sidePadding: 999 }) }]);
   assert.strictEqual((await getStorefrontConfig('store', null)).layout.sidePadding, 64);
+  // "Not set" stored as null or an empty field is not 0 px: Settings' value stands.
+  for (const unset of [null, '', '  ']) {
+    stubDb({ 'sf.layout.sidePadding': '8' }, [{ widgetType: 'list', placement: 'all_pages', config: JSON.stringify({ sidePadding: unset }) }]);
+    assert.strictEqual((await getStorefrontConfig('store', null)).layout.sidePadding, 8, JSON.stringify(unset));
+  }
 });
 
 testAsync('paginationStyle is read back only as one of the two styles', async () => {

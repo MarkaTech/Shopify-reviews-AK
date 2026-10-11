@@ -48,6 +48,14 @@
   padding-left: var(--rm-pad-x, 16px);
   padding-right: var(--rm-pad-x, 16px);
 }
+/* Not for the compact badge, which sits under Add to cart and must line up with it (it has
+   its own border and inner padding), nor for the overlay layouts, whose root is an empty
+   hook — the panel is fixed and carries its own padding. Padding either one only shifted
+   it out of line, or took 32 px of an app-block row for nothing. */
+.rm-widget.rm-widget--badge,
+.rm-widget.rm-widget--floating,
+.rm-widget.rm-widget--popup,
+.rm-widget.rm-widget--sidebar { padding-left: 0; padding-right: 0; }
 .rm-widget__heading { margin: 0 0 1rem; font-size: 1.25rem; }
 /* Where a jump to #reviewmaster-reviews stops: below a sticky header rather than under it.
    The block's "Space for a sticky header" sets the variable; the script reads the same one

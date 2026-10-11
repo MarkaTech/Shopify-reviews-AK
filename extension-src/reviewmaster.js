@@ -243,13 +243,6 @@
   }
 
   /**
-   * Star shape, the verified badge's icon and the font, from Settings -> Display. Published
-   * on the document root like the colours, so a Liquid-only star block on the same page
-   * matches; a star block that picked its own shape in the theme editor keeps it, since the
-   * stylesheet resolves the nearest choice. Only known values are written: the font becomes
-   * a custom property, so it is held to the same pattern the server enforces.
-   */
-  /**
    * Space on either side of a review or Q&A block, from Settings → Display or the widget
    * designer. A whole number of px in 0..64, as the server clamps it; anything else leaves
    * the stylesheet's default. An inline value already on the block wins, as for colours.
@@ -261,6 +254,13 @@
     root.style.setProperty('--rm-pad-x', Math.round(v) + 'px');
   }
 
+  /**
+   * Star shape, the verified badge's icon and the font, from Settings -> Display. Published
+   * on the document root like the colours, so a Liquid-only star block on the same page
+   * matches; a star block that picked its own shape in the theme editor keeps it, since the
+   * stylesheet resolves the nearest choice. Only known values are written: the font becomes
+   * a custom property, so it is held to the same pattern the server enforces.
+   */
   function applyMarks(L) {
     var d = document.documentElement;
     if (L.starStyle === 'tick' || L.starStyle === 'classic') d.setAttribute('data-rm-stars', L.starStyle);
@@ -1811,10 +1811,16 @@
     this.shop = root.dataset.rmShop;
     this.productId = root.dataset.rmProduct;
     this.appUrl = (root.dataset.rmAppUrl || '').replace(/\/$/, '');
-    // Sent when the block carries one, as the review widget sends its own, so the widget
-    // the merchant designed for this placement reaches Q&A too. The block has no placement
-    // setting today; without one the server resolves the store's active widget.
-    this.placement = root.dataset.rmPlacement || '';
+    // The widget the merchant designed for this placement reaches Q&A too. The block has no
+    // placement setting of its own, so it follows the review block on the same page — the
+    // two then share colours and side padding — or, with none, the page it is on. With
+    // neither, the server resolves the store's active widget.
+    var reviews = document.getElementById(JUMP);
+    this.placement =
+      root.dataset.rmPlacement ||
+      (reviews && reviews.getAttribute('data-rm-placement')) ||
+      root.dataset.rmPagePlacement ||
+      '';
     this.listEl = root.querySelector('[data-rm-q-list]');
     this.bindForm();
   }
@@ -2434,7 +2440,12 @@
       })
       .then(function (look) {
         if (!look) return;
-        if (look.layout) applyMarks(look.layout);
+        if (look.layout) {
+          applyMarks(look.layout);
+          // The review and Q&A blocks only (the highlights box is a box with its own padding):
+          // set before the list arrives, so the heading does not move sideways as it does.
+          if (w.root && w.root.classList.contains('rm-widget')) applySidePadding(w.root, look.layout);
+        }
         applyColors(w.root, look.colors);
         applyCustomCss(look.customCss);
       })

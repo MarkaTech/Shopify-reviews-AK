@@ -22,8 +22,8 @@ import { DEFAULT_STAR_COLOR, type StarStyle } from '@/lib/brand';
  * colour a widget without its own colour inherits. The preview reads it so it shows what
  * the storefront will, not the Marka defaults regardless of what the merchant chose.
  */
-interface Look { starStyle: StarStyle; badgeIcon: 'tick' | 'none'; fontFamily: string; starColor: string }
-const DEFAULT_LOOK: Look = { starStyle: 'tick', badgeIcon: 'tick', fontFamily: '', starColor: DEFAULT_STAR_COLOR };
+interface Look { starStyle: StarStyle; badgeIcon: 'tick' | 'none'; fontFamily: string; starColor: string; sidePadding: number }
+const DEFAULT_LOOK: Look = { starStyle: 'tick', badgeIcon: 'tick', fontFamily: '', starColor: DEFAULT_STAR_COLOR, sidePadding: 16 };
 const LookContext = React.createContext<Look>(DEFAULT_LOOK);
 
 /** The storefront font from Settings, or the admin's own when the widget follows the theme. */
@@ -76,8 +76,12 @@ interface WidgetConfigShape {
   maxReviews: number;
   columns: number;
   borderRadius: number;
-  /** Px on the left and right of the block on the storefront. */
-  sidePadding: number;
+  /**
+   * Px on the left and right of the block on the storefront. Null follows Settings →
+   * Display, and is not saved at all — saving a number the merchant never chose here made
+   * this widget silently override the store-wide setting.
+   */
+  sidePadding: number | null;
   popupDelay: number;
   autoPlay: boolean;
   showPhotos: boolean;
@@ -95,7 +99,7 @@ const DEFAULT_WIDGET_CONFIG: WidgetConfigShape = {
   maxReviews: 10,
   columns: 3,
   borderRadius: 8,
-  sidePadding: 16,
+  sidePadding: null,
   popupDelay: 5,
   autoPlay: false,
   showPhotos: true,
@@ -378,6 +382,7 @@ function PreviewStage({
   device: 'desktop' | 'mobile';
   placement: string;
 }) {
+  const look = React.useContext(LookContext);
   return (
     <>
       {/* A stage rather than a plain box: chrome + grid backdrop reads as "your store". */}
@@ -404,7 +409,13 @@ function PreviewStage({
         <PreviewFont>
           <div className={cn('relative py-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
             {/* The storefront's side padding, drawn here so the number has a visible effect. */}
-            <div style={{ paddingLeft: cfg.sidePadding, paddingRight: cfg.sidePadding }}>
+            <div
+              style={
+                IS_OVERLAY.has(selectedType) || selectedType === 'badge'
+                  ? undefined
+                  : { paddingLeft: cfg.sidePadding ?? look.sidePadding, paddingRight: cfg.sidePadding ?? look.sidePadding }
+              }
+            >
               <Preview type={selectedType} cfg={cfg} device={device} />
             </div>
           </div>
@@ -446,6 +457,7 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
           badgeIcon: L.badgeIcon === 'none' ? 'none' : 'tick',
           fontFamily: typeof L.fontFamily === 'string' ? L.fontFamily : '',
           starColor: config.colors?.star || DEFAULT_STAR_COLOR,
+          sidePadding: typeof L.sidePadding === 'number' ? L.sidePadding : 16,
         });
       })
       .catch(() => {});
@@ -459,6 +471,8 @@ export default function WidgetsPage({ storeDomain }: { storeDomain?: string } = 
 
 function WidgetsPageInner({ storeDomain }: { storeDomain?: string }) {
   const confirm = useConfirm();
+  // Settings → Display's values, for what a field left blank here falls back to.
+  const look = React.useContext(LookContext);
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -568,7 +582,10 @@ function WidgetsPageInner({ storeDomain }: { storeDomain?: string }) {
       maxReviews: Number(parsed.maxReviews) || DEFAULT_WIDGET_CONFIG.maxReviews,
       columns: Number(parsed.columns) || DEFAULT_WIDGET_CONFIG.columns,
       borderRadius: Number(parsed.borderRadius ?? DEFAULT_WIDGET_CONFIG.borderRadius),
-      sidePadding: Number(parsed.sidePadding ?? DEFAULT_WIDGET_CONFIG.sidePadding),
+      sidePadding:
+        parsed.sidePadding === null || parsed.sidePadding === undefined || String(parsed.sidePadding).trim() === ''
+          ? null
+          : Math.min(64, Math.max(0, Number(parsed.sidePadding) || 0)),
       popupDelay: Number(parsed.popupDelay ?? DEFAULT_WIDGET_CONFIG.popupDelay),
       // Colours equal to the designer's old saved defaults were never chosen: show them as
       // unset, so saving again stops them overriding Settings → Display.
@@ -585,7 +602,10 @@ function WidgetsPageInner({ storeDomain }: { storeDomain?: string }) {
     }
     setSaving(true);
     try {
-      const payload = { name: name.trim(), widgetType: selectedType, placement, config: cfg, isActive: true };
+      // An unset side padding is left out, so the widget keeps following Settings → Display.
+      const { sidePadding, ...rest } = cfg;
+      const config = sidePadding === null ? rest : cfg;
+      const payload = { name: name.trim(), widgetType: selectedType, placement, config, isActive: true };
       if (editingId) {
         await apiFetch('/api/widgets', { method: 'PUT', body: JSON.stringify({ id: editingId, ...payload }) });
         toast.success('Widget updated. Your storefront picks this up within about five minutes.');
@@ -777,22 +797,32 @@ function WidgetsPageInner({ storeDomain }: { storeDomain?: string }) {
                   />
                 </div>
               </div>
-              <div>
-                <FieldLabel>Side padding</FieldLabel>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <Input
-                    type="number" min={0} max={64}
-                    aria-label="Side padding in pixels"
-                    className="tnum h-9 flex-1 rounded-xl text-[13px]"
-                    value={cfg.sidePadding}
-                    onChange={e => set('sidePadding', Math.min(64, Math.max(0, Number(e.target.value) || 0)))}
-                  />
-                  <span className="shrink-0 text-[12px] text-ink-400">px each side</span>
+              {/* Not for the badge (it lines up with Add to cart) or the overlays (their panel
+                  has its own padding): the storefront ignores it there. */}
+              {!IS_OVERLAY.has(selectedType) && selectedType !== 'badge' && (
+                <div>
+                  <FieldLabel>Side padding</FieldLabel>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <Input
+                      type="number" min={0} max={64}
+                      aria-label="Side padding in pixels"
+                      placeholder={`${look.sidePadding} (Settings)`}
+                      className="tnum h-9 flex-1 rounded-xl text-[13px]"
+                      value={cfg.sidePadding ?? ''}
+                      onChange={e =>
+                        set(
+                          'sidePadding',
+                          e.target.value.trim() === '' ? null : Math.min(64, Math.max(0, Number(e.target.value) || 0))
+                        )
+                      }
+                    />
+                    <span className="shrink-0 text-[12px] text-ink-400">px each side</span>
+                  </div>
+                  <p className="mt-1 text-[11.5px] leading-snug text-ink-400">
+                    Space to the left and right of the reviews. Use 0 if your theme already adds margins. Leave blank to use Settings → Display.
+                  </p>
                 </div>
-                <p className="mt-1 text-[11.5px] leading-snug text-ink-400">
-                  Space to the left and right of the reviews. Use 0 if your theme already adds margins.
-                </p>
-              </div>
+              )}
               {selectedType === 'popup' && (
                 <div>
                   <FieldLabel>Open after (seconds)</FieldLabel>

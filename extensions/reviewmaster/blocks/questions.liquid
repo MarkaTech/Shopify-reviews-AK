@@ -50,10 +50,21 @@
   assign style = style | append: '--rm-min-height:' | append: block.settings.reserved_height | append: 'px;'
 -%}
 
+{%- comment -%}
+  The page this block is on, as a placement, for when there is no review block to follow
+  (see QuestionsWidget in the script). Same mapping as the Review highlights block.
+{%- endcomment -%}
+{%- case request.page_type -%}
+  {%- when 'product' -%}{%- assign rm_page_placement = 'product_page' -%}
+  {%- when 'collection' -%}{%- assign rm_page_placement = 'collection_page' -%}
+  {%- when 'index' -%}{%- assign rm_page_placement = 'home_page' -%}
+  {%- else -%}{%- assign rm_page_placement = '' -%}
+{%- endcase -%}
 <div
   id="reviewmaster-questions"
   class="rm-widget rm-questions"
   data-rm-questions
+  data-rm-page-placement="{{ rm_page_placement }}"
   data-rm-shop="{{ shop.permanent_domain }}"
   data-rm-product="{{ product.id }}"
   data-rm-app-url="{{ block.settings.app_url | default: 'https://reviewmaster-app.azurewebsites.net' | escape }}"

@@ -765,6 +765,9 @@ async function applyActiveWidget(
   }
 
   const num = (v: unknown): number | null => {
+    // Number(null) and Number('') are 0. A designer that stores "not set" as null or an
+    // empty field must not turn into 0 px of padding or square corners.
+    if (v === null || v === undefined || (typeof v === 'string' && v.trim() === '')) return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   };
