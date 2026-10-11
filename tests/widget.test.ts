@@ -785,6 +785,37 @@ void (async () => {
       console.error(`        ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  console.log(`\n${passed} passed, ${failed} failed\n`);
+  test('side padding: both sides by default, set from the config, an inline value wins', () => {
+  // The stylesheet pads every review and Q&A block, so a theme section with no page margin
+  // no longer puts the reviews against the screen edge.
+  const rule = CSS.replace(/\/\*[\s\S]*?\*\//g, '').match(/\.rm-widget\s*\{([^}]*padding-left[^}]*)\}/);
+  assert.ok(rule, 'no .rm-widget padding rule');
+  assert.match(rule![1], /padding-left:\s*var\(--rm-pad-x,\s*16px\)/);
+  assert.match(rule![1], /padding-right:\s*var\(--rm-pad-x,\s*16px\)/);
+  assert.match(rule![1], /box-sizing:\s*border-box/);
+
+  const { applySidePadding } = widget({ fns: ['applySidePadding'] });
+  const style = () => {
+    const props: Record<string, string> = {};
+    return { props, getPropertyValue: (k: string) => props[k] || '', setProperty: (k: string, v: string) => { props[k] = v; } };
+  };
+  const root = { style: style() };
+  applySidePadding(root, { sidePadding: 24 });
+  assert.strictEqual(root.style.props['--rm-pad-x'], '24px');
+  const zero = { style: style() };
+  applySidePadding(zero, { sidePadding: 0 });
+  assert.strictEqual(zero.style.props['--rm-pad-x'], '0px');
+  for (const bad of [undefined, -1, 65, '20', NaN]) {
+    const r = { style: style() };
+    applySidePadding(r, { sidePadding: bad });
+    assert.strictEqual(r.style.props['--rm-pad-x'], undefined, String(bad));
+  }
+  const inline = { style: style() };
+  inline.style.props['--rm-pad-x'] = '4px';
+  applySidePadding(inline, { sidePadding: 30 });
+  assert.strictEqual(inline.style.props['--rm-pad-x'], '4px');
+});
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);
 })();

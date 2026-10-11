@@ -249,6 +249,18 @@
    * stylesheet resolves the nearest choice. Only known values are written: the font becomes
    * a custom property, so it is held to the same pattern the server enforces.
    */
+  /**
+   * Space on either side of a review or Q&A block, from Settings → Display or the widget
+   * designer. A whole number of px in 0..64, as the server clamps it; anything else leaves
+   * the stylesheet's default. An inline value already on the block wins, as for colours.
+   */
+  function applySidePadding(root, L) {
+    var v = L && L.sidePadding;
+    if (typeof v !== 'number' || !(v >= 0 && v <= 64)) return;
+    if (root.style.getPropertyValue('--rm-pad-x')) return;
+    root.style.setProperty('--rm-pad-x', Math.round(v) + 'px');
+  }
+
   function applyMarks(L) {
     var d = document.documentElement;
     if (L.starStyle === 'tick' || L.starStyle === 'classic') d.setAttribute('data-rm-stars', L.starStyle);
@@ -1385,6 +1397,7 @@
     if (L.borderRadius !== undefined && !root.style.getPropertyValue('--rm-radius')) {
       root.style.setProperty('--rm-radius', L.borderRadius + 'px');
     }
+    applySidePadding(root, L);
 
     // The summary IS the widget for a badge. Everything that would sit below it is removed
     // rather than hidden, so a merchant who put a compact badge under their Add to Cart
@@ -1880,7 +1893,10 @@
     // review list beside it, rendered in the theme font with none of the merchant's CSS.
     // Both are idempotent, so a page that also carries the review widget applies them once.
     // An older server sends neither key, and nothing happens then.
-    if (data && data.layout) applyMarks(data.layout);
+    if (data && data.layout) {
+      applyMarks(data.layout);
+      applySidePadding(this.root, data.layout);
+    }
     applyCustomCss(data && data.customCss);
 
     // Entitlement first, so nothing rendered below can invite what the server refuses.

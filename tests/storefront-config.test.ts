@@ -696,6 +696,24 @@ testAsync('loadMoreCount is read back within 1..50, and junk is the default', as
   }
 });
 
+testAsync('side padding defaults to 16, is read back within 0..64, and junk is the default', async () => {
+  assert.strictEqual(DEFAULT_CONFIG.layout.sidePadding, 16);
+  assert.ok(VALID_KEYS.has('sf.layout.sidePadding'), 'sf.layout.sidePadding cannot be saved');
+  for (const [saved, read] of [['0', 0], ['24', 24], ['-5', 0], ['200', 64], ['abc', 16]] as const) {
+    stubDb({ 'sf.layout.sidePadding': saved });
+    assert.strictEqual((await getStorefrontConfig('store', null)).layout.sidePadding, read, saved);
+  }
+});
+
+testAsync("a widget designed with its own side padding wins for its placement; one without keeps Settings'", async () => {
+  stubDb({ 'sf.layout.sidePadding': '8' }, [{ widgetType: 'list', placement: 'all_pages', config: JSON.stringify({ sidePadding: 32 }) }]);
+  assert.strictEqual((await getStorefrontConfig('store', null)).layout.sidePadding, 32);
+  stubDb({ 'sf.layout.sidePadding': '8' }, [{ widgetType: 'list', placement: 'all_pages', config: JSON.stringify({ borderRadius: 4 }) }]);
+  assert.strictEqual((await getStorefrontConfig('store', null)).layout.sidePadding, 8);
+  stubDb({}, [{ widgetType: 'list', placement: 'all_pages', config: JSON.stringify({ sidePadding: 999 }) }]);
+  assert.strictEqual((await getStorefrontConfig('store', null)).layout.sidePadding, 64);
+});
+
 testAsync('paginationStyle is read back only as one of the two styles', async () => {
   stubDb({ 'sf.behaviour.paginationStyle': 'pages' });
   assert.strictEqual((await getStorefrontConfig('store', null)).behaviour.paginationStyle, 'pages');

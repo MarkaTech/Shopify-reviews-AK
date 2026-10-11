@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
         starStyle: config.layout.starStyle,
         badgeIcon: config.layout.badgeIcon,
         fontFamily: config.layout.fontFamily,
+        sidePadding: config.layout.sidePadding,
       },
       customCss: config.customCss,
     };

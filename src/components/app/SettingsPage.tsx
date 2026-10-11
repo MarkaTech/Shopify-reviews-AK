@@ -1408,6 +1408,19 @@ export default function SettingsPage({
                     onChange={e => setLayout('borderRadius', Number(e.target.value))}
                   />
                 </SettingRow>
+                <SettingRow
+                  htmlFor="sidePadding"
+                  title="Side padding"
+                  description="Space to the left and right of the reviews and Q&A, in pixels. Use 0 if your theme already adds margins. A widget designed on the Widgets page can set its own."
+                >
+                  <Input
+                    id="sidePadding"
+                    type="number" min={0} max={64}
+                    className="h-9 w-[120px] rounded-xl text-[13px]"
+                    value={num(config.layout.sidePadding, 16)}
+                    onChange={e => setLayout('sidePadding', Math.min(64, Math.max(0, Number(e.target.value) || 0)))}
+                  />
+                </SettingRow>
               </div>
             </Panel>
 

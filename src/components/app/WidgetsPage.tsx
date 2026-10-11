@@ -76,6 +76,8 @@ interface WidgetConfigShape {
   maxReviews: number;
   columns: number;
   borderRadius: number;
+  /** Px on the left and right of the block on the storefront. */
+  sidePadding: number;
   popupDelay: number;
   autoPlay: boolean;
   showPhotos: boolean;
@@ -93,6 +95,7 @@ const DEFAULT_WIDGET_CONFIG: WidgetConfigShape = {
   maxReviews: 10,
   columns: 3,
   borderRadius: 8,
+  sidePadding: 16,
   popupDelay: 5,
   autoPlay: false,
   showPhotos: true,
@@ -399,8 +402,11 @@ function PreviewStage({
         </div>
 
         <PreviewFont>
-          <div className={cn('relative p-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
-            <Preview type={selectedType} cfg={cfg} device={device} />
+          <div className={cn('relative py-4', device === 'mobile' && 'mx-auto max-w-[375px]')}>
+            {/* The storefront's side padding, drawn here so the number has a visible effect. */}
+            <div style={{ paddingLeft: cfg.sidePadding, paddingRight: cfg.sidePadding }}>
+              <Preview type={selectedType} cfg={cfg} device={device} />
+            </div>
           </div>
         </PreviewFont>
       </div>
@@ -562,6 +568,7 @@ function WidgetsPageInner({ storeDomain }: { storeDomain?: string }) {
       maxReviews: Number(parsed.maxReviews) || DEFAULT_WIDGET_CONFIG.maxReviews,
       columns: Number(parsed.columns) || DEFAULT_WIDGET_CONFIG.columns,
       borderRadius: Number(parsed.borderRadius ?? DEFAULT_WIDGET_CONFIG.borderRadius),
+      sidePadding: Number(parsed.sidePadding ?? DEFAULT_WIDGET_CONFIG.sidePadding),
       popupDelay: Number(parsed.popupDelay ?? DEFAULT_WIDGET_CONFIG.popupDelay),
       // Colours equal to the designer's old saved defaults were never chosen: show them as
       // unset, so saving again stops them overriding Settings → Display.
@@ -769,6 +776,22 @@ function WidgetsPageInner({ storeDomain }: { storeDomain?: string }) {
                     style={{ borderRadius: Math.min(cfg.borderRadius, 18) }}
                   />
                 </div>
+              </div>
+              <div>
+                <FieldLabel>Side padding</FieldLabel>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input
+                    type="number" min={0} max={64}
+                    aria-label="Side padding in pixels"
+                    className="tnum h-9 flex-1 rounded-xl text-[13px]"
+                    value={cfg.sidePadding}
+                    onChange={e => set('sidePadding', Math.min(64, Math.max(0, Number(e.target.value) || 0)))}
+                  />
+                  <span className="shrink-0 text-[12px] text-ink-400">px each side</span>
+                </div>
+                <p className="mt-1 text-[11.5px] leading-snug text-ink-400">
+                  Space to the left and right of the reviews. Use 0 if your theme already adds margins.
+                </p>
               </div>
               {selectedType === 'popup' && (
                 <div>

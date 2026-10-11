@@ -129,6 +129,12 @@ export interface StorefrontConfig {
     badgeIcon: string;
     /** Empty for the theme's font, or a family the theme loads. See FONT_FAMILY. */
     fontFamily: string;
+    /**
+     * Space on the left and right of the review and Q&A blocks, in px. A theme section with
+     * no page margin put the reviews flush against the screen edge on a phone; 0 lines them
+     * up with the section again for a theme that already pads it.
+     */
+    sidePadding: number;
   };
   text: {
     heading: string;
@@ -281,6 +287,7 @@ export const DEFAULT_CONFIG: StorefrontConfig = {
     starStyle: 'tick',
     badgeIcon: 'tick',
     fontFamily: '',
+    sidePadding: 16,
   },
   text: {
     heading: 'Customer reviews',
@@ -386,6 +393,7 @@ const NUMERIC_RANGES: Record<string, [number, number]> = {
   'layout.borderRadius': [0, 40],
   'layout.maxReviews': [1, 50],
   'layout.popupDelay': [0, 120],
+  'layout.sidePadding': [0, 64],
 };
 
 function clampNumber(group: string, field: string, n: number, fallback: number): number {
@@ -768,6 +776,11 @@ async function applyActiveWidget(
 
   const radius = num(raw.borderRadius);
   if (radius !== null) config.layout.borderRadius = clampNumber('layout', 'borderRadius', radius, 8);
+
+  // Set in the widget designer for this placement; a widget saved before the field existed
+  // has none, and keeps Settings → Display's value.
+  const sidePadding = num(raw.sidePadding);
+  if (sidePadding !== null) config.layout.sidePadding = clampNumber('layout', 'sidePadding', sidePadding, 16);
 
   const maxReviews = num(raw.maxReviews);
   if (maxReviews !== null) {

@@ -39,6 +39,15 @@
 .rm-stars__count:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 .rm-widget { margin: 2rem 0; font-size: .95rem; }
+/* Space on both sides, so the reviews never sit flush against a phone's edge in a theme
+   section with no page margin. Merchants set it in Settings → Display or the widget
+   designer (--rm-pad-x); 0 lines the block up with a section that already pads itself.
+   border-box, so the padding comes out of the block's width instead of overflowing it. */
+.rm-widget {
+  box-sizing: border-box;
+  padding-left: var(--rm-pad-x, 16px);
+  padding-right: var(--rm-pad-x, 16px);
+}
 .rm-widget__heading { margin: 0 0 1rem; font-size: 1.25rem; }
 /* Where a jump to #reviewmaster-reviews stops: below a sticky header rather than under it.
    The block's "Space for a sticky header" sets the variable; the script reads the same one
